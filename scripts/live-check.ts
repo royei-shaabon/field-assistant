@@ -24,20 +24,40 @@ const QUESTIONS = [
 type Step = { text: string; quote: string; source: { docName: string; n: number } };
 type Item = { kind: string; title?: string; steps?: Step[]; question?: string; options?: string[]; caution?: string; topic?: string };
 
+type Figure = { caption: string; box: { x: number; y: number; w: number; h: number }; source: { n: number } };
+
 async function ask(kbId: string, text: string) {
   const started = Date.now();
   const res = await fetch(`${base}/api/conversation`, { method: "POST", headers, body: JSON.stringify({ kbId, events: [], input: { kind: "ask", text } }) });
-  if (!res.ok) return { ms: Date.now() - started, error: `HTTP ${res.status}`, progress: [] as string[] };
+  if (!res.ok || !res.body) return { ms: Date.now() - started, error: `HTTP ${res.status}`, progress: [] as string[] };
   const progress: string[] = [];
-  let item: Item | undefined;
+  let item: (Item & { figures?: Figure[] }) | undefined;
   let error: string | undefined;
-  for (const line of (await res.text()).split("\n").filter(Boolean)) {
-    const msg = JSON.parse(line) as { progress?: string; detail?: string; result?: { screen: { items: Item[] } }; error?: string };
-    if (msg.progress) progress.push(msg.detail ? `${msg.progress}(${msg.detail})` : msg.progress);
-    if (msg.result) item = msg.result.screen.items.at(-1);
-    if (msg.error) error = msg.error;
+  let firstStep: number | undefined;
+  let partials = 0;
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  for (;;) {
+    const { value, done } = await reader.read();
+    buffer += decoder.decode(value, { stream: !done });
+    let nl: number;
+    while ((nl = buffer.indexOf("\n")) >= 0) {
+      const line = buffer.slice(0, nl).trim();
+      buffer = buffer.slice(nl + 1);
+      if (!line) continue;
+      const msg = JSON.parse(line) as { progress?: string; detail?: string; partial?: unknown; result?: { screen: { items: Item[] } }; error?: string };
+      if (msg.progress) progress.push(msg.detail ? `${msg.progress}(${msg.detail})` : msg.progress);
+      if (msg.partial) {
+        partials++;
+        firstStep ??= Date.now() - started;
+      }
+      if (msg.result) item = msg.result.screen.items.at(-1);
+      if (msg.error) error = msg.error;
+    }
+    if (done) break;
   }
-  return { ms: Date.now() - started, item, error, progress };
+  return { ms: Date.now() - started, item, error, progress, firstStep, partials };
 }
 
 (async () => {
@@ -48,12 +68,15 @@ async function ask(kbId: string, text: string) {
   const kbId = process.argv[3] ?? kbs[0]?.id;
   const tally: Record<string, number> = {};
   const times: number[] = [];
+  const firsts: number[] = [];
   for (const q of QUESTIONS) {
     const r = await ask(kbId, q);
     const kind = r.error ? "ERROR" : (r.item?.kind ?? "none");
     tally[kind] = (tally[kind] ?? 0) + 1;
     times.push(r.ms);
-    console.log(`\n### ${q}\n${kind}${r.item?.caution ? ` [caution: ${r.item.caution}]` : ""} in ${(r.ms / 1000).toFixed(1)}s   ${r.progress.join(" > ")}`);
+    if (r.firstStep) firsts.push(r.firstStep);
+    console.log(`\n### ${q}\n${kind}${r.item?.caution ? ` [caution: ${r.item.caution}]` : ""} in ${(r.ms / 1000).toFixed(1)}s, first step at ${r.firstStep ? (r.firstStep / 1000).toFixed(1) + "s" : "-"} (${r.partials ?? 0} partials)   ${r.progress.join(" > ")}`);
+    for (const f of r.item?.figures ?? []) console.log(`  figure p.${f.source.n} "${f.caption}" box ${JSON.stringify(f.box)}`);
     if (r.error) console.log("  error:", r.error);
     if (r.item?.title) console.log("  title:", r.item.title);
     for (const s of r.item?.steps ?? []) console.log(`  - ${s.text}\n      [${s.source.docName} p.${s.source.n}] "${s.quote}"`);
@@ -62,5 +85,7 @@ async function ask(kbId: string, text: string) {
   times.sort((a, b) => a - b);
   console.log("\n=== summary ===");
   console.log(tally);
+  firsts.sort((a, b) => a - b);
+  if (firsts.length) console.log(`first step: median ${(firsts[Math.floor(firsts.length / 2)] / 1000).toFixed(1)}s, slowest ${(firsts.at(-1)! / 1000).toFixed(1)}s`);
   console.log(`time: median ${(times[Math.floor(times.length / 2)] / 1000).toFixed(1)}s, slowest ${(times.at(-1)! / 1000).toFixed(1)}s`);
 })();

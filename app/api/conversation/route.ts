@@ -42,7 +42,7 @@ export async function POST(request: Request) {
             onPartial: (partial) => send({ partial }),
             pageImage: async (hit) => {
               const image = await pageImage(kbId, hit.docId, hit.n);
-              return image && { data: image.png.toString("base64"), mediaType: "image/png" as const, aspect: image.width / image.height };
+              return image && { data: image.png.toString("base64"), mediaType: "image/png" as const, width: image.width, height: image.height };
             },
           });
           // A new turn was added: count it for the implementer's usage overview.

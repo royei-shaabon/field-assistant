@@ -86,7 +86,16 @@ export function buildMessageParams(request: ModelRequest): Anthropic.Beta.Messag
   };
 }
 
+// These calls extract and rephrase; they do not need the model to think first, and skipping
+// it is the largest single saving in time to the first word. If the API refuses the setting,
+// the call is repeated without it and the setting is left off from then on.
+const QUICK = { turn: { thinking: { type: "between_tools" } }, fast: { thinking: { type: "disabled" } } } as const;
+type Params = Anthropic.Beta.Messages.MessageCreateParamsNonStreaming;
+const withQuick = (params: Params, kind: keyof typeof QUICK): Params => ({ ...params, ...(QUICK[kind] as unknown as Partial<Params>) });
+
 export class AnthropicModelClient implements ModelClient {
+  private quick = { turn: true, fast: true };
+
   private client: Anthropic;
 
   constructor(client: Anthropic = new Anthropic({ timeout: 60_000, maxRetries: 1 })) {
@@ -94,16 +103,35 @@ export class AnthropicModelClient implements ModelClient {
   }
 
   async complete(request: ModelRequest): Promise<ModelResponse> {
-    const response = await this.client.beta.messages.create(buildMessageParams(request));
+    const base = buildMessageParams(request);
+    let response;
+    try {
+      response = await this.client.beta.messages.create(request.fast && this.quick.fast ? withQuick(base, "fast") : base);
+    } catch (e) {
+      if (!(request.fast && this.quick.fast && e instanceof Anthropic.BadRequestError)) throw e;
+      this.quick.fast = false;
+      response = await this.client.beta.messages.create(base);
+    }
     if (response.stop_reason !== "end_turn") return { text: null, stopReason: response.stop_reason };
     const text = response.content.find((b) => b.type === "text");
     return { text: text && "text" in text ? text.text : null, stopReason: response.stop_reason };
   }
 
   async turn(request: AgentRequest, onText?: (snapshot: string) => void): Promise<AgentTurn> {
-    const stream = this.client.beta.messages.stream(buildTurnParams(request));
-    if (onText) stream.on("text", (_delta, snapshot) => onText(snapshot));
-    const response = await stream.finalMessage();
+    const run = (params: Params) => {
+      const stream = this.client.beta.messages.stream(params);
+      if (onText) stream.on("text", (_delta, snapshot) => onText(snapshot));
+      return stream.finalMessage();
+    };
+    const base = buildTurnParams(request);
+    let response;
+    try {
+      response = await run(this.quick.turn ? withQuick(base, "turn") : base);
+    } catch (e) {
+      if (!(this.quick.turn && e instanceof Anthropic.BadRequestError)) throw e;
+      this.quick.turn = false;
+      response = await run(base);
+    }
     const text = response.content.findLast((b) => b.type === "text");
     return {
       stopReason: response.stop_reason,

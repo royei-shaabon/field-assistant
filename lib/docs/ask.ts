@@ -10,6 +10,7 @@ import { imageBlock, type AgentMessage, type ModelClient, type SkillContent } fr
 import { HAZARD_TOPICS } from "../safety";
 import type { DocMeta } from "../store/types";
 import { agentSkills, cleanQueries, runSearch } from "./agent-skills";
+import { imageSize, type Size } from "./image-size";
 import type { Hit, SearchIndex } from "./search";
 
 export const MAX_TURNS = 5;
@@ -18,7 +19,9 @@ export const MAX_STEPS = 6;
 const MAX_SEARCHES = 6;
 const PASSAGE_CHARS = 6000;
 // Pages of the first search that the model also gets as pictures, so it can point at a drawing.
-const PAGES_AS_IMAGES = 3;
+const PAGES_AS_IMAGES = 2;
+// Passages of the first search handed to the main model. Fewer passages, faster first step.
+const FIRST_PASSAGES = 6;
 const MAX_FIGURES = 2;
 
 export type HazardTopic = "brakes" | "fuel" | "hot_coolant" | "running_engine" | "other";
@@ -44,7 +47,7 @@ export type AskProgress = { stage: "looking" | "searching" | "reading" | "writin
 // The answer while it is still being written: only steps that already passed verification.
 export type PartialAnswer = { title: string; steps: { text: string; quote: string; source: SourceView }[]; caution?: HazardTopic };
 
-export type PageShot = { data: string; mediaType: "image/png"; aspect: number };
+export type PageShot = { data: string; mediaType: "image/png"; width: number; height: number };
 
 export type AskInput = {
   kbName: string;
@@ -128,6 +131,16 @@ export function hazardTopic(question: string | undefined, draft: Pick<Draft, "ha
 
 const sourceOf = (h: Omit<Hit, "score">): SourceView => ({ docId: h.docId, docName: h.docName, origin: h.origin, unit: h.unit, n: h.n });
 
+// The model gives boxes in the pixels of the picture it was shown. This turns one into
+// thousandths of the picture's width and height, which is how boxes are stored and drawn.
+export function toThousandths(box: Box, size: Size | null | undefined): Box | null {
+  if (!size || !(size.width > 0) || !(size.height > 0)) return null;
+  const clamp = (v: number) => Math.max(0, Math.min(1000, Math.round(v)));
+  const x = clamp((box.x / size.width) * 1000);
+  const y = clamp((box.y / size.height) * 1000);
+  return { x, y, w: Math.min(1000 - x, clamp((box.w / size.width) * 1000)), h: Math.min(1000 - y, clamp((box.h / size.height) * 1000)) };
+}
+
 export function validDocMarks(marks: DocMark[], frames: number, steps: number): DocMark[] {
   const inRange = (v: number) => Number.isInteger(v) && v >= 0 && v <= 1000;
   return marks
@@ -161,7 +174,14 @@ function keepSteps(steps: Draft["steps"], seen: Map<string, Hit>): KeptStep[] {
 
 // Turns the model's draft into what may be shown. `seen` holds every passage the skills
 // returned in this turn; `shots` the pages the model was shown as pictures.
-export function verifyDraft(draft: Draft, seen: Map<string, Hit>, question: string | undefined, frames: number, shots: Map<string, PageShot> = new Map()): DocResult {
+export function verifyDraft(
+  draft: Draft,
+  seen: Map<string, Hit>,
+  question: string | undefined,
+  // The pixel size of each picture the technician attached (null when it could not be read).
+  frameSizes: (Size | null)[],
+  shots: Map<string, PageShot> = new Map(),
+): DocResult {
   if (draft.kind === "ask") {
     const question2 = draft.question.trim();
     const options = draft.options.map((o) => o.trim()).filter(Boolean).slice(0, 4);
@@ -178,16 +198,24 @@ export function verifyDraft(draft: Draft, seen: Map<string, Hit>, question: stri
   // Marks point at steps by index; re-point them after dropped steps.
   const index = new Map(kept.map((k, i) => [k.from, i]));
   const marks = validDocMarks(
-    draft.marks.filter((m) => index.has(m.step)).map((m) => ({ ...m, step: index.get(m.step)! })),
-    frames,
+    draft.marks
+      .filter((m) => index.has(m.step))
+      .flatMap((m) => {
+        const box = toThousandths(m.box, frameSizes[m.frame]);
+        return box ? [{ ...m, box, step: index.get(m.step)! }] : [];
+      }),
+    frameSizes.length,
     kept.length,
   );
   // A drawing is shown only from a page the model really saw, and only from a page the answer cites.
   const cited = new Set(kept.map((k) => `${k.source.docId}:${k.source.n}`));
   const figures: DocFigure[] = (draft.figures ?? [])
-    .filter((f) => shots.has(f.ref) && cited.has(f.ref) && seen.has(f.ref) && validBox(f.box))
-    .slice(0, MAX_FIGURES)
-    .map((f) => ({ source: sourceOf(seen.get(f.ref)!), caption: String(f.caption ?? "").trim().slice(0, 80), box: f.box, aspect: shots.get(f.ref)!.aspect }));
+    .flatMap((f) => {
+      const shot = shots.get(f.ref);
+      const box = shot && cited.has(f.ref) && seen.has(f.ref) ? toThousandths(f.box, shot) : null;
+      return box && validBox(box) ? [{ source: sourceOf(seen.get(f.ref)!), caption: String(f.caption ?? "").trim().slice(0, 80), box, aspect: shot!.width / shot!.height }] : [];
+    })
+    .slice(0, MAX_FIGURES);
   return {
     kind: "answer",
     title: draft.title.trim().slice(0, 80),
@@ -257,7 +285,7 @@ export function partialAnswer(text: string, seen: Map<string, Hit>, question: st
 // --- the first search ---------------------------------------------------------------------
 
 const PLAN_SYSTEM = `A field technician asks a question in Hebrew about a machine. Their knowledge base holds the documents listed in the input.
-Write 2 to 4 short keyword search queries, in the language of the documents, that would find the passages answering the question: the direct term, a synonym, and where a manual would put it (for example "tire pressure", "specifications tires").
+Each document in the input states its language. Write 2 to 4 short keyword search queries in that language (for an English manual, English queries, whatever language the question is in) that would find the passages answering the question: the direct term, a synonym, and where a manual would put it (for example "tire pressure", "specifications tires").
 If photos are attached, use what they show (an indicator, a part) to choose the terms.
 If the question only makes sense with the conversation history, use the history to complete it.
 Return an empty list when the message is not a question about the machine or its documents.`;
@@ -293,10 +321,11 @@ function describeResult(r: DocResult): string {
   return "No answer (technical error).";
 }
 
-function contextOf(input: AskInput): string {
+function contextOf(input: AskInput, index: SearchIndex, frameSizes: (Size | null)[]): string {
   const context = {
     knowledge_base: input.kbName,
-    documents: input.docs.map((d) => ({ name: d.name, from: d.origin, pages: d.passages })),
+    documents: input.docs.map((d) => ({ name: d.name, language: index.language(d.id), from: d.origin, pages: d.passages })),
+    attached_pictures: frameSizes.map((s, frame) => ({ frame, pixels: s ? `${s.width} x ${s.height}` : "unknown" })),
     history: input.history.slice(-4).map((h) => ({ technician: h.said ?? "(sent media)", assistant: describeResult(h.result) })),
     attached: input.images.length ? `${input.images.length} ${input.media === "video" ? "video frames" : "photo(s)"}` : "nothing",
     technician: input.question ?? "(no text, only the attached media)",
@@ -330,7 +359,8 @@ export async function askDocuments(
   const shots = new Map<string, PageShot>();
   const searches: string[][] = [];
   const errors: string[] = [];
-  const context = contextOf(input);
+  const frameSizes = input.images.map((i) => imageSize(i.data, i.mediaType));
+  const context = contextOf(input, index, frameSizes);
   progress({ stage: input.images.length ? "looking" : "searching" });
 
   const content: AgentMessage["content"] = [...input.images.map(imageBlock)];
@@ -338,6 +368,7 @@ export async function askDocuments(
   let found = "";
   if (head) {
     searches.push(head.queries);
+    head.hits = head.hits.slice(0, FIRST_PASSAGES);
     for (const h of head.hits) seen.set(h.ref, h);
     progress({ stage: "searching", detail: head.queries[0] });
     if (head.hits.length) progress({ stage: "reading", detail: `${head.hits[0].docName} · ${head.hits.slice(0, 3).map((h) => h.n).join(", ")}` });
@@ -350,7 +381,7 @@ export async function askDocuments(
         const shot = rendered[i];
         if (!shot) return;
         shots.set(h.ref, shot);
-        content.push({ type: "text", text: `Picture of the page with ref ${h.ref}:` }, imageBlock({ type: "image", mediaType: shot.mediaType, data: shot.data }));
+        content.push({ type: "text", text: `Picture of the page with ref ${h.ref} (${shot.width} x ${shot.height} pixels):` }, imageBlock({ type: "image", mediaType: shot.mediaType, data: shot.data }));
       });
     }
     progress({ stage: "writing" });
@@ -409,7 +440,7 @@ export async function askDocuments(
         errors.push(`schema: ${new Ajv().errorsText(validate.errors)}`);
         break;
       }
-      return { result: verifyDraft(draft, seen, input.question, input.images.length, shots), searches, errors };
+      return { result: verifyDraft(draft, seen, input.question, frameSizes, shots), searches, errors };
     }
     if (!errors.length) errors.push("too many turns");
   } catch (e) {

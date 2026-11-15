@@ -7,7 +7,8 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { agentSkills, loadAgentSkills } from "../lib/docs/agent-skills";
-import { askDocuments, hazardTopic, partialAnswer, quoteInPassage, type DocResult, type PartialAnswer } from "../lib/docs/ask";
+import { askDocuments, hazardTopic, partialAnswer, quoteInPassage, toThousandths, type DocResult, type PartialAnswer } from "../lib/docs/ask";
+import { imageSize } from "../lib/docs/image-size";
 import { docScreen, handleDocConversation, type DocEvent } from "../lib/docs/conversation";
 import { ingest, splitIntoParts, UnsupportedFile } from "../lib/docs/ingest";
 import { SearchIndex, tokens } from "../lib/docs/search";
@@ -183,9 +184,21 @@ test("conversation: question -> clarifying question -> answer, with history sent
   assert.deepEqual(again.screen, r.screen);
 });
 
-test("photos reach the model, and marks are kept only when they fit the frames and steps", async () => {
+// The header of a PNG of the given size: enough for the server to read its dimensions.
+function pngOf(width: number, height: number): string {
+  const b = Buffer.alloc(33);
+  Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]).copy(b);
+  b.writeUInt32BE(13, 8);
+  b.write("IHDR", 12, "ascii");
+  b.writeUInt32BE(width, 16);
+  b.writeUInt32BE(height, 20);
+  return b.toString("base64");
+}
+
+test("photos reach the model; marks come back in pixels and are kept only when they fit", async () => {
   const { kb, docId } = await sampleKb();
-  const box = { x: 100, y: 100, w: 200, h: 200 };
+  // The technician's photo is 800 x 400 pixels; the model answers in those pixels.
+  const box = { x: 80, y: 40, w: 160, h: 80 };
   const agent = new FakeAgent([
     { search: ["oil level"] },
     {
@@ -195,17 +208,31 @@ test("photos reach the model, and marks are kept only when they fit the frames a
           { frame: 0, step: 0, label: "SAMPLE חלון", box },
           { frame: 3, step: 0, label: "SAMPLE", box }, // no such frame
           { frame: 0, step: 2, label: "SAMPLE", box }, // no such step
-          { frame: 0, step: 0, label: "SAMPLE", box: { ...box, w: 2000 } },
+          { frame: 1, step: 0, label: "SAMPLE", box }, // a picture whose size could not be read
         ],
       }),
     },
   ]);
-  const image = { mediaType: "image/jpeg" as const, data: "AAAA" };
-  const r = await handleDocConversation(kb, agent, { events: [], input: { kind: "ask", images: [image, image], media: "video" } });
+  const photo = { mediaType: "image/png" as const, data: pngOf(800, 400) };
+  const unreadable = { mediaType: "image/jpeg" as const, data: "AAAA" };
+  const r = await handleDocConversation(kb, agent, { events: [], input: { kind: "ask", images: [photo, unreadable], media: "video" } });
   assert.deepEqual(agent.turns[0].messages[0].content.map((c) => c.type), ["image", "image", "text"]);
+  assert.ok(JSON.stringify(agent.turns[0].messages[0]).includes("800 x 400"), "the model is told the pixel size of each picture");
   const answer = r.screen.items.at(-1);
-  assert.deepEqual(answer?.kind === "doc_answer" && answer.marks, [{ frame: 0, step: 0, label: "SAMPLE חלון", box }]);
+  assert.deepEqual(answer?.kind === "doc_answer" && answer.marks, [{ frame: 0, step: 0, label: "SAMPLE חלון", box: { x: 100, y: 100, w: 200, h: 200 } }]);
   assert.deepEqual(r.screen.items[0], { by: "tech", kind: "media", media: "video", frames: 2, eventIndex: 0, said: undefined });
+});
+
+test("image size is read from PNG and JPEG headers; a box in pixels becomes thousandths per axis", () => {
+  assert.deepEqual(imageSize(pngOf(1000, 711), "image/png"), { width: 1000, height: 711 });
+  // A minimal JPEG: SOI, an APP0 segment, then a start-of-frame with height 480 and width 640.
+  const jpeg = Buffer.from([0xff, 0xd8, 0xff, 0xe0, 0x00, 0x04, 0x00, 0x00, 0xff, 0xc0, 0x00, 0x11, 0x08, 0x01, 0xe0, 0x02, 0x80, 0x03, 0x01, 0x22]);
+  assert.deepEqual(imageSize(jpeg.toString("base64"), "image/jpeg"), { width: 640, height: 480 });
+  assert.equal(imageSize("AAAA", "image/jpeg"), null);
+  // Measured on the real manual: a drawing at y 85..370 of a 1000 x 711 page picture.
+  assert.deepEqual(toThousandths({ x: 525, y: 85, w: 410, h: 285 }, { width: 1000, height: 711 }), { x: 525, y: 120, w: 410, h: 401 });
+  assert.deepEqual(toThousandths({ x: 900, y: 0, w: 500, h: 50 }, { width: 1000, height: 100 }), { x: 900, y: 0, w: 100, h: 500 }, "clamped to the picture");
+  assert.equal(toThousandths({ x: 1, y: 1, w: 1, h: 1 }, null), null);
 });
 
 test("model failure, an empty knowledge base and bad requests", async () => {
@@ -343,6 +370,7 @@ test("streaming: each step is sent as soon as it is complete and verified, never
 
 test("figures: a drawing is shown only from a page the model saw and the answer cites", async () => {
   const { kb, docId } = await sampleKb();
+  // The model answers in pixels of a 1000 x 500 page picture.
   const box = { x: 500, y: 100, w: 400, h: 300 };
   const agent = new FakeAgent([
     {
@@ -365,10 +393,19 @@ test("figures: a drawing is shown only from a page the model saw and the answer 
     question: "איך בודקים שמן?",
     images: [],
     history: [],
-    pageImage: async (hit) => (asked.push(hit.ref), { data: "AAAA", mediaType: "image/png", aspect: 1.4 }),
+    pageImage: async (hit) => (asked.push(hit.ref), { data: "AAAA", mediaType: "image/png", width: 1000, height: 500 }),
   });
-  assert.ok(asked.includes(`${docId}:2`) && asked.length <= 3);
-  assert.ok(JSON.stringify(agent.turns[0].messages[0]).includes(`Picture of the page with ref ${docId}:2`));
+  assert.ok(asked.includes(`${docId}:2`) && asked.length <= 2);
+  assert.ok(JSON.stringify(agent.turns[0].messages[0]).includes(`Picture of the page with ref ${docId}:2 (1000 x 500 pixels)`));
   const answer = run.result as Extract<DocResult, { kind: "answer" }>;
-  assert.deepEqual(answer.figures, [{ source: { docId, docName: "sample manual", origin: "manufacturer", unit: "page", n: 2 }, caption: "SAMPLE חלון בדיקה", box, aspect: 1.4 }]);
+  assert.deepEqual(answer.figures, [{ source: { docId, docName: "sample manual", origin: "manufacturer", unit: "page", n: 2 }, caption: "SAMPLE חלון בדיקה", box: { x: 500, y: 200, w: 400, h: 600 }, aspect: 2 }], "pixels become thousandths of each axis");
+});
+
+test("the first search is told the language of each document", async () => {
+  const { kb } = await sampleKb();
+  const agent = new FakeAgent([{ final: draft({ kind: "not_found" }) }]);
+  agent.plan = ["tyre"];
+  await askDocuments(agent, kb.index, { kbName: "x", docs: kb.docs, question: "כמה אוויר?", images: [], history: [] });
+  assert.ok(JSON.stringify(agent.plans[0].content).includes('\\"language\\": \\"English\\"'));
+  assert.equal(kb.index.language("no-such-doc"), "other");
 });

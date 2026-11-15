@@ -43,9 +43,15 @@ export class SearchIndex {
   private entries: Entry[] = [];
   private df = new Map<string, number>();
   private avgLength = 1;
+  private languages = new Map<string, "Hebrew" | "English" | "other">();
 
   constructor(docs: StoredDoc[]) {
     for (const { meta, passages } of docs) {
+      // The language of a document, from a sample of its text: queries must be written in it.
+      const sample = passages.slice(0, 40).map((p) => p.text).join(" ").slice(0, 20_000);
+      const hebrew = (sample.match(/[\u0590-\u05ff]/g) ?? []).length;
+      const latin = (sample.match(/[a-z]/gi) ?? []).length;
+      this.languages.set(meta.id, hebrew > latin ? "Hebrew" : latin > 0 ? "English" : "other");
       for (const p of passages) {
         const words = tokens(p.text);
         const tf = new Map<string, number>();
@@ -59,6 +65,10 @@ export class SearchIndex {
       }
     }
     this.avgLength = this.entries.reduce((n, e) => n + e.length, 0) / Math.max(1, this.entries.length);
+  }
+
+  language(docId: string): string {
+    return this.languages.get(docId) ?? "other";
   }
 
   get size(): number {
