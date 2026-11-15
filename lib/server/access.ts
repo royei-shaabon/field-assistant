@@ -2,7 +2,7 @@
 // before it can list knowledge bases, ask, or open a source document. A signed-in implementer
 // passes too. Without ACCESS_CODE the technician area is open to anyone with the link.
 import { createHmac, timingSafeEqual } from "node:crypto";
-import { cookies } from "next/headers";
+import { cookies, headers } from "next/headers";
 import { adminState } from "./admin-auth";
 
 export const ACCESS_COOKIE = "kb_access";
@@ -23,6 +23,9 @@ export async function technicianAllowed(): Promise<boolean> {
   const cookie = (await cookies()).get(ACCESS_COOKIE)?.value ?? "";
   const expected = token(real);
   if (cookie.length === expected.length && timingSafeEqual(Buffer.from(cookie), Buffer.from(expected))) return true;
+  // Scripts (health checks, the live check in scripts/live-check.ts) send the code in a header.
+  const sent = (await headers()).get("x-access-token");
+  if (sent && checkAccessCode(sent)) return true;
   return (await adminState()) === "ok";
 }
 
