@@ -1,6 +1,7 @@
 // What the assistant says out loud in a call. Built the same way as the chat. Fault-tree
 // knowledge bases: KB text and fixed strings only, never model output, never a hazard step.
 // Document knowledge bases: the same verified steps the chat shows, and no steps on a hazard topic.
+// Suggested checks from general knowledge are read after a sentence saying they are not from the manual.
 import type { ChatItem, Screen } from "./screen";
 import { T } from "./ui-text";
 
@@ -28,7 +29,9 @@ function lineFor(item: ChatItem, screen: Screen): string[] {
       return [screen.candidates.some((c) => c.status === "resolved") ? T.chat.doneSome : T.chat.doneNone, T.chat.newHint];
     // Document knowledge bases: the verified steps are read out; the sources stay on screen.
     case "doc_answer":
-      return [...(item.caution ? [T.doc.cautionTitle, T.doc.topics[item.caution], T.doc.cautionBody] : []), item.title, ...item.steps.map((s) => s.text), T.doc.sourceSpoken];
+      return [...(item.caution ? [T.doc.cautionTitle, T.doc.topics[item.caution], T.doc.cautionBody] : []), item.title, ...item.steps.map((s) => s.text), T.doc.sourceSpoken, ...(item.ideas?.length ? [T.doc.ideasSpoken, ...item.ideas.map((i) => i.text)] : [])];
+    case "doc_ideas":
+      return [T.doc.ideasNotFound, T.doc.ideasSpoken, ...item.ideas.map((i) => i.text)];
     case "doc_ask":
       return [item.question, ...(item.options.length ? [T.call.sayClosest, ...item.options] : [])];
     case "doc_hazard":

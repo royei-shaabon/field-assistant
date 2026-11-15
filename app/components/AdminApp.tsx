@@ -63,16 +63,17 @@ function Login({ closed, onDone }: { closed: boolean; onDone: () => void }) {
   );
 }
 
-function KbForm({ initial, submit, onSubmit, onCancel }: { initial?: { name: string; description: string }; submit: string; onSubmit: (v: { name: string; description: string }) => Promise<void>; onCancel: () => void }) {
+function KbForm({ initial, submit, onSubmit, onCancel }: { initial?: { name: string; description: string; ideas?: boolean }; submit: string; onSubmit: (v: { name: string; description: string; ideas: boolean }) => Promise<void>; onCancel: () => void }) {
   const [name, setName] = useState(initial?.name ?? "");
   const [description, setDescription] = useState(initial?.description ?? "");
+  const [ideas, setIdeas] = useState(initial?.ideas !== false);
   const [busy, setBusy] = useState(false);
   return (
     <form
       onSubmit={async (e) => {
         e.preventDefault();
         setBusy(true);
-        await onSubmit({ name, description });
+        await onSubmit({ name, description, ideas });
         setBusy(false);
       }}
       className="flex flex-col gap-3 rounded-[18px] border border-rule p-4"
@@ -85,6 +86,15 @@ function KbForm({ initial, submit, onSubmit, onCancel }: { initial?: { name: str
         <span>{A.kbDescription}</span>
         <input value={description} maxLength={400} onChange={(e) => setDescription(e.target.value)} className="h-11 rounded-xl border border-edge bg-paper px-3 text-base font-normal text-ink focus:border-primary" />
       </label>
+      {initial && (
+        <label className="flex items-start gap-2.5 text-[15px] text-ink">
+          <input type="checkbox" checked={ideas} onChange={(e) => setIdeas(e.target.checked)} className="mt-1 h-5 w-5 shrink-0 accent-primary" />
+          <span className="flex flex-col gap-0.5">
+            <span className="font-medium">{A.ideasToggle}</span>
+            <span className="text-sm text-graphite">{A.ideasToggleHint}</span>
+          </span>
+        </label>
+      )}
       <div className="flex gap-2">
         <button disabled={busy || !name.trim()} className="h-11 rounded-xl bg-primary px-5 text-[15px] font-medium text-white disabled:opacity-40">
           {submit}
@@ -116,9 +126,12 @@ function UsageTiles({ usage }: { usage: Usage }) {
             {tile(A.usage.questions, usage.questions)}
             {tile(A.usage.answer, usage.answer, "text-ok")}
             {tile(A.usage.ask, usage.ask)}
-            {tile(A.usage.not_found, usage.not_found)}
+            {tile(A.usage.not_found, usage.not_found + usage.ideas)}
           </div>
           <p className="flex flex-wrap gap-x-5 gap-y-1 text-[15px] text-graphite">
+            <span>
+              <span>{A.usage.ideas}:</span> <span className="font-mono text-ink">{usage.ideas}</span>
+            </span>
             <span>
               <span>{A.usage.hazard}:</span> <span className="font-mono text-ink">{usage.hazard}</span>
             </span>
@@ -488,6 +501,7 @@ export function AdminApp() {
                     <div className="min-w-0">
                       <h2 className="text-2xl font-semibold leading-8">{kb.name}</h2>
                       {kb.description && <p className="text-[15px] text-graphite">{kb.description}</p>}
+                      {kb.ideas === false && <p className="text-sm text-graphite">{A.ideasOff}</p>}
                     </div>
                     <div className="flex gap-1">
                       <button onClick={() => setEditing(true)} className="rounded-lg px-3 py-2 text-sm text-graphite active:bg-mist">

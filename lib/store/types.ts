@@ -8,6 +8,8 @@ export type KbMeta = {
   id: string;
   name: string;
   description: string;
+  // False: answers come from the documents only, with no suggested checks from general knowledge.
+  ideas?: boolean;
   createdAt: string;
   updatedAt: string;
 };
@@ -32,7 +34,7 @@ export type DocMeta = {
 };
 
 // How a knowledge base is used: one counter per kind of reply.
-export type Usage = { questions: number; answer: number; ask: number; not_found: number; hazard: number; error: number; helpful: number; unhelpful: number; lastAt?: string };
+export type Usage = { questions: number; answer: number; ask: number; not_found: number; ideas: number; hazard: number; error: number; helpful: number; unhelpful: number; lastAt?: string };
 
 export type StoredDoc = { meta: DocMeta; passages: Passage[] };
 

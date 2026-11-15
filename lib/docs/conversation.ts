@@ -5,7 +5,7 @@ import { MAX_EVENTS, MAX_IMAGES, MAX_IMAGE_BASE64, MAX_TEXT, BadRequest, type Cl
 import type { ModelClient } from "../llm";
 import type { ChatItem, Screen } from "../screen";
 import type { DocMeta, KbMeta } from "../store/types";
-import { askDocuments, hazardTopic, validDocMarks, type AskInput, type AskProgress, type DocResult, type PartialAnswer } from "./ask";
+import { askDocuments, hazardTopic, rankIdeas, validDocMarks, type AskInput, type AskProgress, type DocResult, type PartialAnswer } from "./ask";
 import type { SearchIndex } from "./search";
 
 export type DocEvent = { type: "DOC_TURN"; said?: string; media?: "photo" | "video"; frames?: number; result: DocResult };
@@ -26,6 +26,11 @@ const source = obj(["docId", "docName", "origin", "unit", "n"], {
   n: { type: "integer", minimum: 1 },
 });
 const kind = (k: string) => ({ const: k });
+const ideas = {
+  type: "array",
+  maxItems: 4,
+  items: obj(["text", "why", "likelihood", "minutes"], { text: text(300), why: text(300), likelihood: { enum: ["high", "medium", "low"] }, minutes: { type: "integer", minimum: 1, maximum: 240 } }),
+};
 
 const requestSchema = obj(["events", "input"], {
   events: {
@@ -42,6 +47,7 @@ const requestSchema = obj(["events", "input"], {
             kind: kind("answer"),
             caution: { enum: ["brakes", "fuel", "hot_coolant", "running_engine", "other"] },
             title: text(80),
+            ideas,
             steps: { type: "array", maxItems: 6, items: obj(["text", "quote", "source"], { text: text(600), quote: text(400), source }) },
             figures: {
               type: "array",
@@ -55,6 +61,7 @@ const requestSchema = obj(["events", "input"], {
             },
           }),
           obj(["kind", "question", "options"], { kind: kind("ask"), question: text(300), options: { type: "array", maxItems: 4, items: text(120) } }),
+          obj(["kind", "ideas"], { kind: kind("ideas"), ideas: { ...ideas, minItems: 1 } }),
           obj(["kind"], { kind: kind("not_found") }),
           obj(["kind", "topic", "sources"], {
             kind: kind("hazard"),
@@ -87,26 +94,36 @@ const requestSchema = obj(["events", "input"], {
 const validateRequest = new Ajv().compile<DocRequest>(requestSchema);
 
 // The event log comes back from the client, so the hazard rule is applied again on every
-// replay: an answer on a hazard topic gets its warning back, whatever the log says.
-function guarded(event: DocEvent): DocResult {
+// replay: an answer on a hazard topic gets its warning back, whatever the log says, and
+// suggested checks are never shown on a hazard topic or when the knowledge base turned them off.
+function guarded(event: DocEvent, allowIdeas: boolean): DocResult {
   const r = event.result;
+  if (r.kind === "ideas") {
+    const topic = hazardTopic(event.said, { hazard: "none", steps: [], checks: r.ideas });
+    if (topic) return { kind: "hazard", topic, sources: [] };
+    const kept = allowIdeas ? rankIdeas(r.ideas) : [];
+    return kept.length ? { kind: "ideas", ideas: kept } : { kind: "not_found" };
+  }
   if (r.kind !== "answer") return r;
-  const topic = hazardTopic(event.said, { hazard: "none", steps: r.steps.map((s) => ({ text: s.text, ref: "", quote: s.quote })) });
+  const topic = hazardTopic(event.said, { hazard: "none", steps: r.steps.map((s) => ({ text: s.text, ref: "", quote: s.quote })), checks: r.ideas });
   const caution = r.caution ?? topic ?? undefined;
-  return { ...r, marks: validDocMarks(r.marks, event.frames ?? 0, r.steps.length), ...(caution ? { caution } : {}) };
+  const { ideas: logged, ...rest } = r;
+  const kept = caution || !allowIdeas ? [] : rankIdeas(logged);
+  return { ...rest, marks: validDocMarks(r.marks, event.frames ?? 0, r.steps.length), ...(caution ? { caution } : {}), ...(kept.length ? { ideas: kept } : {}) };
 }
 
-export function docScreen(events: DocEvent[], hasDocuments: boolean): Screen {
+export function docScreen(events: DocEvent[], hasDocuments: boolean, allowIdeas = true): Screen {
   const items: ChatItem[] = [];
   let title: string | undefined;
   events.forEach((event, eventIndex) => {
     if (event.media) items.push({ by: "tech", kind: "media", media: event.media, frames: event.frames ?? 1, eventIndex, said: event.said });
     else if (event.said) items.push({ by: "tech", kind: "text", said: event.said });
-    const r = guarded(event);
+    const r = guarded(event, allowIdeas);
     if (r.kind === "answer") {
       title ??= r.title;
-      items.push({ by: "bot", kind: "doc_answer", eventIndex, title: r.title, steps: r.steps, marks: r.marks, ...(r.figures?.length ? { figures: r.figures } : {}), ...(r.caution ? { caution: r.caution } : {}) });
-    } else if (r.kind === "ask") items.push({ by: "bot", kind: "doc_ask", question: r.question, options: r.options });
+      items.push({ by: "bot", kind: "doc_answer", eventIndex, title: r.title, steps: r.steps, marks: r.marks, ...(r.figures?.length ? { figures: r.figures } : {}), ...(r.caution ? { caution: r.caution } : {}), ...(r.ideas?.length ? { ideas: r.ideas } : {}) });
+    } else if (r.kind === "ideas") items.push({ by: "bot", kind: "doc_ideas", ideas: r.ideas });
+    else if (r.kind === "ask") items.push({ by: "bot", kind: "doc_ask", question: r.question, options: r.options });
     else if (r.kind === "hazard") items.push({ by: "bot", kind: "doc_hazard", topic: r.topic, sources: r.sources });
     else if (r.kind === "not_found") items.push({ by: "bot", kind: "doc_not_found" });
     else items.push({ by: "bot", kind: "doc_error" });
@@ -128,7 +145,8 @@ export async function handleDocConversation(
   if (!validateRequest(body)) throw new BadRequest(new Ajv().errorsText(validateRequest.errors));
   const { events, input } = body;
   const hasDocuments = kb.index.size > 0;
-  if (input.kind === "view" || !hasDocuments) return { events, screen: docScreen(events, hasDocuments) };
+  const allowIdeas = kb.meta.ideas !== false;
+  if (input.kind === "view" || !hasDocuments) return { events, screen: docScreen(events, hasDocuments, allowIdeas) };
   if (events.length >= MAX_EVENTS) throw new BadRequest("conversation too long");
 
   const said = input.text?.trim() || undefined;
@@ -147,6 +165,7 @@ export async function handleDocConversation(
       media,
       history: events.map((e) => ({ said: e.said, result: e.result })),
       pageImage: live.pageImage,
+      ideas: allowIdeas,
     },
     progress,
     signal,
@@ -155,6 +174,6 @@ export async function handleDocConversation(
   if (run.errors.length) console.error(`[ask ${kb.meta.id}]`, run.errors.join("; "));
   const event: DocEvent = { type: "DOC_TURN", result: run.result, ...(said ? { said } : {}), ...(media ? { media, frames: images.length } : {}) };
   const next = [...events, event];
-  return { events: next, screen: docScreen(next, true) };
+  return { events: next, screen: docScreen(next, true, allowIdeas) };
 }
 

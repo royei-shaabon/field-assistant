@@ -9,7 +9,7 @@ import type { BlobDriver, DocMeta, KbMeta, Passage, StoredDoc, Usage } from "./t
 
 export type { BlobDriver, DocMeta, DocOrigin, KbMeta, Passage, StoredDoc, Usage } from "./types";
 
-export const EMPTY_USAGE: Usage = { questions: 0, answer: 0, ask: 0, not_found: 0, hazard: 0, error: 0, helpful: 0, unhelpful: 0 };
+export const EMPTY_USAGE: Usage = { questions: 0, answer: 0, ask: 0, not_found: 0, ideas: 0, hazard: 0, error: 0, helpful: 0, unhelpful: 0 };
 
 const ID = /^[a-z0-9][a-z0-9-]{1,60}$/;
 
@@ -66,12 +66,12 @@ export class KbStore {
     return kb;
   }
 
-  async updateKb(id: string, patch: { name?: string; description?: string }): Promise<KbMeta> {
+  async updateKb(id: string, patch: { name?: string; description?: string; ideas?: boolean }): Promise<KbMeta> {
     const kb = await this.getKb(id);
     if (!kb) throw new NotFound("kb");
     const name = patch.name?.trim() ?? kb.name;
     if (!name || name.length > 80) throw new Invalid("name");
-    const next = { ...kb, name, description: (patch.description ?? kb.description).trim().slice(0, 400), updatedAt: new Date().toISOString() };
+    const next = { ...kb, name, description: (patch.description ?? kb.description).trim().slice(0, 400), ...(patch.ideas === undefined ? {} : { ideas: patch.ideas }), updatedAt: new Date().toISOString() };
     await this.driver.write(`kbs/${id}/kb.json`, json(next));
     return next;
   }
@@ -157,7 +157,7 @@ export class KbStore {
 
   // Counts one reply. Read-modify-write: two replies at the same instant may count as one,
   // which is fine for a usage overview.
-  async recordUsage(kbId: string, kind: "answer" | "ask" | "not_found" | "hazard" | "error"): Promise<void> {
+  async recordUsage(kbId: string, kind: "answer" | "ask" | "not_found" | "ideas" | "hazard" | "error"): Promise<void> {
     const usage = await this.getUsage(kbId);
     const next: Usage = { ...usage, questions: usage.questions + 1, [kind]: usage[kind] + 1, lastAt: new Date().toISOString() };
     await this.driver.write(`kbs/${kbId}/usage.json`, json(next));

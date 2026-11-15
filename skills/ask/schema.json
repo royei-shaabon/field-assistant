@@ -6,6 +6,7 @@
     "hazard",
     "title",
     "steps",
+    "checks",
     "figures",
     "question",
     "options",
@@ -52,6 +53,20 @@
           "quote": {
             "type": "string"
           }
+        }
+      }
+    },
+    "checks": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["text", "why", "likelihood", "minutes"],
+        "properties": {
+          "text": { "type": "string" },
+          "why": { "type": "string" },
+          "likelihood": { "enum": ["high", "medium", "low"] },
+          "minutes": { "type": "integer" }
         }
       }
     },

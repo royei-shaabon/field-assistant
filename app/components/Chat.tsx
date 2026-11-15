@@ -9,7 +9,7 @@ import type { PartialAnswer } from "@/lib/docs/ask";
 import type { CandidateView, ChatItem, CheckView, MarkView, Screen, TreeView } from "@/lib/screen";
 import type { StepView } from "@/lib/safety";
 import { T } from "@/lib/ui-text";
-import { DocAnswer, docAnswerWords, DocAsk, DocHazard, DocNote } from "./DocChat";
+import { DocAnswer, docAnswerWords, DocAsk, DocHazard, DocNote, Ideas } from "./DocChat";
 import { CheckIcon, DocIcon, WarningIcon } from "./icons";
 
 export type Media = Record<number, string[]>;
@@ -419,6 +419,14 @@ function Item({
       return <DocAsk item={item} interactive={interactive} animate={animate} delay={delay} onOption={handlers.onOption} />;
     case "doc_hazard":
       return <DocHazard topic={item.topic} sources={item.sources} kbId={handlers.kbId ?? ""} />;
+    case "doc_ideas":
+      return (
+        <div className="flex flex-col gap-3">
+          <DocNote title={T.doc.ideasNotFound} />
+          <Ideas ideas={item.ideas} />
+          <DocNote title="" actions={interactive ? [{ label: T.doc.rephrase, run: handlers.onOther }, { label: T.doc.addPhoto, run: handlers.onAttach }] : []} />
+        </div>
+      );
     case "doc_not_found":
       return <DocNote title={T.doc.notFound} hint={T.doc.notFoundHint} actions={interactive ? [{ label: T.doc.rephrase, run: handlers.onOther }, { label: T.doc.addPhoto, run: handlers.onAttach }] : []} />;
     case "doc_error":
@@ -617,7 +625,7 @@ export function ChatView({ screen, media, animateFrom = Number.MAX_SAFE_INTEGER,
         item={item}
         screen={screen}
         media={media}
-        interactive={(screen.mode === "identify" && i === lastNeedMore) || (screen.mode === "stop" && i === lastStop) || ((item.kind === "doc_ask" || item.kind === "doc_not_found") && i === lastAsk && !progress.length && !pending)}
+        interactive={(screen.mode === "identify" && i === lastNeedMore) || (screen.mode === "stop" && i === lastStop) || ((item.kind === "doc_ask" || item.kind === "doc_not_found" || item.kind === "doc_ideas") && i === lastAsk && !progress.length && !pending)}
         animate={animate && !(streamed && item.kind === "doc_answer")}
         fresh={animate}
         delay={delay}

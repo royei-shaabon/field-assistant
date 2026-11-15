@@ -3,7 +3,7 @@
 "use client";
 
 import { useState } from "react";
-import type { DocFigure, DocMark, HazardTopic, SourceView } from "@/lib/docs/ask";
+import type { DocFigure, DocIdea, DocMark, HazardTopic, SourceView } from "@/lib/docs/ask";
 import type { ChatItem } from "@/lib/screen";
 import { T } from "@/lib/ui-text";
 import { MarkedImage, Mixed, Reveal, WORD_MS, wordCount } from "./Chat";
@@ -152,6 +152,37 @@ function Caution({ topic }: { topic: HazardTopic }) {
   );
 }
 
+// Checks from the model's general knowledge. Always under this heading and badge, so nobody
+// takes them for the manual's instructions. The order was set by the server.
+export function Ideas({ ideas }: { ideas: DocIdea[] }) {
+  return (
+    <section aria-label={`${T.doc.ideasTitle}, ${T.doc.ideasBadge}`} className="flex flex-col gap-3 rounded-[16px] border border-rule bg-mist px-3.5 py-3.5">
+      <div className="flex flex-wrap items-center gap-2">
+        <h3 className="text-[17px] font-semibold">{T.doc.ideasTitle}</h3>
+        <span className="rounded-full bg-ink px-2.5 py-0.5 text-[13px] font-medium text-white">{T.doc.ideasBadge}</span>
+      </div>
+      <p className="text-[15px] leading-[22px] text-graphite">{T.doc.ideasLead}</p>
+      <ol className="flex flex-col gap-3">
+        {ideas.map((idea, i) => (
+          <li key={i} className="flex flex-col gap-1 rounded-xl bg-paper px-3 py-2.5">
+            <p className="text-[17px] leading-[26px]">
+              <Mixed text={idea.text} />
+            </p>
+            <p className="text-[14px] text-graphite">
+              <span>{T.doc.likelihood[idea.likelihood]}</span> · <span>{T.doc.minutes(idea.minutes)}</span>
+            </p>
+            {idea.why && (
+              <p className="text-[15px] leading-[22px] text-graphite">
+                <Mixed text={idea.why} />
+              </p>
+            )}
+          </li>
+        ))}
+      </ol>
+    </section>
+  );
+}
+
 export function DocAnswer({
   item,
   kbId,
@@ -222,6 +253,7 @@ export function DocAnswer({
         </button>
       )}
       {!writing && single && <SourceLink kbId={kbId} source={item.steps[0].source} />}
+      {!writing && item.ideas?.length ? <Ideas ideas={item.ideas} /> : null}
       {!writing && feedback && <Feedback kbId={kbId} />}
     </article>
   );
@@ -270,7 +302,7 @@ export function DocHazard({ topic, sources, kbId }: { topic: HazardTopic; source
 export function DocNote({ title, hint, actions = [] }: { title: string; hint?: string; actions?: { label: string; run?: () => void }[] }) {
   return (
     <div className="flex flex-col gap-2">
-      <p className="text-[18px] leading-7">{title}</p>
+      {title && <p className="text-[18px] leading-7">{title}</p>}
       {hint && <p className="text-[15px] leading-[23px] text-graphite">{hint}</p>}
       {actions.length > 0 && (
         <div className="flex flex-wrap gap-2 pt-1">

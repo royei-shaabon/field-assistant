@@ -23,6 +23,8 @@ const PAGES_AS_IMAGES = 2;
 // Passages of the first search handed to the main model. Fewer passages, faster first step.
 const FIRST_PASSAGES = 6;
 const MAX_FIGURES = 2;
+// Checks suggested from the model's own professional knowledge, shown apart from the manual's steps.
+export const MAX_IDEAS = 4;
 
 export type HazardTopic = "brakes" | "fuel" | "hot_coolant" | "running_engine" | "other";
 
@@ -32,11 +34,18 @@ export type Box = { x: number; y: number; w: number; h: number };
 export type DocFigure = { source: SourceView; caption: string; box: Box; aspect: number };
 export type DocMark = { frame: number; step: number; label: string; box: { x: number; y: number; w: number; h: number } };
 
+export type Likelihood = "high" | "medium" | "low";
+// A place to check that is NOT from the documents: the model's general professional knowledge.
+// `minutes` is how long the check takes. Shown apart from the verified steps, and never on a hazard topic.
+export type DocIdea = { text: string; why: string; likelihood: Likelihood; minutes: number };
+
 // What is stored in the conversation and shown. `quote` is the manual's own wording, shown
 // when the technician opens a source.
 export type DocResult =
   // `caution`: the answer touches a hazard topic and is shown under a warning.
-  | { kind: "answer"; title: string; steps: { text: string; quote: string; source: SourceView }[]; marks: DocMark[]; figures?: DocFigure[]; caution?: HazardTopic }
+  | { kind: "answer"; title: string; steps: { text: string; quote: string; source: SourceView }[]; marks: DocMark[]; figures?: DocFigure[]; caution?: HazardTopic; ideas?: DocIdea[] }
+  // Nothing in the documents, only suggested checks from general knowledge.
+  | { kind: "ideas"; ideas: DocIdea[] }
   | { kind: "ask"; question: string; options: string[] }
   | { kind: "not_found" }
   | { kind: "hazard"; topic: HazardTopic; sources: SourceView[] }
@@ -59,12 +68,15 @@ export type AskInput = {
   history: { said?: string; result: DocResult }[];
   // Renders a page of a document as a picture. Absent in tests and for non-PDF documents.
   pageImage?: (hit: Hit) => Promise<PageShot | null>;
+  // False when this knowledge base answers from its documents only. Default: suggestions allowed.
+  ideas?: boolean;
 };
 
 type Draft = {
   kind: "answer" | "ask" | "not_found";
   title: string;
   steps: { text: string; ref: string; quote: string }[];
+  checks?: DocIdea[];
   question: string;
   options: string[];
   marks: DocMark[];
@@ -118,11 +130,11 @@ const HAZARD_EN: { topic: HazardTopic; pattern: RegExp }[] = [
 const HEBREW_TOPIC: Record<string, HazardTopic> = { brakes: "brakes", fuel: "fuel", coolant: "hot_coolant", "running-engine": "running_engine" };
 
 // The hazard decision is made here, not by the model: the model's flag can only add a warning.
-export function hazardTopic(question: string | undefined, draft: Pick<Draft, "hazard" | "steps">): HazardTopic | null {
+export function hazardTopic(question: string | undefined, draft: Pick<Draft, "hazard" | "steps"> & { checks?: { text: string; why?: string }[] }): HazardTopic | null {
   if (draft.hazard !== "none") return draft.hazard;
   const q = question ?? "";
-  // The Hebrew topics are checked on the question and on the steps the technician will read.
-  const hebrewText = [q, ...draft.steps.map((s) => s.text)].join("\n");
+  // The Hebrew topics are checked on the question and on everything the technician would read.
+  const hebrewText = [q, ...draft.steps.map((s) => s.text), ...(draft.checks ?? []).flatMap((c) => [c.text, c.why ?? ""])].join("\n");
   const hebrew = HAZARD_TOPICS.find((t) => t.pattern.test(hebrewText));
   if (hebrew) return HEBREW_TOPIC[hebrew.topic] ?? "other";
   const text = [q, ...draft.steps.map((s) => s.quote)].join("\n");
@@ -157,6 +169,24 @@ export function validDocMarks(marks: DocMark[], frames: number, steps: number): 
 const inRange = (v: number) => Number.isInteger(v) && v >= 0 && v <= 1000;
 const validBox = ({ x, y, w, h }: Box) => [x, y, w, h].every(inRange) && w >= 60 && h >= 60 && x + w <= 1000 && y + h <= 1000;
 
+// The order is decided here, not by the model: how likely the cause is, divided by how long the
+// check takes. A one-minute check of an unlikely cause comes before a long check of a likely one.
+const LIKELIHOOD: Record<Likelihood, number> = { high: 0.6, medium: 0.3, low: 0.1 };
+export function rankIdeas(checks: unknown): DocIdea[] {
+  if (!Array.isArray(checks)) return [];
+  return checks
+    .flatMap((c: Partial<DocIdea> | null) => {
+      const text = typeof c?.text === "string" ? c.text.trim().slice(0, 300) : "";
+      if (!text || !c || !(c.likelihood! in LIKELIHOOD)) return [];
+      const minutes = Math.max(1, Math.min(240, Math.round(Number(c.minutes)) || 1));
+      return [{ text, why: typeof c.why === "string" ? c.why.trim().slice(0, 300) : "", likelihood: c.likelihood as Likelihood, minutes }];
+    })
+    .map((idea, i) => ({ idea, i, score: LIKELIHOOD[idea.likelihood] / idea.minutes }))
+    .sort((a, b) => b.score - a.score || a.i - b.i)
+    .slice(0, MAX_IDEAS)
+    .map((x) => x.idea);
+}
+
 type KeptStep = { text: string; quote: string; source: SourceView; from: number };
 
 // A step is kept only when it cites a passage that was retrieved in this turn and quotes text
@@ -181,6 +211,8 @@ export function verifyDraft(
   // The pixel size of each picture the technician attached (null when it could not be read).
   frameSizes: (Size | null)[],
   shots: Map<string, PageShot> = new Map(),
+  // False when the knowledge base answers from its documents only.
+  allowIdeas = true,
 ): DocResult {
   if (draft.kind === "ask") {
     const question2 = draft.question.trim();
@@ -193,7 +225,9 @@ export function verifyDraft(
   // A hazard topic with nothing verified to show: a stop, so nobody improvises.
   const topic = hazardTopic(question, draft);
   if (topic && kept.length === 0) return { kind: "hazard", topic, sources: [] };
-  if (draft.kind === "not_found" || kept.length === 0) return { kind: "not_found" };
+  // Suggestions from general knowledge are never shown on a hazard topic.
+  const ideas = topic || !allowIdeas ? [] : rankIdeas(draft.checks);
+  if (draft.kind === "not_found" || kept.length === 0) return ideas.length ? { kind: "ideas", ideas } : { kind: "not_found" };
 
   // Marks point at steps by index; re-point them after dropped steps.
   const index = new Map(kept.map((k, i) => [k.from, i]));
@@ -223,6 +257,7 @@ export function verifyDraft(
     marks,
     ...(figures.length ? { figures } : {}),
     ...(topic ? { caution: topic } : {}),
+    ...(ideas.length ? { ideas } : {}),
   };
 }
 
@@ -314,7 +349,8 @@ async function firstSearch(client: ModelClient, index: SearchIndex, context: str
 // --- the tool loop -------------------------------------------------------------------------
 
 function describeResult(r: DocResult): string {
-  if (r.kind === "answer") return `Answered "${r.title}": ${r.steps.map((s) => s.text).join(" / ")}`;
+  if (r.kind === "answer") return `Answered "${r.title}": ${r.steps.map((s) => s.text).join(" / ")}${r.ideas?.length ? ` Also suggested checks (not from the documents): ${r.ideas.map((i) => i.text).join(" / ")}` : ""}`;
+  if (r.kind === "ideas") return `Said it is not in the documents, and suggested checks from general knowledge: ${r.ideas.map((i) => i.text).join(" / ")}`;
   if (r.kind === "ask") return `Asked the technician: ${r.question} (options: ${r.options.join(", ")})`;
   if (r.kind === "hazard") return "Stopped: hazard topic with nothing in the documents to show.";
   if (r.kind === "not_found") return "Said it is not in the documents.";
@@ -329,6 +365,7 @@ function contextOf(input: AskInput, index: SearchIndex, frameSizes: (Size | null
     history: input.history.slice(-4).map((h) => ({ technician: h.said ?? "(sent media)", assistant: describeResult(h.result) })),
     attached: input.images.length ? `${input.images.length} ${input.media === "video" ? "video frames" : "photo(s)"}` : "nothing",
     technician: input.question ?? "(no text, only the attached media)",
+    suggested_checks: input.ideas === false ? "off: this knowledge base answers from its documents only, return an empty `checks` list" : "allowed",
   };
   return JSON.stringify(context, null, 1);
 }
@@ -440,7 +477,7 @@ export async function askDocuments(
         errors.push(`schema: ${new Ajv().errorsText(validate.errors)}`);
         break;
       }
-      return { result: verifyDraft(draft, seen, input.question, frameSizes, shots), searches, errors };
+      return { result: verifyDraft(draft, seen, input.question, frameSizes, shots, input.ideas !== false), searches, errors };
     }
     if (!errors.length) errors.push("too many turns");
   } catch (e) {

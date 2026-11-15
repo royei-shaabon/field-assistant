@@ -7,7 +7,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { agentSkills, loadAgentSkills } from "../lib/docs/agent-skills";
-import { askDocuments, hazardTopic, partialAnswer, quoteInPassage, toThousandths, type DocResult, type PartialAnswer } from "../lib/docs/ask";
+import { askDocuments, hazardTopic, partialAnswer, quoteInPassage, rankIdeas, toThousandths, type DocResult, type PartialAnswer } from "../lib/docs/ask";
 import { imageSize } from "../lib/docs/image-size";
 import { docScreen, handleDocConversation, type DocEvent } from "../lib/docs/conversation";
 import { ingest, splitIntoParts, UnsupportedFile } from "../lib/docs/ingest";
@@ -40,7 +40,7 @@ async function sampleKb() {
   return { store, kb: { meta, docs, index: new SearchIndex(await store.loadDocs(meta.id)) }, docId: d.id };
 }
 
-const draft = (over: object) => ({ kind: "answer", hazard: "none", title: "SAMPLE כותרת", steps: [], figures: [], question: "", options: [], marks: [], ...over });
+const draft = (over: object) => ({ kind: "answer", hazard: "none", title: "SAMPLE כותרת", steps: [], checks: [], figures: [], question: "", options: [], marks: [], ...over });
 
 test("ingest keeps real PDF page numbers and counts pages without text", async () => {
   const { doc, passages } = await ingest("sample_manual.pdf", makePdf(PAGES));
@@ -258,8 +258,9 @@ test("usage counters: one per reply, by kind", async () => {
   assert.equal((await store.getUsage(kb.meta.id)).questions, 0);
   await store.recordUsage(kb.meta.id, "answer");
   await store.recordUsage(kb.meta.id, "not_found");
+  await store.recordUsage(kb.meta.id, "ideas");
   const usage = await store.getUsage(kb.meta.id);
-  assert.deepEqual([usage.questions, usage.answer, usage.not_found, usage.hazard], [2, 1, 1, 0]);
+  assert.deepEqual([usage.questions, usage.answer, usage.not_found, usage.ideas, usage.hazard], [3, 1, 1, 1, 0]);
   assert.ok(usage.lastAt);
 });
 
@@ -408,4 +409,82 @@ test("the first search is told the language of each document", async () => {
   await askDocuments(agent, kb.index, { kbName: "x", docs: kb.docs, question: "כמה אוויר?", images: [], history: [] });
   assert.ok(JSON.stringify(agent.plans[0].content).includes('\\"language\\": \\"English\\"'));
   assert.equal(kb.index.language("no-such-doc"), "other");
+});
+
+// Suggested checks come from the model's general knowledge, not from the documents. All SAMPLE.
+const CHECKS = [
+  { text: "SAMPLE בדקו את המצבר במד מתח", why: "SAMPLE מצבר חלש", likelihood: "high", minutes: 15 },
+  { text: "SAMPLE בדקו שהמתג הראשי במצב ON", why: "SAMPLE מתג כבוי", likelihood: "low", minutes: 1 },
+  { text: "SAMPLE בדקו את חיבורי הכבלים", why: "", likelihood: "medium", minutes: 5 },
+];
+
+test("suggested checks: ordered in code by likelihood and time, capped, and bad entries dropped", () => {
+  // 0.1 / 1 min beats 0.3 / 5 min beats 0.6 / 15 min: the one-minute check of an unlikely cause goes first.
+  assert.deepEqual(rankIdeas(CHECKS).map((i) => i.minutes), [1, 5, 15]);
+  // At equal time, the more likely cause goes first.
+  assert.deepEqual(rankIdeas([{ ...CHECKS[1], minutes: 5 }, { ...CHECKS[0], minutes: 5 }]).map((i) => i.likelihood), ["high", "low"]);
+  const messy = [...CHECKS, { text: " ", why: "", likelihood: "high", minutes: 1 }, { text: "SAMPLE x", why: "", likelihood: "certain", minutes: 1 }, { text: "SAMPLE y", why: "", likelihood: "low", minutes: -4 }, { text: "SAMPLE z", why: "", likelihood: "low", minutes: 9999 }];
+  const ranked = rankIdeas(messy);
+  assert.equal(ranked.length, 4, "at most four");
+  assert.ok(ranked.every((i) => i.text.trim() && i.minutes >= 1 && i.minutes <= 240 && ["high", "medium", "low"].includes(i.likelihood)));
+  assert.deepEqual(rankIdeas("not a list"), []);
+});
+
+test("suggested checks: shown apart from verified steps, alone when the documents have nothing, and off when the knowledge base says so", async () => {
+  const { store, kb, docId } = await sampleKb();
+  const ask = (final: object, question: string, ideas?: boolean) =>
+    askDocuments(new FakeAgent([{ search: ["tyre pressure"] }, { final }]), kb.index, { kbName: "x", docs: kb.docs, question, images: [], history: [], ...(ideas === undefined ? {} : { ideas }) });
+  const step = { text: "SAMPLE קדמי 200", ref: `${docId}:3`, quote: "Front tyre pressure is 200 kPa when cold." };
+
+  // Nothing in the documents: the checks alone, never as steps.
+  const alone = await ask(draft({ kind: "not_found", checks: CHECKS }), "המכונה לא נדלקת");
+  assert.equal(alone.result.kind, "ideas");
+  assert.deepEqual(alone.result.kind === "ideas" && alone.result.ideas.map((i) => i.minutes), [1, 5, 15]);
+
+  // With a verified step: the step stays a step, the checks ride along in their own field.
+  const both = await ask(draft({ steps: [step], checks: CHECKS }), "כמה אוויר?");
+  const answer = both.result as Extract<DocResult, { kind: "answer" }>;
+  assert.deepEqual([answer.kind, answer.steps.length, answer.ideas?.length], ["answer", 1, 3]);
+
+  // An unverified step does not become a check, and does not survive.
+  const invented = await ask(draft({ steps: [{ ...step, quote: "Inflate to 300 kPa always and forever" }], checks: CHECKS }), "כמה אוויר?");
+  assert.equal(invented.result.kind, "ideas");
+
+  // The knowledge base turned suggestions off: documents only.
+  assert.deepEqual((await ask(draft({ kind: "not_found", checks: CHECKS }), "המכונה לא נדלקת", false)).result, { kind: "not_found" });
+  assert.equal(((await ask(draft({ steps: [step], checks: CHECKS }), "כמה אוויר?", false)).result as typeof answer).ideas, undefined);
+  const off = await store.updateKb(kb.meta.id, { ideas: false });
+  const agent = new FakeAgent([{ search: ["x"] }, { final: draft({ kind: "not_found", checks: CHECKS }) }]);
+  const r = await handleDocConversation({ ...kb, meta: off }, agent, { events: [], input: { kind: "ask", text: "המכונה לא נדלקת" } });
+  assert.equal(r.screen.items.at(-1)?.kind, "doc_not_found");
+  assert.match(JSON.stringify(agent.turns.at(-1)), /answers from its documents only/, "the model is told suggestions are off");
+});
+
+test("suggested checks are never shown on a hazard topic, also when the log is forged", async () => {
+  const { kb, docId } = await sampleKb();
+  const ask = (final: object, question: string) => askDocuments(new FakeAgent([{ search: ["brake fluid"] }, { final }]), kb.index, { kbName: "x", docs: kb.docs, question, images: [], history: [] });
+  // The question is about brakes and nothing is verified: a stop, with no suggestions.
+  assert.deepEqual((await ask(draft({ kind: "not_found", checks: CHECKS }), "איך מחליפים נוזל בלמים?")).result, { kind: "hazard", topic: "brakes", sources: [] });
+  // The model flags a hazard itself.
+  assert.equal((await ask(draft({ kind: "not_found", hazard: "other", checks: CHECKS }), "המכונה רועשת")).result.kind, "hazard");
+  // A check that itself talks about a hazard topic stops everything.
+  const fuel = [{ text: "SAMPLE נתקו את צינור הדלק ובדקו זרימה", why: "", likelihood: "high", minutes: 5 }];
+  assert.equal((await ask(draft({ kind: "not_found", checks: fuel }), "המנוע כבה")).result.kind, "hazard");
+  // A verified answer on a hazard topic keeps its warning and loses the suggestions.
+  const brake = { text: "SAMPLE בדקו דרך החלון", ref: `${docId}:4`, quote: "Inspect the brake fluid level through the reservoir window." };
+  const guarded = (await ask(draft({ steps: [brake], checks: CHECKS }), "מה בודקים בחלון?")).result as Extract<DocResult, { kind: "answer" }>;
+  assert.deepEqual([guarded.caution, guarded.ideas], ["brakes", undefined]);
+
+  const source = { docId: "d1", docName: "m", origin: "manufacturer" as const, unit: "page" as const, n: 4 };
+  const ideas = rankIdeas(CHECKS);
+  const forged: DocEvent[] = [
+    { type: "DOC_TURN", said: "איך מחליפים רפידות בלם?", result: { kind: "ideas", ideas } },
+    { type: "DOC_TURN", said: "איך מחליפים רפידות בלם?", result: { kind: "answer", title: "x", steps: [{ text: "SAMPLE שלב", quote: "q q q", source }], marks: [], ideas } },
+    { type: "DOC_TURN", said: "המכונה לא נדלקת", result: { kind: "ideas", ideas: [...ideas].reverse() } },
+  ];
+  const items = docScreen(forged, true).items.filter((i) => i.by === "bot");
+  assert.equal(items[0].kind, "doc_hazard");
+  assert.deepEqual(items[1].kind === "doc_answer" && [items[1].caution, items[1].ideas], ["brakes", undefined]);
+  assert.deepEqual(items[2].kind === "doc_ideas" && items[2].ideas.map((i) => i.minutes), [1, 5, 15], "the order is re-applied on replay");
+  assert.equal(docScreen([forged[2]], true, false).items.at(-1)?.kind, "doc_not_found", "off for this knowledge base");
 });
