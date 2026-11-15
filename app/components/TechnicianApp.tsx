@@ -1,14 +1,17 @@
 "use client";
 
+import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import type { ClientInput, Progress } from "@/lib/conversation";
 import type { DocInput } from "@/lib/docs/conversation";
+import { LEGAL_LINKS } from "@/lib/legal-text";
 import type { Screen } from "@/lib/screen";
 import type { KbSummary } from "@/lib/server/kbs";
 import { resumeSpeech, speechFor } from "@/lib/speech";
 import { dataUrlToImage, photoToDataUrl, thumbnail, videoToDataUrls } from "@/lib/client/image";
 import {
   conversationsSnapshot,
+  deleteConversation,
   newConversationId,
   parseConversations,
   saveConversation,
@@ -19,22 +22,31 @@ import {
 } from "@/lib/client/conversations";
 import { T } from "@/lib/ui-text";
 import { CallView, type Speech } from "./Call";
-import { ChatView, chatTypingMs, type ProgressStep } from "./Chat";
+import { ChatView, type ProgressStep } from "./Chat";
 import { CameraIcon, CloseIcon, MapIcon, MenuIcon, PhoneIcon, PlusIcon, SendIcon, VideoIcon } from "./icons";
 
 const EMPTY: Screen = { items: [], mode: "identify", candidates: [], trees: [], danger: false };
+const MAX_PHOTOS = 4;
 
 type Active = { conversation: SavedConversation; screen: Screen };
 type Input = ClientInput | DocInput;
 type Reply = { events: SavedConversation["events"]; screen: Screen };
+// What the technician attached and has not sent yet.
+type Staged = { frames: string[]; media: "photo" | "video" };
 type Pending = { said?: string; frames?: string[] };
+
+class HttpError extends Error {
+  constructor(public status: number) {
+    super(`HTTP ${status}`);
+  }
+}
 
 // Reads the NDJSON stream from /api/conversation: progress lines, then the result.
 async function post(
   kbId: string,
   events: SavedConversation["events"],
   input: Input,
-  onProgress: (p: Progress, detail?: string) => void,
+  onProgress: (p: Progress) => void,
   signal: AbortSignal,
 ): Promise<Reply> {
   const res = await fetch("/api/conversation", {
@@ -43,7 +55,7 @@ async function post(
     body: JSON.stringify({ kbId, events, input }),
     signal,
   });
-  if (!res.ok || !res.body) throw new Error(`HTTP ${res.status}`);
+  if (!res.ok || !res.body) throw new HttpError(res.status);
   const reader = res.body.getReader();
   const decoder = new TextDecoder();
   let buffer = "";
@@ -55,8 +67,8 @@ async function post(
       const line = buffer.slice(0, nl).trim();
       buffer = buffer.slice(nl + 1);
       if (!line) continue;
-      const msg = JSON.parse(line) as { progress?: Progress; detail?: string; result?: Reply; error?: string };
-      if (msg.progress) onProgress(msg.progress, msg.detail);
+      const msg = JSON.parse(line) as { progress?: Progress; result?: Reply; error?: string };
+      if (msg.progress) onProgress(msg.progress);
       if (msg.result) return msg.result;
       if (msg.error) throw new Error(msg.error);
     }
@@ -114,7 +126,43 @@ function FilePicker({
   );
 }
 
-function Cases({
+// A side panel that behaves as a dialog: focus moves in, Tab stays inside, Escape closes, and
+// focus returns to the button that opened it.
+function useDialog(onClose: () => void) {
+  const ref = useRef<HTMLDivElement>(null);
+  const close = useRef(onClose);
+  useEffect(() => {
+    close.current = onClose;
+  });
+  useEffect(() => {
+    const root = ref.current;
+    const opener = document.activeElement as HTMLElement | null;
+    const focusable = () => [...(root?.querySelectorAll<HTMLElement>("button, a[href], select, input") ?? [])].filter((el) => !el.hasAttribute("disabled"));
+    focusable()[0]?.focus();
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") return close.current();
+      if (e.key !== "Tab") return;
+      const list = focusable();
+      const first = list[0];
+      const last = list.at(-1);
+      if (e.shiftKey && document.activeElement === first) {
+        e.preventDefault();
+        last?.focus();
+      } else if (!e.shiftKey && document.activeElement === last) {
+        e.preventDefault();
+        first?.focus();
+      }
+    };
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("keydown", onKey);
+      opener?.focus();
+    };
+  }, []);
+  return ref;
+}
+
+function Menu({
   kbs,
   kbId,
   showStatus,
@@ -123,6 +171,7 @@ function Cases({
   currentId,
   onOpen,
   onNew,
+  onDelete,
   onClose,
 }: {
   kbs: KbSummary[];
@@ -134,199 +183,302 @@ function Cases({
   currentId: string;
   onOpen: (c: SavedConversation) => void;
   onNew: () => void;
+  onDelete: (c: SavedConversation) => void;
   onClose: () => void;
 }) {
+  const ref = useDialog(onClose);
   return (
     <div className="fixed inset-0 z-40 mx-auto flex max-w-md">
-      <button aria-label={T.header.close} onClick={onClose} className="absolute inset-0 bg-ink/40" />
-      <nav aria-label={T.header.cases} className="anim-rise relative flex w-[82%] flex-col bg-paper shadow-[0_0_32px_rgba(18,18,18,0.18)]">
-        <div className="flex h-[60px] items-center justify-between pe-2 ps-4">
-          <div className="flex items-center gap-2">
-            <span aria-hidden className="grid h-7 w-7 place-items-center rounded-lg bg-ink">
-              <span className="h-2.5 w-2.5 rounded-[3px] bg-signal" />
-            </span>
-            <span className="text-[17px] font-semibold">{T.appTitle}</span>
-          </div>
-          <button onClick={onClose} aria-label={T.header.close} className="grid h-11 w-11 place-items-center">
+      <div aria-hidden onClick={onClose} className="absolute inset-0 bg-ink/50" />
+      <div ref={ref} role="dialog" aria-modal="true" aria-label={T.doc.menu} className="anim-rise relative flex w-[86%] flex-col bg-paper shadow-[0_0_32px_rgba(18,18,18,0.18)]">
+        <div className="flex h-[60px] shrink-0 items-center justify-between pe-1.5 ps-4">
+          <span className="text-[17px] font-semibold">{T.appTitle}</span>
+          <button onClick={onClose} aria-label={T.header.close} className="grid h-12 w-12 place-items-center rounded-full active:bg-mist">
             <CloseIcon />
           </button>
         </div>
-        {kbs.length > 1 && (
-          <div className="px-3 pb-3">
-            <label htmlFor="kb-select" className="block px-1 pb-1 text-[13px] font-medium text-stone">
-              {T.doc.kb}
-            </label>
-            <select
-              id="kb-select"
-              value={kbId}
-              onChange={(e) => onKb(e.target.value)}
-              className="h-12 w-full rounded-[14px] border border-rule bg-paper px-3 text-base"
-            >
-              {kbs.map((k) => (
-                <option key={k.id} value={k.id}>
-                  {k.name}
-                </option>
-              ))}
-            </select>
+
+        <div className="flex-1 overflow-y-auto pb-2">
+          <div className="px-3">
+            <button onClick={onNew} className="flex h-14 w-full items-center gap-3 rounded-[14px] bg-ink px-4 text-[17px] font-medium text-white active:opacity-90">
+              <PlusIcon />
+              <span>{T.header.newCase}</span>
+            </button>
           </div>
-        )}
-        <div className="px-3">
-          <button onClick={onNew} className="flex h-12 w-full items-center gap-3 rounded-[14px] bg-mist px-3.5 text-base font-medium">
-            <PlusIcon />
-            <span>{T.header.newCase}</span>
-          </button>
+
+          {kbs.length > 1 && (
+            <section className="px-3 pt-5">
+              <h2 className="px-1 pb-1.5 text-sm font-medium text-graphite">{T.doc.kb}</h2>
+              <ul className="flex flex-col gap-1.5">
+                {kbs.map((k) => (
+                  <li key={k.id}>
+                    <button
+                      onClick={() => onKb(k.id)}
+                      aria-current={k.id === kbId ? "true" : undefined}
+                      className={`flex min-h-12 w-full items-center rounded-[14px] border px-3.5 py-2 text-start text-base ${k.id === kbId ? "border-ink border-s-4 font-semibold" : "border-edge active:bg-mist"}`}
+                    >
+                      <bdi>{k.name}</bdi>
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            </section>
+          )}
+
+          <section className="pt-5">
+            <h2 className="px-4 pb-1 text-sm font-medium text-graphite">{kbs.length > 1 ? T.doc.recentHere : T.home.recent}</h2>
+            <ul className="px-2">
+              {recent.length === 0 && <li className="px-2 py-3 text-[15px] text-graphite">{T.home.noRecent}</li>}
+              {recent.map((c) => (
+                <li key={c.id} className="flex items-center">
+                  <button
+                    onClick={() => onOpen(c)}
+                    aria-current={c.id === currentId ? "true" : undefined}
+                    className={`flex min-h-14 min-w-0 flex-1 items-center gap-3 rounded-xl px-2.5 py-2 text-start active:bg-mist ${c.id === currentId ? "border-s-4 border-ink bg-mist" : ""}`}
+                  >
+                    {showStatus && <span aria-hidden className={`h-2 w-2 shrink-0 rounded-full ${DOT[c.mode]}`} />}
+                    <span className="min-w-0 flex-1">
+                      <bdi className={`block truncate text-base ${c.id === currentId ? "font-semibold" : ""}`}>{c.title ?? T.header.newCase}</bdi>
+                      <span className="block text-[13px] text-stone">
+                        {showStatus && <span>{T.caseStatus[c.mode]} · </span>}
+                        <span>{timeLabel(c.updatedAt)}</span>
+                      </span>
+                    </span>
+                  </button>
+                  <button onClick={() => onDelete(c)} className="h-12 shrink-0 rounded-xl px-3 text-sm text-graphite active:bg-mist">
+                    {T.header.deleteCase}
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </section>
         </div>
-        <h2 className="px-4 pb-1 pt-5 text-[13px] font-medium text-stone">{T.home.recent}</h2>
-        <ul className="flex-1 overflow-y-auto px-2">
-          {recent.length === 0 && <li className="px-2 py-3 text-sm text-stone">{T.home.noRecent}</li>}
-          {recent.map((c) => (
-            <li key={c.id}>
-              <button
-                onClick={() => onOpen(c)}
-                className={`flex w-full items-center gap-3 rounded-xl px-2.5 py-3 text-start ${c.id === currentId ? "bg-mist" : "active:bg-mist"}`}
-              >
-                {showStatus && <span aria-hidden className={`h-2 w-2 shrink-0 rounded-full ${DOT[c.mode]}`} />}
-                <span className="min-w-0 flex-1">
-                  <span className="block truncate text-[15px]">{c.title ?? T.header.newCase}</span>
-                  {showStatus && <span className="block text-xs text-stone">{T.caseStatus[c.mode]}</span>}
-                </span>
-                <span className="font-mono text-[11px] text-stone">{timeLabel(c.updatedAt)}</span>
-              </button>
-            </li>
-          ))}
-        </ul>
-        <p className="px-4 pb-4 text-[11px] text-stone">{T.home.footer}</p>
-      </nav>
+
+        <div className="shrink-0 border-t border-rule px-4 py-3">
+          <p className="pb-2 text-[13px] leading-5 text-stone">{T.home.footer}</p>
+          <nav aria-label={T.doc.menu} className="flex gap-5 text-sm">
+            {LEGAL_LINKS.map((l) => (
+              <Link key={l.href} href={l.href} className="py-1.5 underline decoration-stone underline-offset-4">
+                {l.label}
+              </Link>
+            ))}
+          </nav>
+        </div>
+      </div>
     </div>
   );
 }
 
 function Composer({
   placeholder,
-  canAttach,
+  text,
+  onText,
+  staged,
+  onUnstage,
   busy,
+  disabled,
+  canAttach,
+  attachOpen,
+  onAttachOpen,
   onSend,
   onPhotos,
   onVideo,
   onCancel,
 }: {
   placeholder: string;
-  canAttach: boolean;
+  text: string;
+  onText: (t: string) => void;
+  staged: Staged | null;
+  onUnstage: () => void;
   busy: boolean;
-  onSend: (text: string) => void;
+  disabled: boolean;
+  canAttach: boolean;
+  attachOpen: boolean;
+  onAttachOpen: (open: boolean) => void;
+  onSend: () => void;
   onPhotos: (f: File[]) => void;
   onVideo: (f: File[]) => void;
   onCancel: () => void;
 }) {
-  const [text, setText] = useState("");
-  const [attach, setAttach] = useState(false);
-  const send = () => {
-    const t = text.trim();
-    if (!t || busy) return;
-    setText("");
-    onSend(t);
-  };
+  const canSend = !busy && !disabled && (text.trim().length > 0 || staged !== null);
+  const label = staged ? T.composer.askAboutPhoto : placeholder;
   return (
-    <div className="relative">
-      {attach && canAttach && !busy && (
-        <div className="anim-rise absolute bottom-[64px] start-0 flex flex-col overflow-hidden rounded-2xl border border-rule bg-paper shadow-[0_8px_24px_rgba(18,18,18,0.08)]">
-          <FilePicker accept="image/*" multiple onFiles={(f) => (setAttach(false), onPhotos(f))} className="flex h-12 items-center gap-3 px-4 text-base active:bg-mist">
+    <form
+      aria-label={T.doc.placeholder}
+      onSubmit={(e) => {
+        e.preventDefault();
+        if (canSend) onSend();
+      }}
+      className="relative"
+    >
+      {attachOpen && !disabled && (
+        <div className="anim-rise absolute bottom-[calc(100%+8px)] start-0 flex w-56 flex-col overflow-hidden rounded-2xl border border-edge bg-paper shadow-[0_8px_24px_rgba(18,18,18,0.12)]">
+          <FilePicker accept="image/*" multiple onFiles={(f) => (onAttachOpen(false), onPhotos(f))} className="flex h-14 items-center gap-3 px-4 text-[17px] active:bg-mist">
             <CameraIcon />
             <span>{T.composer.photo}</span>
           </FilePicker>
-          <FilePicker accept="video/*" onFiles={(f) => (setAttach(false), onVideo(f))} className="flex h-12 items-center gap-3 border-t border-rule-soft px-4 text-base active:bg-mist">
+          <FilePicker accept="video/*" onFiles={(f) => (onAttachOpen(false), onVideo(f))} className="flex h-14 items-center gap-3 border-t border-rule px-4 text-[17px] active:bg-mist">
             <VideoIcon />
             <span>{T.composer.video}</span>
           </FilePicker>
         </div>
       )}
-      <div className="flex min-h-14 items-center gap-1 rounded-[22px] bg-mist pe-2 ps-1.5">
-        {canAttach && (
-          <button
-            onClick={() => setAttach((a) => !a)}
-            disabled={busy}
-            aria-label={T.composer.attach}
-            aria-expanded={attach}
-            className="grid h-11 w-11 shrink-0 place-items-center rounded-xl text-ink disabled:text-[#b4b4ae]"
-          >
-            <PlusIcon className={`h-[22px] w-[22px] transition-transform ${attach ? "rotate-45" : ""}`} />
+
+      {staged && (
+        <div className="flex items-center gap-2 pb-2">
+          <ul className="flex min-w-0 flex-1 gap-2 overflow-x-auto">
+            {staged.frames.map((f, i) => (
+              <li key={i} className="shrink-0">
+                {/* eslint-disable-next-line @next/next/no-img-element -- local data URL */}
+                <img src={f} alt={T.chat.sentPhoto} className="h-16 w-16 rounded-xl border border-edge object-cover" />
+              </li>
+            ))}
+          </ul>
+          <button type="button" onClick={onUnstage} aria-label={T.composer.removeAttachment} className="grid h-12 w-12 shrink-0 place-items-center rounded-full border border-edge active:bg-mist">
+            <CloseIcon />
           </button>
+        </div>
+      )}
+
+      <div className="flex min-h-[60px] items-center gap-1 rounded-[22px] border border-edge bg-paper pe-1.5 ps-1 focus-within:border-ink focus-within:shadow-[0_0_0_1px_var(--color-ink)]">
+        {canAttach && (
+        <button
+          type="button"
+          onClick={() => onAttachOpen(!attachOpen)}
+          disabled={disabled}
+          aria-label={T.composer.attach}
+          aria-expanded={attachOpen}
+          className="grid h-12 w-12 shrink-0 place-items-center rounded-full text-ink active:bg-mist disabled:text-pebble"
+        >
+          <CameraIcon className="h-6 w-6" />
+        </button>
         )}
         <label htmlFor="composer-text" className="sr-only">
-          {T.composer.answer}
+          {label}
         </label>
         <input
           id="composer-text"
-          value={busy ? "" : text}
-          onChange={(e) => setText(e.target.value)}
-          onKeyDown={(e) => e.key === "Enter" && send()}
+          value={text}
+          onChange={(e) => onText(e.target.value)}
           maxLength={500}
-          disabled={busy}
-          placeholder={busy ? T.composer.writing : placeholder}
-          className={`h-11 min-w-0 flex-1 bg-transparent text-base outline-none placeholder:text-pebble ${canAttach ? "" : "ps-2.5"}`}
+          disabled={disabled}
+          enterKeyHint="send"
+          autoComplete="off"
+          placeholder={label}
+          className={`focus-in-box h-12 min-w-0 flex-1 bg-transparent text-[17px] placeholder:text-stone ${canAttach ? "" : "ps-3"}`}
         />
         {busy ? (
-          <button onClick={onCancel} aria-label={T.composer.writing} className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-ink">
-            <span className="h-3 w-3 rounded-[3px] bg-white" />
+          <button type="button" onClick={onCancel} aria-label={T.composer.stop} className="grid h-12 w-12 shrink-0 place-items-center rounded-full bg-ink">
+            <span aria-hidden className="h-3.5 w-3.5 rounded-[3px] bg-white" />
           </button>
         ) : (
-          <button onClick={send} disabled={!text.trim()} aria-label={T.composer.send} className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-ink text-white disabled:bg-[#d6d6d1]">
-            <SendIcon className="h-[18px] w-[18px]" />
+          <button type="submit" disabled={!canSend} aria-label={T.composer.send} className="grid h-12 w-12 shrink-0 place-items-center rounded-full bg-ink text-white disabled:bg-rule disabled:text-stone">
+            <SendIcon className="h-5 w-5" />
           </button>
         )}
       </div>
-    </div>
+    </form>
   );
 }
 
 // Shown when the server asks for an access code (ACCESS_CODE is set and this phone has none).
 function AccessCode({ onDone }: { onDone: () => void }) {
   const [code, setCode] = useState("");
-  const [wrong, setWrong] = useState(false);
+  const [problem, setProblem] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!code.trim()) return;
     setBusy(true);
     const res = await fetch("/api/access", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ code }) }).catch(() => null);
     setBusy(false);
     if (res?.ok) onDone();
-    else setWrong(true);
+    else setProblem(!res ? T.doc.access.offline : res.status === 429 ? T.doc.access.tooMany : T.doc.access.wrong);
   };
   return (
-    <main className="mx-auto flex h-dvh max-w-sm flex-col justify-center gap-4 px-5">
-      <span aria-hidden className="grid h-12 w-12 place-items-center rounded-2xl bg-ink">
-        <span className="h-4 w-4 rounded-[5px] bg-signal" />
-      </span>
-      <h1 className="text-2xl font-semibold">{T.doc.access.title}</h1>
-      <p className="text-[15px] leading-[22px] text-graphite">{T.doc.access.lead}</p>
-      <form onSubmit={submit} className="flex flex-col gap-3">
-        <label htmlFor="access-code" className="sr-only">
+    <main className="mx-auto flex min-h-dvh max-w-sm flex-col justify-center gap-4 px-5 py-8">
+      <h1 className="text-[28px] font-semibold leading-9">{T.appTitle}</h1>
+      <p className="text-[17px] leading-[26px] text-graphite">{T.doc.access.lead}</p>
+      <form onSubmit={submit} className="flex flex-col gap-3 pt-2">
+        <label htmlFor="access-code" className="text-base font-medium">
           {T.doc.access.code}
         </label>
         <input
           id="access-code"
           value={code}
           autoComplete="off"
-          onChange={(e) => (setCode(e.target.value), setWrong(false))}
-          placeholder={T.doc.access.code}
-          className="h-14 rounded-[16px] border border-rule bg-paper px-4 text-center font-mono text-xl tracking-widest outline-none focus:border-ink"
+          autoCapitalize="off"
+          autoCorrect="off"
+          spellCheck={false}
+          enterKeyHint="go"
+          dir="ltr"
+          aria-invalid={problem ? true : undefined}
+          aria-describedby={problem ? "access-problem" : undefined}
+          onChange={(e) => (setCode(e.target.value), setProblem(null))}
+          className="h-14 rounded-[16px] border border-edge bg-paper px-4 text-center font-mono text-xl tracking-widest focus:border-ink"
         />
-        {wrong && <p className="text-sm text-danger-ink">{T.doc.access.wrong}</p>}
-        <button disabled={busy || !code.trim()} className="h-12 rounded-[14px] bg-ink text-base font-medium text-white disabled:opacity-40">
+        {problem && (
+          <p id="access-problem" role="alert" className="text-base text-danger-ink">
+            {problem}
+          </p>
+        )}
+        <button disabled={busy} className="h-14 rounded-[16px] bg-ink text-[17px] font-medium text-white disabled:opacity-60">
           {T.doc.access.submit}
         </button>
       </form>
+      <p className="text-[15px] leading-[22px] text-graphite">{T.doc.access.help}</p>
+      <nav aria-label={T.doc.menu} className="flex gap-5 pt-4 text-sm">
+        {LEGAL_LINKS.map((l) => (
+          <Link key={l.href} href={l.href} className="py-1.5 underline decoration-stone underline-offset-4">
+            {l.label}
+          </Link>
+        ))}
+      </nav>
     </main>
   );
 }
 
+// A full-screen notice with one action: nothing can be done until it is resolved.
+function Notice({ text, action, onAction }: { text: string; action?: string; onAction?: () => void }) {
+  return (
+    <main className="mx-auto flex min-h-dvh max-w-sm flex-col justify-center gap-5 px-5">
+      <h1 className="text-[28px] font-semibold leading-9">{T.appTitle}</h1>
+      <p role="alert" className="text-[19px] leading-7">
+        {text}
+      </p>
+      {action && (
+        <button onClick={onAction} className="h-14 rounded-[16px] bg-ink text-[17px] font-medium text-white">
+          {action}
+        </button>
+      )}
+    </main>
+  );
+}
+
+function HeaderButton({ label, onClick, disabled, children }: { label: string; onClick: () => void; disabled?: boolean; children: React.ReactNode }) {
+  return (
+    <button onClick={onClick} disabled={disabled} className="flex h-[52px] min-w-12 flex-col items-center justify-center gap-0.5 rounded-xl px-1.5 active:bg-mist disabled:opacity-40">
+      {children}
+      <span className="text-xs font-medium leading-none">{label}</span>
+    </button>
+  );
+}
+
+const speechSupported = () => {
+  const w = window as unknown as { SpeechRecognition?: unknown; webkitSpeechRecognition?: unknown };
+  return Boolean(w.SpeechRecognition ?? w.webkitSpeechRecognition);
+};
+
 export function TechnicianApp() {
   const raw = useSyncExternalStore(subscribeConversations, conversationsSnapshot, () => "[]");
   const all = useMemo(() => parseConversations(raw), [raw]);
-  const [kbs, setKbs] = useState<KbSummary[] | null>(null);
+  // null: loading. "error": the server could not be reached.
+  const [kbs, setKbs] = useState<KbSummary[] | "error" | null>(null);
   const [kbId, setKbId] = useState("");
   const [locked, setLocked] = useState(false);
-  const kb = kbs?.find((k) => k.id === kbId);
+  const [attempt, setAttempt] = useState(0);
+  const list = Array.isArray(kbs) ? kbs : [];
+  const kb = list.find((k) => k.id === kbId);
   const isDocs = kb?.kind !== "trees";
   const recent = useMemo(() => all.filter((c) => c.kbId === kbId), [all, kbId]);
   const kbRef = useRef(kbId);
@@ -341,7 +493,8 @@ export function TechnicianApp() {
     let cancelled = false;
     fetch("/api/kbs")
       .then((r) => {
-        if (r.status === 401) throw new Error("access_code");
+        if (r.status === 401) throw new HttpError(401);
+        if (!r.ok) throw new HttpError(r.status);
         return r.json();
       })
       .then((data: { kbs: KbSummary[] }) => {
@@ -350,24 +503,32 @@ export function TechnicianApp() {
         setKbs(data.kbs);
         setKbId(data.kbs.find((k) => k.id === wanted)?.id ?? data.kbs[0]?.id ?? "");
       })
-      .catch((e: Error) => !cancelled && (e.message === "access_code" ? setLocked(true) : setKbs([])));
+      .catch((e: unknown) => {
+        if (cancelled) return;
+        if (e instanceof HttpError && e.status === 401) setLocked(true);
+        else setKbs("error");
+      });
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [attempt]);
+
   const [active, setActive] = useState<Active>(() => ({
     // The id is given on the first send: no clock or random value while prerendering.
     conversation: { id: "", kbId: "", events: [], mode: "identify", updatedAt: 0 },
     screen: EMPTY,
   }));
+  const [draft, setDraft] = useState("");
+  const [staged, setStaged] = useState<Staged | null>(null);
+  const [attachOpen, setAttachOpen] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [opening, setOpening] = useState(false);
   const [progress, setProgress] = useState<ProgressStep[]>([]);
   const [pending, setPending] = useState<Pending | null>(null);
   const [animateFrom, setAnimateFrom] = useState(Number.MAX_SAFE_INTEGER);
-  const [typing, setTyping] = useState(false);
   const [maps, setMaps] = useState<number[]>([]);
   const [error, setError] = useState<string | null>(null);
-  const [drawer, setDrawer] = useState(false);
+  const [menu, setMenu] = useState(false);
   const [call, setCall] = useState<"voice" | "video" | null>(null);
   const [speech, setSpeech] = useState<Speech>({ id: 0, lines: [] });
   const abort = useRef<AbortController | null>(null);
@@ -382,6 +543,7 @@ export function TechnicianApp() {
   const scroller = useRef<HTMLElement>(null);
   const content = useRef<HTMLDivElement>(null);
   const pinned = useRef(true);
+  const ready = Array.isArray(kbs) && kbs.length > 0 && !locked;
   useEffect(() => {
     const el = scroller.current;
     const inner = content.current;
@@ -399,7 +561,7 @@ export function TechnicianApp() {
       el.removeEventListener("scroll", onScroll);
       follow.disconnect();
     };
-  }, []);
+  }, [ready]);
   useEffect(() => {
     pinned.current = true;
     bottom.current?.scrollIntoView({ block: "end" });
@@ -416,10 +578,13 @@ export function TechnicianApp() {
     setMaps([]);
     setAnimateFrom(Number.MAX_SAFE_INTEGER);
     setError(null);
-    setDrawer(false);
+    setMenu(false);
+    setAttachOpen(false);
   };
 
-  const send = useCallback(async (base: Active, input: Input, sent?: Pending, speak = false) => {
+  // Returns true when the server answered. On failure nothing the technician wrote is lost:
+  // the caller puts it back in the question box.
+  const send = useCallback(async (base: Active, input: Input, sent?: Pending, speak = false): Promise<boolean> => {
     setBusy(true);
     setError(null);
     setPending(sent ?? null);
@@ -431,7 +596,7 @@ export function TechnicianApp() {
         base.conversation.kbId || kbRef.current,
         base.conversation.events,
         input,
-        (p, detail) => setProgress((list) => [...list.map((s) => ({ ...s, done: true })), { key: p, done: false, detail }]),
+        (p) => setProgress((steps) => [...steps.map((s) => ({ ...s, done: true })), { key: p, done: false }]),
         controller.signal,
       );
       let media = base.conversation.media;
@@ -448,16 +613,18 @@ export function TechnicianApp() {
         mode: res.screen.mode,
         updatedAt: Date.now(),
       };
-      saveConversation(conversation);
+      if (res.events.length) saveConversation(conversation);
       const from = base.screen.items.length;
-      setAnimateFrom(from);
-      const ms = chatTypingMs(res.screen, from);
-      setTyping(ms > 0);
-      if (ms > 0) setTimeout(() => setTyping(false), ms + 150);
+      setAnimateFrom(input.kind === "view" ? Number.MAX_SAFE_INTEGER : from);
       setActive({ conversation, screen: res.screen });
       if (speak) setSpeech((s) => ({ id: s.id + 1, lines: speechFor(res.screen, from) }));
+      return true;
     } catch (e) {
-      if ((e as Error).name !== "AbortError") setError(T.composer.error);
+      if (e instanceof HttpError && e.status === 401) setLocked(true);
+      else if ((e as Error).name === "AbortError") return false;
+      else if (input.kind === "view") setError(T.doc.openError);
+      else setError(e instanceof HttpError && e.status === 429 ? T.doc.rateLimited : e instanceof HttpError || e instanceof TypeError ? T.composer.error : T.doc.error);
+      return false;
     } finally {
       setBusy(false);
       setPending(null);
@@ -468,47 +635,62 @@ export function TechnicianApp() {
   // A finished conversation starts a new case with whatever is sent next.
   const target = (a: Active) => (a.screen.mode === "done" || a.screen.mode === "ended" ? fresh() : a);
 
-  const sendText = useCallback(
-    (text: string, frame?: string, speak = false) => {
+  // One message: text, attached photos or video frames, or both.
+  const sendMessage = useCallback(
+    async (text: string, attachment: Staged | null, speak = false): Promise<boolean> => {
+      if (!text && !attachment) return false;
       const base = target(activeRef.current);
       if (base !== activeRef.current) open(base);
-      const frames = frame ? [frame] : undefined;
-      const media = frames ? { images: frames.map(dataUrlToImage), media: "photo" as const } : {};
-      if (!text && !frames) return;
+      const media = attachment ? { images: attachment.frames.map(dataUrlToImage), media: attachment.media } : {};
       const input: Input = docsRef.current
         ? { kind: "ask", ...(text ? { text } : {}), ...media }
-        : base.screen.mode === "identify"
+        : base.screen.mode === "identify" || attachment
           ? { kind: "describe", ...(text ? { text } : {}), ...media }
-          : { kind: "text", text: text || "?", symptomId: base.screen.current?.symptomId };
-      void send(base, input, { said: text || undefined, frames }, speak);
+          : { kind: "text", text, symptomId: base.screen.current?.symptomId };
+      return send(base, input, { said: text || undefined, frames: attachment?.frames }, speak);
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps -- reads the latest state through activeRef
     [send],
   );
 
-  const sendPhotos = async (files: File[]) => {
-    const base = target(active);
-    if (base !== active) open(base);
-    try {
-      const frames = await Promise.all(files.slice(0, 4).map(photoToDataUrl));
-      await send(base, { kind: isDocs ? "ask" : "describe", images: frames.map(dataUrlToImage), media: "photo" }, { frames });
-    } catch {
-      setError(T.composer.error);
+  const submit = async () => {
+    const text = draft.trim();
+    const attachment = staged;
+    setDraft("");
+    setStaged(null);
+    setAttachOpen(false);
+    const ok = await sendMessage(text, attachment);
+    if (!ok) {
+      // Put the question back, unless the technician already started a new one.
+      setDraft((now) => now || text);
+      setStaged((now) => now ?? attachment);
+      setError((e) => (e && text ? `${e} ${T.composer.notSent}` : e));
     }
   };
 
-  const sendVideo = async (files: File[]) => {
-    const base = target(active);
-    if (base !== active) open(base);
+  const stagePhotos = async (files: File[]) => {
+    setError(files.length > MAX_PHOTOS ? T.composer.maxPhotos : null);
     try {
-      const frames = await videoToDataUrls(files[0]);
-      await send(base, { kind: isDocs ? "ask" : "describe", images: frames.map(dataUrlToImage), media: "video" }, { frames });
+      const frames = await Promise.all(files.slice(0, MAX_PHOTOS).map(photoToDataUrl));
+      setStaged({ frames, media: "photo" });
+      document.getElementById("composer-text")?.focus();
+    } catch {
+      setError(T.composer.photoError);
+    }
+  };
+
+  const stageVideo = async (files: File[]) => {
+    setError(null);
+    try {
+      setStaged({ frames: await videoToDataUrls(files[0]), media: "video" });
+      document.getElementById("composer-text")?.focus();
     } catch {
       setError(T.composer.videoError);
     }
   };
 
   const startCall = (kind: "voice" | "video") => {
+    if (!speechSupported()) return setError(T.call.unsupported);
     const base = target(active);
     if (base !== active) open(base);
     const lines = base.screen.items.length ? resumeSpeech(base.screen) : [T.call.greeting];
@@ -519,64 +701,75 @@ export function TechnicianApp() {
   const { screen, conversation } = active;
   const first = conversation.events[0];
   const mapFrom = first?.type === "IDENTIFY_RESULT" && first.media ? first.media : "text";
-  const empty = screen.items.length === 0 && !pending;
-  const canAttach = screen.mode === "identify" || screen.mode === "done" || screen.mode === "ended";
+  const noDocuments = isDocs && kb !== undefined && kb.documents === 0;
+  const empty = screen.items.length === 0 && !pending && !opening;
+  const canAttach = isDocs || screen.mode === "identify" || screen.mode === "done" || screen.mode === "ended";
+
+  const switchKb = (id: string) => {
+    selectKb(id);
+    setKbId(id);
+    open(fresh(id));
+  };
+
+  const openSaved = async (c: SavedConversation) => {
+    const base = { conversation: c, screen: EMPTY };
+    open(base);
+    setOpening(true);
+    await send(base, { kind: "view" });
+    setOpening(false);
+  };
+
   // In a call, the newest answer that points at something in the technician's picture.
   const lastItem = screen.items.at(-1);
   const callVisual =
     lastItem?.kind === "doc_answer" && lastItem.marks.length && conversation.media?.[lastItem.eventIndex]
       ? { frames: conversation.media[lastItem.eventIndex], marks: lastItem.marks }
       : undefined;
-  const switchKb = (id: string) => {
-    selectKb(id);
-    setKbId(id);
-    open(fresh(id));
-  };
-  const iconButton = "grid h-10 w-10 place-items-center rounded-full active:bg-mist disabled:opacity-40";
 
   if (locked) return <AccessCode onDone={() => window.location.reload()} />;
+  if (kbs === "error") return <Notice text={T.doc.loadError} action={T.doc.retry} onAction={() => (setKbs(null), setAttempt((n) => n + 1))} />;
+  if (kbs === null) return <main className="grid min-h-dvh place-items-center text-[17px] text-graphite">{T.doc.loading}</main>;
+  if (kbs.length === 0) return <Notice text={T.doc.noKbs} />;
 
   return (
     <div className="mx-auto flex h-dvh max-w-md flex-col bg-paper">
-      <header className="flex h-[60px] shrink-0 items-center gap-1 px-1.5">
-        <button onClick={() => setDrawer(true)} aria-label={T.header.cases} className="grid h-11 w-11 place-items-center">
+      <header className="flex h-[64px] shrink-0 items-center gap-0.5 border-b border-rule px-1.5">
+        <HeaderButton label={T.doc.menu} onClick={() => setMenu(true)}>
           <MenuIcon className="h-[22px] w-[22px]" />
-        </button>
-        <div className="min-w-0 flex-1 leading-tight">
-          <h1 className="truncate text-base font-semibold">{screen.title ?? T.appTitle}</h1>
-          <p className="text-xs text-stone">
-            <span>{kb?.name ?? (kbs ? T.appTitle : T.doc.loading)}</span>
-            {conversation.events.length > 0 && (
-              <>
-                {" "}
-                <span>·</span> <span>{timeLabel(conversation.updatedAt)}</span>
-              </>
-            )}
-          </p>
+        </HeaderButton>
+        <div className="min-w-0 flex-1 px-1.5 leading-tight">
+          <h1 className="truncate text-[17px] font-semibold">
+            <bdi>{kb?.name ?? T.appTitle}</bdi>
+          </h1>
+          {screen.title && (
+            <p className="truncate text-[13px] text-graphite">
+              <bdi>{screen.title}</bdi>
+            </p>
+          )}
         </div>
         {screen.candidates.length > 0 && (
-          <button onClick={() => setMaps((m) => [...m, screen.items.length])} disabled={busy} aria-label={T.header.map} className={`relative ${iconButton}`}>
+          <HeaderButton label={T.header.map} onClick={() => setMaps((m) => [...m, screen.items.length])} disabled={busy}>
             <MapIcon />
-            <span className="absolute end-0.5 top-0.5 grid h-4 min-w-4 place-items-center rounded-full bg-ink px-1 font-mono text-[10px] text-white">{screen.candidates.length}</span>
-          </button>
+          </HeaderButton>
         )}
-        <button onClick={() => startCall("voice")} disabled={busy} aria-label={T.call.voice} className={iconButton}>
+        <HeaderButton label={T.call.voiceShort} onClick={() => startCall("voice")} disabled={busy || noDocuments}>
           <PhoneIcon />
-        </button>
-        <button onClick={() => startCall("video")} disabled={busy} aria-label={T.call.video} className={`me-1 ${iconButton}`}>
+        </HeaderButton>
+        <HeaderButton label={T.call.videoShort} onClick={() => startCall("video")} disabled={busy || noDocuments}>
           <VideoIcon />
-        </button>
+        </HeaderButton>
       </header>
 
-      <main ref={scroller} className="flex flex-1 flex-col overflow-y-auto px-4 pb-4 pt-2">
+      <main ref={scroller} className="flex flex-1 flex-col overflow-y-auto px-4 pb-4 pt-3">
         <div ref={content} className="mt-auto">
-          {empty ? (
-            <div className="flex flex-col items-center gap-3 pb-10 text-center">
-              <span aria-hidden className="grid h-12 w-12 place-items-center rounded-2xl bg-ink">
-                <span className="h-4 w-4 rounded-[5px] bg-signal" />
-              </span>
-              <h2 className="text-2xl font-semibold leading-[30px]">{T.chat.emptyTitle}</h2>
-              <p className="max-w-[300px] text-[15px] leading-[22px] text-graphite">{isDocs ? T.doc.emptyLead : T.chat.emptyLead}</p>
+          {opening ? (
+            <p role="status" className="pb-10 text-center text-[17px] text-graphite">
+              {T.doc.opening}
+            </p>
+          ) : empty ? (
+            <div className="flex flex-col gap-3 pb-8">
+              <h2 className="text-[28px] font-semibold leading-9">{isDocs ? T.doc.emptyTitle : T.chat.emptyTitle}</h2>
+              <p className="text-[17px] leading-[26px] text-graphite">{noDocuments ? T.doc.empty : isDocs ? T.doc.emptyLead : T.chat.emptyLead}</p>
             </div>
           ) : (
             <ChatView
@@ -591,20 +784,25 @@ export function TechnicianApp() {
                   <div className="anim-rise flex flex-col items-end gap-1.5">
                     {pending.frames?.[0] && (
                       // eslint-disable-next-line @next/next/no-img-element -- local data URL
-                      <img src={pending.frames[0]} alt="" className="w-[60%] rounded-2xl rounded-es-md" />
+                      <img src={pending.frames[0]} alt={T.chat.sentPhoto} className="w-[60%] rounded-2xl rounded-es-md" />
                     )}
-                    {pending.said && <div className="max-w-[80%] rounded-[18px] rounded-es-md bg-mist px-3.5 py-2.5 text-base leading-6">{pending.said}</div>}
+                    {pending.said && <div className="max-w-[85%] rounded-[18px] rounded-es-md bg-bubble px-3.5 py-2.5 text-[17px] leading-[26px]">{pending.said}</div>}
                   </div>
                 )
               }
               kbId={conversation.kbId || kbId}
-              onOption={(text) => sendText(text)}
+              onOption={(text) => void sendMessage(text, null)}
               onPick={(symptomId) => send(active, { kind: "pick", symptomId })}
               onOther={() => document.getElementById("composer-text")?.focus()}
+              onAttach={() => setAttachOpen(true)}
               onAck={(symptomId) => send(active, { kind: "acknowledge", symptomId }, { said: T.stop.acknowledged })}
             />
           )}
-          {error && <p className="mt-4 rounded-xl bg-mist px-3 py-2.5 text-sm text-danger-ink">{error}</p>}
+          {error && (
+            <p role="alert" className="mt-4 rounded-xl border border-danger px-3.5 py-3 text-base leading-6 text-danger-ink">
+              {error}
+            </p>
+          )}
           <div ref={bottom} />
         </div>
       </main>
@@ -612,31 +810,39 @@ export function TechnicianApp() {
       <div className="px-3 pb-1.5">
         <Composer
           placeholder={isDocs ? T.doc.placeholder : screen.mode === "identify" ? T.composer.describe : T.composer.answer}
+          text={draft}
+          onText={setDraft}
+          staged={canAttach ? staged : null}
+          onUnstage={() => setStaged(null)}
+          busy={busy}
+          disabled={noDocuments}
           canAttach={canAttach}
-          busy={busy || typing || !kbId}
-          onSend={(text) => sendText(text)}
-          onPhotos={sendPhotos}
-          onVideo={sendVideo}
+          attachOpen={attachOpen && canAttach}
+          onAttachOpen={setAttachOpen}
+          onSend={submit}
+          onPhotos={stagePhotos}
+          onVideo={stageVideo}
           onCancel={() => abort.current?.abort()}
         />
       </div>
-      <p className="px-4 pb-3 pt-1.5 text-center text-[11px] text-stone">{isDocs ? T.doc.disclaimer : T.disclaimer}</p>
+      <p className="px-4 pb-3 pt-1.5 text-center text-[13px] leading-[18px] text-stone">{isDocs ? T.doc.disclaimer : T.disclaimer}</p>
 
-      {drawer && (
-        <Cases
-          kbs={kbs ?? []}
+      {menu && (
+        <Menu
+          kbs={list}
           kbId={kbId}
           showStatus={!isDocs}
           onKb={switchKb}
           recent={recent}
           currentId={conversation.id}
-          onOpen={(c) => {
-            const base = { conversation: c, screen: EMPTY };
-            open(base);
-            void send(base, { kind: "view" });
-          }}
+          onOpen={openSaved}
           onNew={() => open(fresh())}
-          onClose={() => setDrawer(false)}
+          onDelete={(c) => {
+            if (!window.confirm(T.header.confirmDelete)) return;
+            deleteConversation(c.id);
+            if (c.id === conversation.id) open(fresh());
+          }}
+          onClose={() => setMenu(false)}
         />
       )}
 
@@ -652,7 +858,7 @@ export function TechnicianApp() {
           busy={busy}
           progress={progress.at(-1)?.key}
           visual={callVisual}
-          onUtterance={(text, frame) => sendText(text, frame, true)}
+          onUtterance={(text, frame) => void sendMessage(text, frame ? { frames: [frame], media: "photo" } : null, true)}
           onAck={(symptomId) => send(activeRef.current, { kind: "acknowledge", symptomId }, { said: T.stop.acknowledged }, true)}
           onHangUp={() => {
             window.speechSynthesis?.cancel();

@@ -21,6 +21,8 @@ ANTHROPIC_API_KEY=... ADMIN_PASSWORD=... npm run dev
 | `ANTHROPIC_API_KEY` | כן | מפתח ה-API של המודל. בלעדיו אין תשובות. |
 | `ADMIN_PASSWORD` | כן בייצור | הסיסמה של `/admin`. בלעדיה האזור סגור בייצור ופתוח בפיתוח. |
 | `ACCESS_CODE` | מומלץ | קוד כניסה לטכנאים. בלעדיו אזור הטכנאי פתוח לכל מי שיש לו את הקישור. |
+| `SESSION_SECRET` | מומלץ | מפתח אקראי לחתימת ה-sessions. בלעדיו המפתח נגזר מהסיסמה ומהקוד. |
+| `DAILY_QUESTION_LIMIT` | לא | תקרת שאלות ביום לכל השירות. ברירת מחדל: 1000. |
 | `DATA_DIR` | לא | איפה נשמרים המאגרים. ברירת מחדל: `./data`. בייצור: תיקייה קבועה (volume). |
 | `HIDE_SAMPLE_KB` | לא | `1` מסתיר את מאגר עצי התקלות לדוגמה. |
 
@@ -43,7 +45,7 @@ ANTHROPIC_API_KEY=... ADMIN_PASSWORD=... npm run dev
 Vercel לא מתאים כמו שהוא: אין בו דיסק קבוע, והעלאות מוגבלות ל-4.5MB.
 מצלמה ומיקרופון בטלפון עובדים רק ב-HTTPS, ושירותי האחסון האלה נותנים HTTPS אוטומטית.
 
-לפני דמו: [`docs/demo-checklist.md`](docs/demo-checklist.md).
+לפני דמו: [`docs/demo-checklist.md`](docs/demo-checklist.md). ממצאי הביקורת והפתוחים: [`docs/audit-2026-11.md`](docs/audit-2026-11.md).
 
 ## בדיקות
 ```bash

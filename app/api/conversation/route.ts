@@ -4,6 +4,7 @@ import { handleDocConversation } from "@/lib/docs/conversation";
 import { AnthropicModelClient } from "@/lib/llm";
 import { needsCode, technicianAllowed } from "@/lib/server/access";
 import { loadDocKb, SAMPLE_KB_ID, sampleKbVisible } from "@/lib/server/kbs";
+import { allow, clientKey, LIMITS, tooLarge, tooMany } from "@/lib/server/rate-limit";
 import { kbStore } from "@/lib/store";
 
 let sample: KnowledgeBase | undefined;
@@ -14,9 +15,14 @@ let client: AnthropicModelClient | undefined;
 // {"result": ...} line, or {"error": ...}. The body names the knowledge base (kbId).
 export async function POST(request: Request) {
   if (!(await technicianAllowed())) return needsCode();
+  // Six photos of 1.5MB each plus the event log is the most a real request carries.
+  if (tooLarge(request, 12_000_000)) return Response.json({ error: "too large" }, { status: 413 });
   client ??= new AnthropicModelClient();
   const raw = (await request.json().catch(() => null)) as { kbId?: unknown; events?: unknown; input?: unknown } | null;
   const kbId = typeof raw?.kbId === "string" ? raw.kbId : "";
+  // Looking at a saved conversation is free; anything else may call the model.
+  const asks = (raw?.input as { kind?: unknown } | undefined)?.kind !== "view";
+  if (asks && (!allow(`ask:${clientKey(request)}`, LIMITS.ask) || !allow("ask:all", LIMITS.askDaily))) return tooMany();
   const body = raw && { events: raw.events, input: raw.input };
   const encoder = new TextEncoder();
 
@@ -30,7 +36,7 @@ export async function POST(request: Request) {
         } else {
           const kb = await loadDocKb(kbId);
           if (!kb) throw new BadRequest("unknown knowledge base");
-          const result = await handleDocConversation(kb, client!, body, (p) => send({ progress: p.stage, detail: p.detail }));
+          const result = await handleDocConversation(kb, client!, body, (p) => send({ progress: p.stage, detail: p.detail }), request.signal);
           // A new turn was added: count it for the implementer's usage overview.
           const before = Array.isArray(body?.events) ? body.events.length : 0;
           if (result.events.length > before) await kbStore().recordUsage(kbId, result.events.at(-1)!.result.kind).catch(() => {});

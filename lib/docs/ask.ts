@@ -14,6 +14,8 @@ export const MAX_TURNS = 5;
 export const MAX_STEPS = 6;
 const PER_QUERY = 4;
 const PER_SEARCH = 8;
+// A question may search this many times in total, whatever the model asks for.
+const MAX_SEARCHES = 6;
 const PASSAGE_CHARS = 6000;
 
 export type HazardTopic = "brakes" | "fuel" | "hot_coolant" | "running_engine" | "other";
@@ -114,7 +116,9 @@ const HEBREW_TOPIC: Record<string, HazardTopic> = { brakes: "brakes", fuel: "fue
 export function hazardTopic(question: string | undefined, draft: Pick<Draft, "hazard" | "steps">): HazardTopic | null {
   if (draft.hazard !== "none") return draft.hazard;
   const q = question ?? "";
-  const hebrew = HAZARD_TOPICS.find((t) => t.pattern.test(q));
+  // The Hebrew topics are checked on the question and on the steps the technician will read.
+  const hebrewText = [q, ...draft.steps.map((s) => s.text)].join("\n");
+  const hebrew = HAZARD_TOPICS.find((t) => t.pattern.test(hebrewText));
   if (hebrew) return HEBREW_TOPIC[hebrew.topic] ?? "other";
   const text = [q, ...draft.steps.map((s) => s.quote)].join("\n");
   return HAZARD_EN.find((t) => t.pattern.test(text))?.topic ?? null;
@@ -197,8 +201,8 @@ function firstMessage(input: AskInput): AgentMessage {
 function searchResultText(hits: Hit[]): string {
   if (!hits.length) return "No passages matched. Try different keywords.";
   return hits
-    .map((h) => `[ref ${h.ref}] ${h.docName}, ${h.unit} ${h.n}\n${h.text.slice(0, PASSAGE_CHARS)}`)
-    .join("\n\n-----\n\n");
+    .map((h) => `<passage ref="${h.ref}" document="${h.docName.replace(/["<>]/g, "")}" ${h.unit}="${h.n}">\n${h.text.slice(0, PASSAGE_CHARS).replace(/<\/?passage/gi, "")}\n</passage>`)
+    .join("\n\n");
 }
 
 export type AskRun = { result: DocResult; searches: string[][]; errors: string[] };
@@ -208,6 +212,8 @@ export async function askDocuments(
   index: SearchIndex,
   input: AskInput,
   progress: (p: AskProgress) => void = () => {},
+  // Aborted when the technician's phone disconnects: no more model calls are made.
+  signal?: AbortSignal,
 ): Promise<AskRun> {
   const { prompt, schema } = skill();
   const validate = new Ajv().compile<Draft>(schema);
@@ -219,6 +225,10 @@ export async function askDocuments(
 
   try {
     for (let turn = 0; turn < MAX_TURNS; turn++) {
+      if (signal?.aborted) {
+        errors.push("client disconnected");
+        break;
+      }
       const reply = await client.turn({ system: prompt, messages, tools: [SEARCH_TOOL], schema });
 
       if (reply.toolCalls.length) {
@@ -226,6 +236,7 @@ export async function askDocuments(
         const results = reply.toolCalls.map((call) => {
           const raw = (call.input as { queries?: unknown })?.queries;
           const queries = (Array.isArray(raw) ? raw : []).filter((q): q is string => typeof q === "string" && q.trim().length > 0).slice(0, 4);
+          if (searches.length >= MAX_SEARCHES) return { type: "tool_result" as const, tool_use_id: call.id, content: "Search limit reached. Answer from the passages you already have." };
           searches.push(queries);
           progress({ stage: "searching", detail: queries[0] });
           const merged = new Map<string, Hit>();
@@ -259,7 +270,8 @@ export async function askDocuments(
     }
     if (!errors.length) errors.push("too many turns");
   } catch (e) {
-    errors.push((e as Error).message);
+    const status = (e as { status?: number }).status;
+    errors.push(`${status ? `HTTP ${status}: ` : ""}${(e as Error).message}`);
   }
   return { result: { kind: "error" }, searches, errors };
 }

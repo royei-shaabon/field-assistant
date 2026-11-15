@@ -1,13 +1,16 @@
 import { ingest, MAX_UPLOAD_BYTES, UnsupportedFile } from "@/lib/docs/ingest";
 import { forbidden, isAdmin } from "@/lib/server/admin-auth";
 import { ensureSeed } from "@/lib/server/kbs";
+import { allow, clientKey, LIMITS, tooLarge, tooMany } from "@/lib/server/rate-limit";
 import { kbStore, NotFound } from "@/lib/store";
 
 // Upload one document: read it into passages, then store the passages and the original.
 export async function POST(request: Request, { params }: { params: Promise<{ kbId: string }> }) {
   if (!(await isAdmin())) return forbidden();
+  if (!allow(`upload:${clientKey(request)}`, LIMITS.upload)) return tooMany();
   const { kbId } = await params;
   await ensureSeed();
+  if (tooLarge(request, MAX_UPLOAD_BYTES + 100_000)) return Response.json({ error: "too_large" }, { status: 413 });
   const form = await request.formData().catch(() => null);
   const file = form?.get("file");
   if (!(file instanceof File)) return Response.json({ error: "file" }, { status: 400 });

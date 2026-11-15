@@ -1,5 +1,6 @@
 import fs from "node:fs/promises";
 import path from "node:path";
+import { randomUUID } from "node:crypto";
 import type { BlobDriver } from "./types";
 
 // Keys are forward-slash paths under one root directory. A key can never leave the root.
@@ -24,7 +25,7 @@ export class FsDriver implements BlobDriver {
     const file = this.file(key);
     await fs.mkdir(path.dirname(file), { recursive: true });
     // Write then rename, so a reader never sees half a file.
-    const tmp = `${file}.${process.pid}.tmp`;
+    const tmp = `${file}.${randomUUID()}.tmp`;
     await fs.writeFile(tmp, data);
     await fs.rename(tmp, file);
   }
@@ -40,7 +41,7 @@ export class FsDriver implements BlobDriver {
       for (const e of await fs.readdir(d, { withFileTypes: true }).catch(() => [])) {
         const full = path.join(d, e.name);
         if (e.isDirectory()) await walk(full);
-        else out.push(path.relative(this.root, full).split(path.sep).join("/"));
+        else if (!e.name.endsWith(".tmp")) out.push(path.relative(this.root, full).split(path.sep).join("/"));
       }
     };
     await walk(dir);

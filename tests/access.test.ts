@@ -1,23 +1,36 @@
-// The two gates: the implementer password and the optional technician access code.
+// The two gates (implementer password, technician access code) and their sessions.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { checkAccessCode } from "../lib/server/access";
-import { checkPassword } from "../lib/server/admin-auth";
+import { codeMatches } from "../lib/server/access";
+import { passwordMatches } from "../lib/server/admin-auth";
+import { issueSession, validSession } from "../lib/server/session";
 
-test("access code and admin password: only the exact value yields a token, and never the value itself", () => {
+test("only the exact code or password matches; nothing matches when none is configured", () => {
   process.env.ACCESS_CODE = "4821";
   process.env.ADMIN_PASSWORD = "SAMPLE-secret";
-  assert.equal(checkAccessCode("0000"), null);
-  assert.equal(checkAccessCode(""), null);
-  const access = checkAccessCode(" 4821 ");
-  assert.match(access ?? "", /^[0-9a-f]{64}$/);
-  assert.equal(checkPassword("wrong"), null);
-  const admin = checkPassword("SAMPLE-secret");
-  assert.match(admin ?? "", /^[0-9a-f]{64}$/);
-  assert.notEqual(access, admin);
-  assert.ok(!access!.includes("4821") && !admin!.includes("SAMPLE-secret"));
+  assert.deepEqual([codeMatches("0000"), codeMatches(""), codeMatches(" 4821 "), codeMatches("48210")], [false, false, true, false]);
+  assert.deepEqual([passwordMatches("wrong"), passwordMatches("SAMPLE-secret"), passwordMatches("SAMPLE-secret ")], [false, true, false]);
   delete process.env.ACCESS_CODE;
   delete process.env.ADMIN_PASSWORD;
-  assert.equal(checkAccessCode("4821"), null, "no code configured: nothing to match");
-  assert.equal(checkPassword(""), null);
+  assert.deepEqual([codeMatches("4821"), passwordMatches("")], [false, false]);
+});
+
+test("sessions: unique per sign-in, bound to their kind, expiring, and useless once the secret changes", () => {
+  process.env.ADMIN_PASSWORD = "SAMPLE-secret";
+  process.env.ACCESS_CODE = "4821";
+  const now = 1_800_000_000_000;
+  const a = issueSession("admin", now);
+  const b = issueSession("admin", now);
+  assert.notEqual(a.token, b.token);
+  assert.ok(!a.token.includes("SAMPLE-secret") && !issueSession("tech", now).token.includes("4821"));
+  assert.ok(validSession("admin", a.token, now + 1000));
+  assert.ok(!validSession("tech", a.token, now + 1000), "an admin session is not a technician session");
+  assert.ok(!validSession("admin", a.token, now + 13 * 60 * 60 * 1000), "expired on the server, whatever the cookie says");
+  const forged = a.token.replace(/\.(\d+)\./, (_, exp) => `.${Number(exp) + 999999}.`);
+  assert.ok(!validSession("admin", forged, now + 1000), "a longer expiry breaks the signature");
+  for (const bad of [undefined, "", "admin.1.2", "x".repeat(300), "admin.9999999999.aa.ééééé"]) assert.ok(!validSession("admin", bad, now));
+  process.env.ADMIN_PASSWORD = "SAMPLE-changed";
+  assert.ok(!validSession("admin", a.token, now + 1000), "changing the password signs everyone out");
+  delete process.env.ADMIN_PASSWORD;
+  delete process.env.ACCESS_CODE;
 });

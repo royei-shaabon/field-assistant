@@ -62,6 +62,15 @@ export function saveConversation(c: SavedConversation): void {
   }
 }
 
+export function deleteConversation(id: string): void {
+  try {
+    localStorage.setItem(KEY, JSON.stringify(parseConversations(conversationsSnapshot()).filter((x) => x.id !== id)));
+    window.dispatchEvent(new Event(CHANGED));
+  } catch {
+    // Nothing to delete from.
+  }
+}
+
 export function newConversationId(): string {
   return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
 }

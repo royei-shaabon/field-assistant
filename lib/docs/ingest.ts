@@ -5,6 +5,10 @@ import type { DocMeta, Passage } from "../store/types";
 
 export const MAX_UPLOAD_BYTES = 60 * 1024 * 1024;
 const PART_CHARS = 1800;
+// Limits that keep one bad upload from exhausting the server.
+const MAX_TEXT_BYTES = 8 * 1024 * 1024;
+const MAX_DOCX_BYTES = 25 * 1024 * 1024;
+const MAX_PDF_PAGES = 3000;
 
 export class UnsupportedFile extends Error {}
 
@@ -72,6 +76,7 @@ function htmlToText(html: string): string {
 async function pdfPages(data: Buffer): Promise<string[]> {
   const { extractText, getDocumentProxy } = await import("unpdf");
   const pdf = await getDocumentProxy(new Uint8Array(data));
+  if (pdf.numPages > MAX_PDF_PAGES) throw new UnsupportedFile("too many pages");
   const { text } = await extractText(pdf, { mergePages: false });
   return text.map(clean);
 }
@@ -88,6 +93,8 @@ export async function ingest(fileName: string, data: Buffer): Promise<Ingested> 
   const type = KINDS[ext];
   if (!type) throw new UnsupportedFile(ext || fileName);
   if (data.length > MAX_UPLOAD_BYTES) throw new UnsupportedFile("too large");
+  if (type.kind === "docx" && data.length > MAX_DOCX_BYTES) throw new UnsupportedFile("too large");
+  if ((type.kind === "text" || type.kind === "html") && data.length > MAX_TEXT_BYTES) throw new UnsupportedFile("too large");
 
   let passages: Passage[];
   let unit: DocMeta["unit"] = "part";

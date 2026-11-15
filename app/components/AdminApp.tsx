@@ -45,9 +45,13 @@ function Login({ closed, onDone }: { closed: boolean; onDone: () => void }) {
             autoComplete="current-password"
             value={password}
             onChange={(e) => (setPassword(e.target.value), setWrong(false))}
-            className="h-12 rounded-[14px] border border-rule bg-paper px-3.5 text-base outline-none focus:border-ink"
+            className="h-12 rounded-[14px] border border-edge bg-paper px-3.5 text-base focus:border-ink"
           />
-          {wrong && <p className="text-sm text-danger-ink">{A.login.wrong}</p>}
+          {wrong && (
+            <p role="alert" className="text-base text-danger-ink">
+              {A.login.wrong}
+            </p>
+          )}
           <button disabled={busy || !password} className="h-12 rounded-[14px] bg-ink text-base font-medium text-white disabled:opacity-40">
             {A.login.submit}
           </button>
@@ -73,11 +77,11 @@ function KbForm({ initial, submit, onSubmit, onCancel }: { initial?: { name: str
     >
       <label className="flex flex-col gap-1.5 text-sm font-medium text-graphite">
         <span>{A.kbName}</span>
-        <input autoFocus value={name} maxLength={80} onChange={(e) => setName(e.target.value)} placeholder={A.kbNamePlaceholder} className="h-11 rounded-xl border border-rule bg-paper px-3 text-base font-normal text-ink outline-none focus:border-ink" />
+        <input autoFocus value={name} maxLength={80} onChange={(e) => setName(e.target.value)} placeholder={A.kbNamePlaceholder} className="h-11 rounded-xl border border-edge bg-paper px-3 text-base font-normal text-ink focus:border-ink" />
       </label>
       <label className="flex flex-col gap-1.5 text-sm font-medium text-graphite">
         <span>{A.kbDescription}</span>
-        <input value={description} maxLength={400} onChange={(e) => setDescription(e.target.value)} className="h-11 rounded-xl border border-rule bg-paper px-3 text-base font-normal text-ink outline-none focus:border-ink" />
+        <input value={description} maxLength={400} onChange={(e) => setDescription(e.target.value)} className="h-11 rounded-xl border border-edge bg-paper px-3 text-base font-normal text-ink focus:border-ink" />
       </label>
       <div className="flex gap-2">
         <button disabled={busy || !name.trim()} className="h-11 rounded-xl bg-ink px-5 text-[15px] font-medium text-white disabled:opacity-40">
@@ -113,6 +117,10 @@ function UsageTiles({ usage }: { usage: Usage }) {
             {tile(A.usage.not_found, usage.not_found)}
             {tile(A.usage.hazard, usage.hazard)}
           </div>
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-5">
+            {tile(A.usage.helpful, usage.helpful, "text-ok")}
+            {tile(A.usage.unhelpful, usage.unhelpful)}
+          </div>
           <p className="flex flex-wrap gap-x-3 text-[13px] text-stone">
             {usage.lastAt && (
               <span>
@@ -126,6 +134,48 @@ function UsageTiles({ usage }: { usage: Usage }) {
             )}
           </p>
         </>
+      )}
+    </section>
+  );
+}
+
+type DiagnoseCheck = { name: "key_and_model" | "question_answering"; ok: boolean; ms: number; detail?: string };
+
+// Asks the server to try the model: first the key, then one full question on a sample page.
+// On failure the provider's own message is shown, so the implementer knows what to fix.
+function Diagnose() {
+  const [busy, setBusy] = useState(false);
+  const [checks, setChecks] = useState<DiagnoseCheck[] | null>(null);
+  const run = async () => {
+    setBusy(true);
+    const res = await fetch("/api/admin/diagnose", { method: "POST" }).catch(() => null);
+    const data = res?.ok ? ((await res.json()) as { checks: DiagnoseCheck[] }) : null;
+    setChecks(data?.checks ?? [{ name: "key_and_model", ok: false, ms: 0, detail: A.errors.generic }]);
+    setBusy(false);
+  };
+  return (
+    <section className="mb-5 flex flex-col gap-2.5">
+      <button onClick={run} disabled={busy} className="h-10 self-start rounded-xl border border-rule px-4 text-[15px] font-medium active:bg-mist disabled:opacity-50">
+        {busy ? A.diagnose.running : A.diagnose.run}
+      </button>
+      {checks && (
+        <ul aria-live="polite" className="flex flex-col gap-1.5">
+          {checks.map((c) => (
+            <li key={c.name} className="flex flex-col gap-0.5 rounded-xl bg-mist px-3.5 py-2.5 text-sm">
+              <span className="flex items-center gap-2">
+                {c.ok ? <CheckIcon className="h-4 w-4 text-ok" /> : <WarningIcon className="h-4 w-4 text-danger" />}
+                <span className="font-medium">{A.diagnose[c.name]}</span>
+                <span className={c.ok ? "text-ok" : "text-danger-ink"}>{c.ok ? A.diagnose.ok : A.diagnose.failed}</span>
+                <span className="font-mono text-xs text-stone">{(c.ms / 1000).toFixed(1)}s</span>
+              </span>
+              {c.detail && (
+                <span dir="ltr" className="break-words text-start font-mono text-xs text-graphite">
+                  {c.detail}
+                </span>
+              )}
+            </li>
+          ))}
+        </ul>
       )}
     </section>
   );
@@ -155,6 +205,13 @@ function Documents({ kb, onChanged }: { kb: Kb; onChanged: () => Promise<void> }
   const remove = async (doc: DocMeta) => {
     if (!window.confirm(A.confirmDeleteDoc)) return;
     await fetch(`/api/admin/kbs/${kb.id}/docs/${doc.id}`, { method: "DELETE" });
+    await onChanged();
+  };
+
+  const rename = async (doc: DocMeta) => {
+    const name = window.prompt(A.renameDocPrompt, doc.name)?.trim();
+    if (!name || name === doc.name) return;
+    await fetch(`/api/admin/kbs/${kb.id}/docs/${doc.id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name }) });
     await onChanged();
   };
 
@@ -266,6 +323,9 @@ function Documents({ kb, onChanged }: { kb: Kb; onChanged: () => Promise<void> }
               <a href={`/api/kbs/${kb.id}/docs/${d.id}/file`} target="_blank" rel="noreferrer" className="rounded-lg px-2.5 py-1.5 text-sm text-graphite active:bg-mist">
                 {A.open}
               </a>
+              <button onClick={() => rename(d)} className="rounded-lg px-2.5 py-1.5 text-sm text-graphite active:bg-mist">
+                {A.renameDoc}
+              </button>
               <button onClick={() => remove(d)} className="rounded-lg px-2.5 py-1.5 text-sm text-danger-ink active:bg-mist">
                 {A.remove}
               </button>
@@ -331,19 +391,35 @@ export function AdminApp() {
           </span>
           <h1 className="text-lg font-semibold">{A.title}</h1>
         </div>
-        <a href={kb ? `/?kb=${kb.id}` : "/"} className="rounded-xl px-3 py-2 text-[15px] text-graphite active:bg-mist">
-          {A.toChat}
-        </a>
+        <div className="flex items-center gap-1">
+          <a href={kb ? `/?kb=${kb.id}` : "/"} className="rounded-xl px-3 py-2 text-[15px] text-graphite active:bg-mist">
+            {A.toChat}
+          </a>
+          <button
+            onClick={async () => {
+              await fetch("/api/admin/login", { method: "DELETE" }).catch(() => {});
+              window.location.reload();
+            }}
+            className="rounded-xl px-3 py-2 text-[15px] text-graphite active:bg-mist"
+          >
+            {A.signOut}
+          </button>
+        </div>
       </header>
       <p className="max-w-2xl pb-5 text-[15px] leading-6 text-graphite">{A.lead}</p>
 
+      <Diagnose />
       {!ai && (
         <p className="mb-5 flex items-start gap-2.5 rounded-[14px] bg-signal-soft px-3.5 py-3 text-[15px] leading-6">
           <WarningIcon className="mt-0.5 h-5 w-5 shrink-0" />
           <span>{A.noAi}</span>
         </p>
       )}
-      {error && <p className="mb-5 rounded-[14px] bg-mist px-3.5 py-3 text-[15px] text-danger-ink">{A.errors.generic}</p>}
+      {error && (
+        <p role="alert" className="mb-5 rounded-[14px] border border-danger px-3.5 py-3 text-[15px] text-danger-ink">
+          {A.errors.generic}
+        </p>
+      )}
 
       <div className="grid gap-6 md:grid-cols-[280px_1fr]">
         <nav aria-label={T.doc.kb} className="flex flex-col gap-2">

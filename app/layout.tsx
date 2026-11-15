@@ -6,7 +6,9 @@ export const metadata: Metadata = {
   description: "עוזר שטח לטכנאים: עונה רק מהמסמכים שבמאגר הידע, עם המקור",
 };
 
-export const viewport: Viewport = { width: "device-width", initialScale: 1, themeColor: "#ffffff" };
+// interactiveWidget: the layout shrinks when the on-screen keyboard opens, so the question box
+// stays in view. Zoom is left to the user.
+export const viewport: Viewport = { width: "device-width", initialScale: 1, themeColor: "#ffffff", interactiveWidget: "resizes-content" };
 
 // The disclaimer line is rendered by each screen (app/components/TechnicianApp.tsx).
 export default function RootLayout({ children }: LayoutProps<"/">) {

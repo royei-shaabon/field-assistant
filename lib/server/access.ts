@@ -1,31 +1,33 @@
 // Optional gate for the technician area: with ACCESS_CODE set, a phone must enter the code once
 // before it can list knowledge bases, ask, or open a source document. A signed-in implementer
 // passes too. Without ACCESS_CODE the technician area is open to anyone with the link.
-import { createHmac, timingSafeEqual } from "node:crypto";
 import { cookies, headers } from "next/headers";
 import { adminState } from "./admin-auth";
+import { allow, clientKeyFrom, LIMITS, reset } from "./rate-limit";
+import { sameSecret, validSession } from "./session";
 
 export const ACCESS_COOKIE = "kb_access";
 
-const token = (code: string) => createHmac("sha256", code).update("kb-technician-access-v1").digest("hex");
-
-export function checkAccessCode(code: string): string | null {
+export function codeMatches(code: string): boolean {
   const real = process.env.ACCESS_CODE;
-  if (!real) return null;
-  const a = Buffer.from(token(code.trim()));
-  const b = Buffer.from(token(real));
-  return timingSafeEqual(a, b) ? token(real) : null;
+  return Boolean(real) && sameSecret(code.trim(), real!);
 }
 
 export async function technicianAllowed(): Promise<boolean> {
-  const real = process.env.ACCESS_CODE;
-  if (!real) return true;
-  const cookie = (await cookies()).get(ACCESS_COOKIE)?.value ?? "";
-  const expected = token(real);
-  if (cookie.length === expected.length && timingSafeEqual(Buffer.from(cookie), Buffer.from(expected))) return true;
-  // Scripts (health checks, the live check in scripts/live-check.ts) send the code in a header.
-  const sent = (await headers()).get("x-access-token");
-  if (sent && checkAccessCode(sent)) return true;
+  if (!process.env.ACCESS_CODE) return true;
+  if (validSession("tech", (await cookies()).get(ACCESS_COOKIE)?.value)) return true;
+  // Scripts (scripts/live-check.ts) send the code in a header. Wrong guesses are limited
+  // exactly like the code screen, and the limit is checked before the code is.
+  const h = await headers();
+  const sent = h.get("x-access-token");
+  if (sent) {
+    const key = `access:${clientKeyFrom(h.get("x-forwarded-for"))}`;
+    if (!allow(key, LIMITS.login) || !allow("access:all", LIMITS.loginAll)) return false;
+    if (codeMatches(sent)) {
+      reset(key);
+      return true;
+    }
+  }
   return (await adminState()) === "ok";
 }
 

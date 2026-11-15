@@ -9,7 +9,7 @@ import type { BlobDriver, DocMeta, KbMeta, Passage, StoredDoc, Usage } from "./t
 
 export type { BlobDriver, DocMeta, DocOrigin, KbMeta, Passage, StoredDoc, Usage } from "./types";
 
-export const EMPTY_USAGE: Usage = { questions: 0, answer: 0, ask: 0, not_found: 0, hazard: 0, error: 0 };
+export const EMPTY_USAGE: Usage = { questions: 0, answer: 0, ask: 0, not_found: 0, hazard: 0, error: 0, helpful: 0, unhelpful: 0 };
 
 const ID = /^[a-z0-9][a-z0-9-]{1,60}$/;
 
@@ -17,7 +17,15 @@ export class NotFound extends Error {}
 export class Invalid extends Error {}
 
 const json = (v: unknown) => Buffer.from(JSON.stringify(v));
-const parse = <T>(b: Buffer | null): T | null => (b ? (JSON.parse(b.toString("utf8")) as T) : null);
+// A damaged file reads as missing, so one bad write cannot take the admin screen down.
+const parse = <T>(b: Buffer | null): T | null => {
+  if (!b) return null;
+  try {
+    return JSON.parse(b.toString("utf8")) as T;
+  } catch {
+    return null;
+  }
+};
 
 export function slug(name: string): string {
   const ascii = name
@@ -97,6 +105,21 @@ export class KbStore {
     return meta;
   }
 
+  // The name is what technicians see on every source chip, so the implementer can fix it.
+  async renameDoc(kbId: string, docId: string, name: string): Promise<DocMeta> {
+    this.checkId(kbId);
+    this.checkId(docId);
+    const clean = name.trim().slice(0, 120);
+    if (!clean) throw new Invalid("name");
+    const key = `kbs/${kbId}/docs/${docId}.meta.json`;
+    const meta = parse<DocMeta>(await this.driver.read(key));
+    if (!meta) throw new NotFound("doc");
+    const next = { ...meta, name: clean };
+    await this.driver.write(key, json(next));
+    await this.touch(kbId); // rebuilds the search index, which carries the name
+    return next;
+  }
+
   async deleteDoc(kbId: string, docId: string): Promise<void> {
     this.checkId(kbId);
     this.checkId(docId);
@@ -120,10 +143,18 @@ export class KbStore {
 
   // Counts one reply. Read-modify-write: two replies at the same instant may count as one,
   // which is fine for a usage overview.
-  async recordUsage(kbId: string, kind: Exclude<keyof Usage, "questions" | "lastAt">): Promise<void> {
+  async recordUsage(kbId: string, kind: "answer" | "ask" | "not_found" | "hazard" | "error"): Promise<void> {
     const usage = await this.getUsage(kbId);
     const next: Usage = { ...usage, questions: usage.questions + 1, [kind]: usage[kind] + 1, lastAt: new Date().toISOString() };
     await this.driver.write(`kbs/${kbId}/usage.json`, json(next));
+  }
+
+  // "Helped" / "did not help" on an answer: a count only, never the question or the answer.
+  async recordFeedback(kbId: string, helpful: boolean): Promise<void> {
+    if (!(await this.getKb(kbId))) throw new NotFound("kb");
+    const usage = await this.getUsage(kbId);
+    const field = helpful ? "helpful" : "unhelpful";
+    await this.driver.write(`kbs/${kbId}/usage.json`, json({ ...usage, [field]: usage[field] + 1 }));
   }
 
   // Every document with its passages: what the search index is built from.

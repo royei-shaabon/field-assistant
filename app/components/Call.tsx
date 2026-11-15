@@ -10,7 +10,7 @@ import type { Screen } from "@/lib/screen";
 import { T } from "@/lib/ui-text";
 import type { DocMark } from "@/lib/docs/ask";
 import { MarkedImage, StopCard } from "./Chat";
-import { DocHazard } from "./DocChat";
+import { DocHazard, MarksLegend } from "./DocChat";
 import { ApertureIcon, HangUpIcon, MicIcon, MicOffIcon } from "./icons";
 
 type Recognition = {
@@ -151,6 +151,8 @@ export function CallView({
       if (final && text.trim()) {
         setState("idle");
         utter.current(text.trim(), frame());
+        // The sentence was sent: the shutter button must not send it again.
+        setTimeout(() => setHeard(""), 1500);
       }
     };
     r.onerror = (e) => {
@@ -215,6 +217,23 @@ export function CallView({
     return () => clearInterval(t);
   }, []);
 
+  // A dialog: focus moves in, Escape ends the call, focus returns to where it was.
+  const root = useRef<HTMLDivElement>(null);
+  const hangUp = useRef(onHangUp);
+  useEffect(() => {
+    hangUp.current = onHangUp;
+  });
+  useEffect(() => {
+    const opener = document.activeElement as HTMLElement | null;
+    root.current?.querySelector<HTMLElement>("button")?.focus();
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && hangUp.current();
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("keydown", onKey);
+      opener?.focus();
+    };
+  }, []);
+
   const toggleMute = () => {
     const next = !muted;
     setMuted(next);
@@ -231,7 +250,7 @@ export function CallView({
   const clock = `${String(Math.floor(seconds / 60)).padStart(2, "0")}:${String(seconds % 60).padStart(2, "0")}`;
 
   return (
-    <div role="dialog" aria-label={kind === "video" ? T.call.video : T.call.voice} className="fixed inset-0 z-50 mx-auto flex max-w-md flex-col bg-ink text-white">
+    <div ref={root} role="dialog" aria-modal="true" aria-label={kind === "video" ? T.call.video : T.call.voice} className="on-dark fixed inset-0 z-50 mx-auto flex max-w-md flex-col bg-ink text-white">
       {kind === "video" && <video ref={video} autoPlay playsInline muted className="absolute inset-0 h-full w-full object-cover" />}
       {kind === "video" && <div aria-hidden className="absolute inset-0 bg-gradient-to-b from-black/55 via-transparent to-black/75" />}
 
@@ -257,14 +276,23 @@ export function CallView({
           </div>
         )}
 
-        {problem && <p className="rounded-xl bg-white/10 px-3 py-2 text-sm">{problem}</p>}
+        {problem && (
+          <div role="alert" className="flex flex-col gap-2.5 rounded-2xl bg-ink/90 p-3.5">
+            <p className="text-[17px] leading-[25px]">{problem}</p>
+            <button onClick={onHangUp} className="h-12 rounded-[14px] bg-white text-base font-medium text-ink">
+              {T.call.backToChat}
+            </button>
+          </div>
+        )}
 
         {visual && !busy && (
-          <div className="anim-rise">
+          <div className="anim-rise flex flex-col gap-2 rounded-2xl bg-ink/85 p-2.5">
             <MarkedImage
               src={visual.frames[visual.marks[0].frame]}
               marks={visual.marks.filter((m) => m.frame === visual.marks[0].frame).map((m, i) => ({ ...m, n: i + 1, symptomTitle: "" }))}
             />
+            <p className="text-sm text-white/75">{T.call.marksLegend}</p>
+            <MarksLegend marks={visual.marks.filter((m) => m.frame === visual.marks[0].frame)} />
           </div>
         )}
         {lastHazard ? (
@@ -275,8 +303,8 @@ export function CallView({
           <StopCard danger />
         ) : (
           saying.length > 0 && (
-            <div aria-live="polite" className="flex flex-col gap-1 text-[19px] font-medium leading-7">
-              {saying.slice(-3).map((line, i) => (
+            <div aria-live="polite" className="flex max-h-[40dvh] flex-col gap-1.5 overflow-y-auto rounded-2xl bg-ink/85 p-3.5 text-[19px] font-medium leading-7">
+              {saying.map((line, i) => (
                 <p key={i}>{line}</p>
               ))}
             </div>
@@ -284,40 +312,57 @@ export function CallView({
         )}
 
         {heard && (
-          <p className="text-base text-white/75">
-            <span>{T.call.you}</span> <span>{heard}</span>
+          <p className="rounded-xl bg-ink/85 px-3 py-2 text-[17px]">
+            <span className="text-white/75">{T.call.you}</span> <span>{heard}</span>
           </p>
         )}
-        <p className="h-5 text-sm text-white/60">{status}</p>
+        <p role="status" className="h-6 text-base text-white/80">
+          {status}
+        </p>
       </div>
 
-      <div className="relative flex items-center justify-center gap-6 px-5 pb-10 pt-2">
-        <button
-          onClick={toggleMute}
-          aria-label={muted ? T.call.unmute : T.call.mute}
-          aria-pressed={muted}
-          className={`grid h-14 w-14 place-items-center rounded-full ${muted ? "bg-white text-ink" : "bg-white/15"}`}
-        >
-          {muted ? <MicOffIcon className="h-6 w-6" /> : <MicIcon className="h-6 w-6" />}
-        </button>
-        {kind === "video" && (
+      <div className="relative flex items-start justify-center gap-7 px-5 pb-6 pt-2">
+        <div className="flex w-20 flex-col items-center gap-1.5">
           <button
-            onClick={() => {
-              const f = frame();
-              if (f) onUtterance(heard.trim(), f);
-            }}
-            disabled={busy}
-            aria-label={T.call.snapshot}
-            className="grid h-[72px] w-[72px] place-items-center rounded-full border-4 border-white/80 disabled:opacity-50"
+            onClick={toggleMute}
+            aria-label={muted ? T.call.unmute : T.call.mute}
+            aria-pressed={muted}
+            className={`grid h-16 w-16 place-items-center rounded-full ${muted ? "bg-white text-ink" : "bg-white/20"}`}
           >
-            <ApertureIcon className="h-7 w-7" />
+            {muted ? <MicOffIcon className="h-7 w-7" /> : <MicIcon className="h-7 w-7" />}
           </button>
+          <span aria-hidden className="text-center text-sm">
+            {muted ? T.call.unmute : T.call.muteShort}
+          </span>
+        </div>
+        {kind === "video" && (
+          <div className="flex w-24 flex-col items-center gap-1.5">
+            <button
+              onClick={() => {
+                const f = frame();
+                if (f) onUtterance("", f);
+              }}
+              disabled={busy}
+              aria-label={T.call.snapshot}
+              className="grid h-16 w-16 place-items-center rounded-full border-4 border-white bg-white/10 disabled:opacity-50"
+            >
+              <ApertureIcon className="h-7 w-7" />
+            </button>
+            <span aria-hidden className="text-center text-sm">
+              {T.call.snapshot}
+            </span>
+          </div>
         )}
-        <button onClick={onHangUp} aria-label={T.call.hangUp} className="grid h-14 w-14 place-items-center rounded-full bg-danger">
-          <HangUpIcon className="h-6 w-6" />
-        </button>
+        <div className="flex w-20 flex-col items-center gap-1.5">
+          <button onClick={onHangUp} aria-label={T.call.hangUp} className="grid h-16 w-16 place-items-center rounded-full bg-danger">
+            <HangUpIcon className="h-7 w-7" />
+          </button>
+          <span aria-hidden className="text-center text-sm">
+            {T.call.hangUpShort}
+          </span>
+        </div>
       </div>
-      <p className="relative px-4 pb-4 text-center text-[11px] text-white/60">{disclaimer}</p>
+      <p className="relative px-4 pb-4 text-center text-[13px] leading-[18px] text-white/75">{disclaimer}</p>
     </div>
   );
 }

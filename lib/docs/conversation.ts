@@ -116,6 +116,7 @@ export async function handleDocConversation(
   client: ModelClient,
   body: unknown,
   progress: (p: AskProgress) => void = () => {},
+  signal?: AbortSignal,
 ): Promise<DocResponse> {
   if (!validateRequest(body)) throw new BadRequest(new Ajv().errorsText(validateRequest.errors));
   const { events, input } = body;
@@ -140,6 +141,7 @@ export async function handleDocConversation(
       history: events.map((e) => ({ said: e.said, result: e.result })),
     },
     progress,
+    signal,
   );
   if (run.errors.length) console.error(`[ask ${kb.meta.id}]`, run.errors.join("; "));
   const event: DocEvent = { type: "DOC_TURN", result: run.result, ...(said ? { said } : {}), ...(media ? { media, frames: images.length } : {}) };

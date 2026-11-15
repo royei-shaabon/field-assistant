@@ -57,7 +57,7 @@ export function wordCount(text: string): number {
 function TechBubble({ children }: { children: React.ReactNode }) {
   return (
     <div className="anim-rise flex justify-end">
-      <div className="max-w-[80%] rounded-[18px] rounded-es-md bg-mist px-3.5 py-2.5 text-base leading-6">{children}</div>
+      <div className="max-w-[85%] rounded-[18px] rounded-es-md bg-bubble px-3.5 py-2.5 text-[17px] leading-[26px]">{children}</div>
     </div>
   );
 }
@@ -93,12 +93,13 @@ function SourceChip({ source }: { source: StepView["source"] }) {
   );
 }
 
+// The numbered boxes are decoration for a screen reader: the same labels follow as a list.
 export function MarkedImage({ src, marks }: { src?: string; marks: (MarkView & { n: number })[] }) {
   return (
     <div className="relative overflow-hidden rounded-2xl bg-[#191b1e]">
       {src ? (
         // eslint-disable-next-line @next/next/no-img-element -- local data URL, not an optimisable asset
-        <img src={src} alt="" className="block w-full" />
+        <img src={src} alt={T.chat.markedPhoto} className="block w-full" />
       ) : (
         <div className="grid aspect-[4/3] place-items-center p-4 text-center text-sm text-white/70">{T.chat.notStored}</div>
       )}
@@ -106,11 +107,12 @@ export function MarkedImage({ src, marks }: { src?: string; marks: (MarkView & {
         <span key={m.n}>
           <span
             aria-hidden
-            className="absolute rounded-lg border-[2.5px] border-signal"
+            className="absolute rounded-lg border-[3px] border-signal shadow-[0_0_0_1.5px_var(--color-ink),inset_0_0_0_1.5px_var(--color-ink)]"
             style={{ left: `${m.box.x / 10}%`, top: `${m.box.y / 10}%`, width: `${m.box.w / 10}%`, height: `${m.box.h / 10}%` }}
           />
           <span
-            className="absolute grid h-5 w-5 -translate-x-1/2 -translate-y-1/2 place-items-center rounded-full bg-signal font-mono text-[11px] font-medium text-ink"
+            aria-hidden
+            className="absolute grid h-6 w-6 -translate-x-1/2 -translate-y-1/2 place-items-center rounded-full bg-signal font-mono text-[13px] font-medium text-ink shadow-[0_0_0_1.5px_var(--color-ink)]"
             style={{ left: `${m.box.x / 10}%`, top: `${m.box.y / 10}%` }}
           >
             {m.n}
@@ -140,7 +142,7 @@ function MediaBubble({ item, frames }: { item: Extract<ChatItem, { kind: "media"
       <div className="w-[60%] overflow-hidden rounded-2xl rounded-es-md bg-[#191b1e]">
         {frames?.[0] ? (
           // eslint-disable-next-line @next/next/no-img-element -- local data URL
-          <img src={frames[0]} alt="" className="block w-full" />
+          <img src={frames[0]} alt={T.chat.sentPhoto} className="block w-full" />
         ) : (
           <div className="grid aspect-[4/3] place-items-center p-3 text-center text-xs text-white/70">{T.chat.notStored}</div>
         )}
@@ -153,14 +155,14 @@ function MediaBubble({ item, frames }: { item: Extract<ChatItem, { kind: "media"
           <span>{T.chat.frames}</span>
         </p>
       )}
-      {item.said && <div className="max-w-[80%] rounded-[18px] rounded-es-md bg-mist px-3.5 py-2.5 text-base leading-6">{item.said}</div>}
+      {item.said && <div className="max-w-[80%] rounded-[18px] rounded-es-md bg-bubble px-3.5 py-2.5 text-[17px] leading-[26px]">{item.said}</div>}
     </div>
   );
 }
 
 export function StopCard({ danger = false, onAck }: { danger?: boolean; onAck?: () => void }) {
   return (
-    <section role="alert" className="overflow-hidden rounded-[18px] bg-ink text-white">
+    <section role="alert" className="on-dark overflow-hidden rounded-[18px] bg-ink text-white">
       <div className="hazard-stripe h-2.5" />
       <div className="flex flex-col gap-2.5 px-[18px] pb-5 pt-[18px]">
         <div className="flex items-center gap-2.5">
@@ -186,6 +188,8 @@ type Handlers = {
   // Document knowledge bases: which one (for source links) and a tap on a suggested reply.
   kbId?: string;
   onOption?: (text: string) => void;
+  // "Add a photo" under a not-found reply.
+  onAttach?: () => void;
 };
 
 function NeedMore({ item, interactive, onPick, onOther }: { item: Extract<ChatItem, { kind: "need_more" }>; interactive: boolean } & Handlers) {
@@ -376,13 +380,13 @@ function Item({
         </div>
       );
     case "doc_answer":
-      return <DocAnswer item={item} kbId={handlers.kbId ?? ""} frames={media[item.eventIndex]} animate={animate} delay={delay} />;
+      return <DocAnswer item={item} kbId={handlers.kbId ?? ""} frames={media[item.eventIndex]} animate={animate} delay={delay} feedback={animate} />;
     case "doc_ask":
       return <DocAsk item={item} interactive={interactive} animate={animate} delay={delay} onOption={handlers.onOption} />;
     case "doc_hazard":
       return <DocHazard topic={item.topic} sources={item.sources} kbId={handlers.kbId ?? ""} />;
     case "doc_not_found":
-      return <DocNote title={T.doc.notFound} hint={T.doc.notFoundHint} />;
+      return <DocNote title={T.doc.notFound} hint={T.doc.notFoundHint} actions={interactive ? [{ label: T.doc.rephrase, run: handlers.onOther }, { label: T.doc.addPhoto, run: handlers.onAttach }] : []} />;
     case "doc_error":
       return <DocNote title={T.doc.error} />;
     case "doc_empty":
@@ -395,7 +399,7 @@ export type ProgressStep = { key: Progress; done: boolean; detail?: string };
 export function ProgressLines({ steps }: { steps: ProgressStep[] }) {
   if (!steps.length) return null;
   return (
-    <ol aria-live="polite" className="flex flex-col gap-2.5 text-sm">
+    <ol className="flex flex-col gap-2.5 text-[15px]">
       {steps.map((s, i) => (
         <li key={i} className="flex items-center gap-2.5">
           {s.done ? (
@@ -407,11 +411,6 @@ export function ProgressLines({ steps }: { steps: ProgressStep[] }) {
             </svg>
           )}
           <span className={s.done ? "text-ink-soft" : "anim-shimmer font-medium"}>{T.progress[s.key]}</span>
-          {s.detail && (
-            <span dir="auto" className="min-w-0 truncate font-mono text-xs text-stone">
-              {s.detail}
-            </span>
-          )}
         </li>
       ))}
     </ol>
@@ -580,7 +579,7 @@ export function ChatView({ screen, media, animateFrom = Number.MAX_SAFE_INTEGER,
         item={item}
         screen={screen}
         media={media}
-        interactive={(screen.mode === "identify" && i === lastNeedMore) || (screen.mode === "stop" && i === lastStop) || (item.kind === "doc_ask" && i === lastAsk && !progress.length && !pending)}
+        interactive={(screen.mode === "identify" && i === lastNeedMore) || (screen.mode === "stop" && i === lastStop) || ((item.kind === "doc_ask" || item.kind === "doc_not_found") && i === lastAsk && !progress.length && !pending)}
         animate={animate}
         delay={delay}
         {...handlers}
@@ -596,9 +595,15 @@ export function ChatView({ screen, media, animateFrom = Number.MAX_SAFE_INTEGER,
 
   return (
     <div className="flex flex-col gap-[22px]">
-      {nodes}
-      {pending}
-      <ProgressLines steps={progress} />
+      {/* A log: a screen reader announces each new message as it arrives. */}
+      <div role="log" aria-live="polite" aria-relevant="additions" className="flex flex-col gap-[22px]">
+        {nodes}
+        {pending}
+      </div>
+      {/* Always mounted, so progress is announced when its text changes. */}
+      <div role="status">
+        <ProgressLines steps={progress} />
+      </div>
       {screen.current && !progress.length && (
         <CurrentQuestion check={screen.current} animate={animateFrom <= screen.items.length} delay={delay} />
       )}

@@ -16,6 +16,10 @@
   --color-graphite: #5c5c58;
   --color-stone: #6e6e69;
   --color-pebble: #9a9a94;
+  /* Borders of controls: 3.5:1 on paper, so a field is visible in sunlight. */
+  --color-edge: #8a8a85;
+  /* The technician's own messages. */
+  --color-bubble: #e9e9e5;
   --color-signal: #ffd43b;
   --color-signal-soft: #fff4c2;
   --color-danger: #d92d20;
@@ -31,10 +35,23 @@ body {
 
 button:focus-visible,
 input:focus-visible,
+select:focus-visible,
+summary:focus-visible,
 a:focus-visible,
 label:focus-within {
   outline: 2px solid var(--color-ink);
   outline-offset: 2px;
+}
+
+/* A field inside a bordered box: the box shows the focus, not the field. */
+input.focus-in-box:focus-visible {
+  outline: none;
+}
+
+/* On dark cards and in a call the ink outline would be invisible. */
+.on-dark button:focus-visible,
+.on-dark a:focus-visible {
+  outline-color: var(--color-signal);
 }
 
 .hazard-stripe {

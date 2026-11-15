@@ -32,7 +32,7 @@ export type DocMeta = {
 };
 
 // How a knowledge base is used: one counter per kind of reply.
-export type Usage = { questions: number; answer: number; ask: number; not_found: number; hazard: number; error: number; lastAt?: string };
+export type Usage = { questions: number; answer: number; ask: number; not_found: number; hazard: number; error: number; helpful: number; unhelpful: number; lastAt?: string };
 
 export type StoredDoc = { meta: DocMeta; passages: Passage[] };
 
