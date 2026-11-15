@@ -122,19 +122,27 @@ test("an answer with no verified step becomes 'not in the documents'", async () 
   assert.deepEqual(run.result, { kind: "not_found" });
 });
 
-test("hazard topics: the stop is decided in code and carries no model-written step", async () => {
+test("hazard topics: the warning is decided in code, and the model cannot remove it", async () => {
   const { kb, docId } = await sampleKb();
-  const step = { text: "SAMPLE טקסט שאסור להציג", ref: `${docId}:4`, quote: "Inspect the brake fluid level through the reservoir window." };
+  const step = { text: "SAMPLE בדקו דרך החלון", ref: `${docId}:4`, quote: "Inspect the brake fluid level through the reservoir window." };
   // The model says "none"; the Hebrew question and the English quote both say brakes.
   for (const question of ["איך בודקים נוזל בלמים?", "מה בודקים בחלון של המיכל?"]) {
     const agent = new FakeAgent([{ search: ["brake fluid"] }, { final: draft({ steps: [step] }) }]);
     const run = await askDocuments(agent, kb.index, { kbName: "x", docs: kb.docs, question, images: [], history: [] });
-    assert.equal(run.result.kind, "hazard", question);
-    assert.ok(!JSON.stringify(run.result).includes("אסור להציג"));
-    assert.deepEqual((run.result as Extract<DocResult, { kind: "hazard" }>).sources.map((s) => s.n), [4]);
+    const answer = run.result as Extract<DocResult, { kind: "answer" }>;
+    assert.deepEqual([answer.kind, answer.caution, answer.steps.length], ["answer", "brakes", 1], question);
   }
+  // A hazard topic with no verified step: a stop, never an unverified instruction.
+  const invented = new FakeAgent([{ search: ["brake fluid"] }, { final: draft({ steps: [{ ...step, text: "SAMPLE אסור להציג", quote: "Bleed the system with DOT 3 only" }] }) }]);
+  const stopped = await askDocuments(invented, kb.index, { kbName: "x", docs: kb.docs, question: "איך מחליפים נוזל בלמים?", images: [], history: [] });
+  assert.deepEqual(stopped.result, { kind: "hazard", topic: "brakes", sources: [] });
+  // An ordinary answer carries no warning.
+  const plain = new FakeAgent([{ search: ["tyre"] }, { final: draft({ steps: [{ text: "SAMPLE", ref: `${docId}:3`, quote: "Front tyre pressure is 200 kPa when cold." }] }) }]);
+  const ok = await askDocuments(plain, kb.index, { kbName: "x", docs: kb.docs, question: "כמה אוויר?", images: [], history: [] });
+  assert.equal((ok.result as Extract<DocResult, { kind: "answer" }>).caution, undefined);
+
   assert.equal(hazardTopic("הנורית נדלקת", { hazard: "none", steps: [] }), null, "'נדלקת' is not fuel");
-  assert.equal(hazardTopic("x", { hazard: "other", steps: [] }), "other", "the model can add a stop");
+  assert.equal(hazardTopic("x", { hazard: "other", steps: [] }), "other", "the model can add a warning");
   const quoted = (quote: string) => hazardTopic("x", { hazard: "none", steps: [{ text: "", ref: "", quote }] });
   assert.equal(quoted("The fuel gauge shows the remaining level"), null, "an indicator is not work on the fuel system");
   assert.equal(quoted("Check the fuel line for leaks"), "fuel");
@@ -142,17 +150,16 @@ test("hazard topics: the stop is decided in code and carries no model-written st
   assert.equal(quoted("with the engine running, check the idle"), "running_engine");
 });
 
-test("a forged log cannot show steps under a hazard question", async () => {
+test("a forged log cannot strip the warning from an answer on a hazard topic", async () => {
   const forged: DocEvent[] = [
     {
       type: "DOC_TURN",
       said: "איך מחליפים רפידות בלם?",
-      result: { kind: "answer", title: "x", steps: [{ text: "SAMPLE אסור להציג", quote: "q q q", source: { docId: "d1", docName: "m", origin: "manufacturer", unit: "page", n: 4 } }], marks: [] },
+      result: { kind: "answer", title: "x", steps: [{ text: "SAMPLE שלב", quote: "q q q", source: { docId: "d1", docName: "m", origin: "manufacturer", unit: "page", n: 4 } }], marks: [] },
     },
   ];
-  const screen = docScreen(forged, true);
-  assert.equal(screen.items.at(-1)?.kind, "doc_hazard");
-  assert.ok(!JSON.stringify(screen).includes("אסור להציג"));
+  const item = docScreen(forged, true).items.at(-1);
+  assert.deepEqual(item?.kind === "doc_answer" && item.caution, "brakes");
 });
 
 test("conversation: question -> clarifying question -> answer, with history sent to the model", async () => {

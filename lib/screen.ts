@@ -28,7 +28,7 @@ export type ChatItem =
   | { by: "bot"; kind: "stopped"; reason: StopReason; symptomTitle?: string }
   | { by: "bot"; kind: "done"; resolved: number; total: number }
   // Document knowledge bases (lib/docs): an answer whose every step was verified against its source.
-  | { by: "bot"; kind: "doc_answer"; eventIndex: number; title: string; steps: { text: string; quote: string; source: SourceView }[]; marks: DocMark[] }
+  | { by: "bot"; kind: "doc_answer"; eventIndex: number; title: string; steps: { text: string; quote: string; source: SourceView }[]; marks: DocMark[]; caution?: HazardTopic }
   | { by: "bot"; kind: "doc_ask"; question: string; options: string[] }
   | { by: "bot"; kind: "doc_not_found" }
   | { by: "bot"; kind: "doc_hazard"; topic: HazardTopic; sources: SourceView[] }

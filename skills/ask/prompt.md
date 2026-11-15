@@ -60,7 +60,8 @@ can actually see; a wrong box misleads more than no box. Otherwise return an emp
 `hot_coolant` (opening the cooling system, radiator cap), `running_engine` (work with the
 engine running or on moving parts), `other` (anything else where a mistake can injure),
 or `none`. Set it honestly even when the documents describe the procedure: the application
-decides what to show for these topics, and it relies on this field.
+shows your answer under a safety warning for these topics, and it relies on this field. When
+the source passage itself carries a warning or caution for the step, keep it in the step.
 
 Fields that do not apply to the chosen `kind` are still required by the format: use an empty
 string or an empty list.

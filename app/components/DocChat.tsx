@@ -66,6 +66,20 @@ export function DocAnswer({ item, kbId, frames, animate, delay }: { item: Answer
   const starts = item.steps.reduce<number[]>((list, s, i) => [...list, (list[i - 1] ?? delay + wordCount(item.title) * WORD_MS) + (i ? wordCount(item.steps[i - 1].text) * WORD_MS : 0)], []);
   return (
     <article className="flex flex-col gap-3.5">
+      {item.caution && (
+        <div role="alert" className="overflow-hidden rounded-[16px] bg-ink text-white">
+          <div className="hazard-stripe h-2" />
+          <div className="flex gap-2.5 px-3.5 py-3">
+            <WarningIcon className="mt-0.5 h-5 w-5 shrink-0 text-signal" />
+            <div className="flex flex-col gap-0.5">
+              <p className="text-[15px] font-semibold leading-[22px]">
+                <span>{T.doc.cautionTitle}</span> <span className="text-signal">{T.doc.topics[item.caution]}</span>
+              </p>
+              <p className="text-sm leading-[21px] text-[#c9c9c4]">{T.doc.cautionBody}</p>
+            </div>
+          </div>
+        </div>
+      )}
       <Marks marks={item.marks} frames={frames} />
       <h3 className="text-[19px] font-semibold leading-[26px]">
         <Reveal text={item.title} animate={animate} delay={delay} />

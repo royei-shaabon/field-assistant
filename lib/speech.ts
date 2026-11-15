@@ -28,7 +28,7 @@ function lineFor(item: ChatItem, screen: Screen): string[] {
       return [screen.candidates.some((c) => c.status === "resolved") ? T.chat.doneSome : T.chat.doneNone, T.chat.newHint];
     // Document knowledge bases: the verified steps are read out; the sources stay on screen.
     case "doc_answer":
-      return [item.title, ...item.steps.map((s) => s.text), T.doc.sourceSpoken];
+      return [...(item.caution ? [T.doc.cautionTitle, T.doc.topics[item.caution], T.doc.cautionBody] : []), item.title, ...item.steps.map((s) => s.text), T.doc.sourceSpoken];
     case "doc_ask":
       return [item.question, ...(item.options.length ? [T.call.sayClosest, ...item.options] : [])];
     case "doc_hazard":

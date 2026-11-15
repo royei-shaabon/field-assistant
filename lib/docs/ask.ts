@@ -1,7 +1,7 @@
 // Answers a technician's question from the documents of one knowledge base.
 // The model searches (tool loop) and drafts; the code decides what reaches the technician:
 // every step must cite a passage that was really retrieved and quote text that is really in
-// it, and hazard topics never get model-written instructions.
+// it, and an answer on a hazard topic always carries a warning the model cannot remove.
 import fs from "node:fs";
 import path from "node:path";
 import Ajv from "ajv";
@@ -24,7 +24,8 @@ export type DocMark = { frame: number; step: number; label: string; box: { x: nu
 // What is stored in the conversation and shown. `quote` is the manual's own wording, shown
 // when the technician opens a source.
 export type DocResult =
-  | { kind: "answer"; title: string; steps: { text: string; quote: string; source: SourceView }[]; marks: DocMark[] }
+  // `caution`: the answer touches a hazard topic and is shown under a warning.
+  | { kind: "answer"; title: string; steps: { text: string; quote: string; source: SourceView }[]; marks: DocMark[]; caution?: HazardTopic }
   | { kind: "ask"; question: string; options: string[] }
   | { kind: "not_found" }
   | { kind: "hazard"; topic: HazardTopic; sources: SourceView[] }
@@ -109,7 +110,7 @@ const HAZARD_EN: { topic: HazardTopic; pattern: RegExp }[] = [
 ];
 const HEBREW_TOPIC: Record<string, HazardTopic> = { brakes: "brakes", fuel: "fuel", coolant: "hot_coolant", "running-engine": "running_engine" };
 
-// The hazard decision is made here, not by the model: the model's flag can only add a stop.
+// The hazard decision is made here, not by the model: the model's flag can only add a warning.
 export function hazardTopic(question: string | undefined, draft: Pick<Draft, "hazard" | "steps">): HazardTopic | null {
   if (draft.hazard !== "none") return draft.hazard;
   const q = question ?? "";
@@ -120,14 +121,6 @@ export function hazardTopic(question: string | undefined, draft: Pick<Draft, "ha
 }
 
 const sourceOf = (h: Omit<Hit, "score">): SourceView => ({ docId: h.docId, docName: h.docName, origin: h.origin, unit: h.unit, n: h.n });
-
-function uniqueSources(list: SourceView[]): SourceView[] {
-  const seen = new Set<string>();
-  return list.filter((s) => {
-    const key = `${s.docId}:${s.n}`;
-    return seen.has(key) ? false : (seen.add(key), true);
-  });
-}
 
 export function validDocMarks(marks: DocMark[], frames: number, steps: number): DocMark[] {
   const inRange = (v: number) => Number.isInteger(v) && v >= 0 && v <= 1000;
@@ -159,8 +152,9 @@ export function verifyDraft(draft: Draft, seen: Map<string, Hit>, question: stri
     }
   });
 
+  // A hazard topic with nothing verified to show: a stop, so nobody improvises.
   const topic = hazardTopic(question, draft);
-  if (topic) return { kind: "hazard", topic, sources: uniqueSources(kept.map((k) => k.source)) };
+  if (topic && kept.length === 0) return { kind: "hazard", topic, sources: [] };
   if (draft.kind === "not_found" || kept.length === 0) return { kind: "not_found" };
 
   // Marks point at steps by index; re-point them after dropped steps.
@@ -175,6 +169,7 @@ export function verifyDraft(draft: Draft, seen: Map<string, Hit>, question: stri
     title: draft.title.trim().slice(0, 80),
     steps: kept.map(({ text, quote, source }) => ({ text, quote, source })),
     marks,
+    ...(topic ? { caution: topic } : {}),
   };
 }
 
@@ -183,7 +178,7 @@ export function verifyDraft(draft: Draft, seen: Map<string, Hit>, question: stri
 function describeResult(r: DocResult): string {
   if (r.kind === "answer") return `Answered "${r.title}": ${r.steps.map((s) => s.text).join(" / ")}`;
   if (r.kind === "ask") return `Asked the technician: ${r.question} (options: ${r.options.join(", ")})`;
-  if (r.kind === "hazard") return "Stopped: hazard topic, pointed the technician to the manual pages.";
+  if (r.kind === "hazard") return "Stopped: hazard topic with nothing in the documents to show.";
   if (r.kind === "not_found") return "Said it is not in the documents.";
   return "No answer (technical error).";
 }

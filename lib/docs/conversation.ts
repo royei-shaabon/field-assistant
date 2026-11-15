@@ -40,6 +40,7 @@ const requestSchema = obj(["events", "input"], {
         oneOf: [
           obj(["kind", "title", "steps", "marks"], {
             kind: kind("answer"),
+            caution: { enum: ["brakes", "fuel", "hot_coolant", "running_engine", "other"] },
             title: text(80),
             steps: { type: "array", maxItems: 6, items: obj(["text", "quote", "source"], { text: text(600), quote: text(400), source }) },
             marks: {
@@ -81,13 +82,13 @@ const requestSchema = obj(["events", "input"], {
 const validateRequest = new Ajv().compile<DocRequest>(requestSchema);
 
 // The event log comes back from the client, so the hazard rule is applied again on every
-// replay: an "answer" stored under a hazard question is shown as a stop, whatever the log says.
+// replay: an answer on a hazard topic gets its warning back, whatever the log says.
 function guarded(event: DocEvent): DocResult {
   const r = event.result;
   if (r.kind !== "answer") return r;
   const topic = hazardTopic(event.said, { hazard: "none", steps: r.steps.map((s) => ({ text: s.text, ref: "", quote: s.quote })) });
-  if (topic) return { kind: "hazard", topic, sources: r.steps.map((s) => s.source).slice(0, 6) };
-  return { ...r, marks: validDocMarks(r.marks, event.frames ?? 0, r.steps.length) };
+  const caution = r.caution ?? topic ?? undefined;
+  return { ...r, marks: validDocMarks(r.marks, event.frames ?? 0, r.steps.length), ...(caution ? { caution } : {}) };
 }
 
 export function docScreen(events: DocEvent[], hasDocuments: boolean): Screen {
@@ -99,7 +100,7 @@ export function docScreen(events: DocEvent[], hasDocuments: boolean): Screen {
     const r = guarded(event);
     if (r.kind === "answer") {
       title ??= r.title;
-      items.push({ by: "bot", kind: "doc_answer", eventIndex, title: r.title, steps: r.steps, marks: r.marks });
+      items.push({ by: "bot", kind: "doc_answer", eventIndex, title: r.title, steps: r.steps, marks: r.marks, ...(r.caution ? { caution: r.caution } : {}) });
     } else if (r.kind === "ask") items.push({ by: "bot", kind: "doc_ask", question: r.question, options: r.options });
     else if (r.kind === "hazard") items.push({ by: "bot", kind: "doc_hazard", topic: r.topic, sources: r.sources });
     else if (r.kind === "not_found") items.push({ by: "bot", kind: "doc_not_found" });
