@@ -23,9 +23,10 @@ import {
 } from "@/lib/client/conversations";
 import { T } from "@/lib/ui-text";
 import { CallView, type Speech } from "./Call";
-import { Logo } from "./Logo";
-import { ChatView, type ProgressStep } from "./Chat";
-import { CameraIcon, CloseIcon, MapIcon, MenuIcon, PhoneIcon, PlusIcon, SendIcon, VideoIcon } from "./icons";
+import { Logo, LogoMark } from "./Logo";
+import { BotBubble, ChatNote, ChatTime, ChatView, Mixed, type ProgressStep } from "./Chat";
+import { QuickReplies } from "./DocChat";
+import { CameraIcon, CloseIcon, MapIcon, MenuIcon, MicIcon, PhoneIcon, PlusIcon, SendIcon, VideoIcon } from "./icons";
 
 const EMPTY: Screen = { items: [], mode: "identify", candidates: [], trees: [], danger: false };
 const MAX_PHOTOS = 4;
@@ -35,7 +36,8 @@ type Input = ClientInput | DocInput;
 type Reply = { events: SavedConversation["events"]; screen: Screen };
 // What the technician attached and has not sent yet.
 type Staged = { frames: string[]; media: "photo" | "video" };
-type Pending = { said?: string; frames?: string[] };
+// `at`: the time shown on the message while it waits for its answer.
+type Pending = { said?: string; frames?: string[]; at?: string };
 
 class HttpError extends Error {
   constructor(public status: number) {
@@ -288,6 +290,7 @@ function Composer({
   onPhotos,
   onVideo,
   onCancel,
+  onMic,
 }: {
   placeholder: string;
   text: string;
@@ -303,6 +306,8 @@ function Composer({
   onPhotos: (f: File[]) => void;
   onVideo: (f: File[]) => void;
   onCancel: () => void;
+  // With nothing typed, the round button is a microphone that starts a voice conversation.
+  onMic?: () => void;
 }) {
   const canSend = !busy && !disabled && (text.trim().length > 0 || staged !== null);
   const label = staged ? T.composer.askAboutPhoto : placeholder;
@@ -316,7 +321,7 @@ function Composer({
       className="relative"
     >
       {attachOpen && !disabled && (
-        <div className="anim-rise absolute bottom-[calc(100%+8px)] start-0 flex w-56 flex-col overflow-hidden rounded-2xl border border-edge bg-paper shadow-[0_8px_24px_rgba(18,18,18,0.12)]">
+        <div className="anim-rise absolute bottom-[calc(100%+8px)] start-0 z-10 flex w-56 flex-col overflow-hidden rounded-2xl border border-edge bg-paper shadow-[0_8px_24px_rgba(18,18,18,0.12)]">
           <FilePicker accept="image/*" multiple onFiles={(f) => (onAttachOpen(false), onPhotos(f))} className="flex h-14 items-center gap-3 px-4 text-[17px] active:bg-mist">
             <CameraIcon />
             <span>{T.composer.photo}</span>
@@ -344,40 +349,54 @@ function Composer({
         </div>
       )}
 
-      <div className="flex min-h-[60px] items-center gap-1 rounded-[22px] border border-edge bg-paper pe-1.5 ps-1 focus-within:border-primary focus-within:shadow-[0_0_0_1px_var(--color-primary)]">
+      {/* The bar every messaging app has: attach, the message field with the camera in it,
+          and one round button that sends, or records when there is nothing to send. */}
+      <div className="flex items-end gap-1.5">
         {canAttach && (
-        <button
-          type="button"
-          onClick={() => onAttachOpen(!attachOpen)}
-          disabled={disabled}
-          aria-label={T.composer.attach}
-          aria-expanded={attachOpen}
-          className="grid h-12 w-12 shrink-0 place-items-center rounded-full text-ink active:bg-mist disabled:text-pebble"
-        >
-          <CameraIcon className="h-6 w-6" />
-        </button>
+          <button
+            type="button"
+            onClick={() => onAttachOpen(!attachOpen)}
+            disabled={disabled}
+            aria-label={T.composer.attach}
+            aria-expanded={attachOpen}
+            className="grid h-12 w-11 shrink-0 place-items-center rounded-full text-ink active:bg-paper disabled:text-pebble"
+          >
+            <PlusIcon className={`h-7 w-7 transition-transform ${attachOpen ? "rotate-45" : ""}`} />
+          </button>
         )}
-        <label htmlFor="composer-text" className="sr-only">
-          {label}
-        </label>
-        <input
-          id="composer-text"
-          value={text}
-          onChange={(e) => onText(e.target.value)}
-          maxLength={500}
-          disabled={disabled}
-          enterKeyHint="send"
-          autoComplete="off"
-          placeholder={label}
-          className={`focus-in-box h-12 min-w-0 flex-1 bg-transparent text-[17px] placeholder:text-stone ${canAttach ? "" : "ps-3"}`}
-        />
+        <div className="flex min-h-12 min-w-0 flex-1 items-center rounded-[24px] border border-edge bg-paper pe-1 ps-4 focus-within:border-primary focus-within:shadow-[0_0_0_1px_var(--color-primary)]">
+          <label htmlFor="composer-text" className="sr-only">
+            {label}
+          </label>
+          <input
+            id="composer-text"
+            value={text}
+            onChange={(e) => onText(e.target.value)}
+            maxLength={500}
+            disabled={disabled}
+            enterKeyHint="send"
+            autoComplete="off"
+            placeholder={label}
+            className="focus-in-box h-12 min-w-0 flex-1 bg-transparent text-[17px] placeholder:text-stone"
+          />
+          {canAttach && !disabled && !text && !staged && (
+            <FilePicker accept="image/*" multiple onFiles={onPhotos} className="grid h-11 w-11 shrink-0 place-items-center rounded-full text-graphite active:bg-mist">
+              <CameraIcon className="h-6 w-6" />
+              <span className="sr-only">{T.doc.camera}</span>
+            </FilePicker>
+          )}
+        </div>
         {busy ? (
           <button type="button" onClick={onCancel} aria-label={T.composer.stop} className="grid h-12 w-12 shrink-0 place-items-center rounded-full bg-primary">
             <span aria-hidden className="h-3.5 w-3.5 rounded-[3px] bg-white" />
           </button>
-        ) : (
+        ) : canSend || !onMic ? (
           <button type="submit" disabled={!canSend} aria-label={T.composer.send} className="grid h-12 w-12 shrink-0 place-items-center rounded-full bg-primary text-white disabled:bg-rule disabled:text-stone">
             <SendIcon className="h-5 w-5" />
+          </button>
+        ) : (
+          <button type="button" onClick={onMic} disabled={disabled} aria-label={T.doc.startVoice} className="grid h-12 w-12 shrink-0 place-items-center rounded-full bg-primary text-white active:bg-primary-strong disabled:bg-rule disabled:text-stone">
+            <MicIcon className="h-6 w-6" />
           </button>
         )}
       </div>
@@ -463,13 +482,23 @@ function Notice({ text, action, onAction }: { text: string; action?: string; onA
   );
 }
 
+// A round icon button in the top bar, as in any messaging app. The label is read by a screen reader.
 function HeaderButton({ label, onClick, disabled, children }: { label: string; onClick: () => void; disabled?: boolean; children: React.ReactNode }) {
   return (
-    <button onClick={onClick} disabled={disabled} className="flex h-14 min-w-[52px] flex-col items-center justify-center gap-1 rounded-xl px-1.5 text-white active:bg-white/15 disabled:opacity-45">
+    <button onClick={onClick} disabled={disabled} aria-label={label} className="grid h-12 w-12 shrink-0 place-items-center rounded-full text-white active:bg-white/15 disabled:opacity-45">
       {children}
-      <span className="text-[13px] font-medium leading-none">{label}</span>
     </button>
   );
+}
+
+function dayLabel(ms: number): string {
+  const d = new Date(ms);
+  const today = new Date();
+  if (d.toDateString() === today.toDateString()) return T.doc.today;
+  const yesterday = new Date(today);
+  yesterday.setDate(today.getDate() - 1);
+  if (d.toDateString() === yesterday.toDateString()) return T.doc.yesterday;
+  return d.toLocaleDateString("he-IL", { day: "numeric", month: "long" });
 }
 
 const speechSupported = () => {
@@ -603,6 +632,7 @@ export function TechnicianApp() {
     setProgress([]);
     setLive(null);
     let streamed = false;
+    const sentAt = Date.now();
     const controller = new AbortController();
     abort.current = controller;
     try {
@@ -619,8 +649,10 @@ export function TechnicianApp() {
         controller.signal,
       );
       let media = base.conversation.media;
-      if (sent?.frames?.length && res.events.length > base.conversation.events.length) {
-        media = { ...media, [res.events.length - 1]: await Promise.all(sent.frames.map((f) => thumbnail(f))) };
+      let times = base.conversation.times;
+      if (res.events.length > base.conversation.events.length) {
+        times = { ...times, [res.events.length - 1]: sentAt };
+        if (sent?.frames?.length) media = { ...media, [res.events.length - 1]: await Promise.all(sent.frames.map((f) => thumbnail(f))) };
       }
       const conversation = {
         ...base.conversation,
@@ -628,6 +660,7 @@ export function TechnicianApp() {
         kbId: base.conversation.kbId || kbRef.current,
         events: res.events,
         media,
+        times,
         title: res.screen.title ?? base.conversation.title,
         mode: res.screen.mode,
         updatedAt: Date.now(),
@@ -668,7 +701,7 @@ export function TechnicianApp() {
         : base.screen.mode === "identify" || attachment
           ? { kind: "describe", ...(text ? { text } : {}), ...media }
           : { kind: "text", text, symptomId: base.screen.current?.symptomId };
-      return send(base, input, { said: text || undefined, frames: attachment?.frames }, speak);
+      return send(base, input, { said: text || undefined, frames: attachment?.frames, at: new Date().toLocaleTimeString("he-IL", { hour: "2-digit", minute: "2-digit" }) }, speak);
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps -- reads the latest state through activeRef
     [send],
@@ -723,6 +756,8 @@ export function TechnicianApp() {
   const first = conversation.events[0];
   const mapFrom = first?.type === "IDENTIFY_RESULT" && first.media ? first.media : "text";
   const noDocuments = isDocs && kb !== undefined && kb.documents === 0;
+  // The standing notice, at the top of every conversation.
+  const notice = isDocs ? T.doc.disclaimer : T.disclaimer;
   const empty = screen.items.length === 0 && !pending && !opening && !live;
   const canAttach = isDocs || screen.mode === "identify" || screen.mode === "done" || screen.mode === "ended";
 
@@ -753,20 +788,20 @@ export function TechnicianApp() {
   if (kbs.length === 0) return <Notice text={T.doc.noKbs} />;
 
   return (
-    <div className="mx-auto flex h-dvh max-w-md flex-col bg-paper">
-      <header className="on-dark flex h-[68px] shrink-0 items-center gap-0.5 bg-ink px-1.5 text-white">
+    <div className="mx-auto flex h-dvh max-w-md flex-col bg-canvas">
+      <header className="on-dark flex h-[62px] shrink-0 items-center bg-ink pe-1 ps-0.5 text-white shadow-[0_1px_3px_rgba(13,42,69,0.3)]">
         <HeaderButton label={T.doc.menu} onClick={() => setMenu(true)}>
           <MenuIcon />
         </HeaderButton>
-        <div className="min-w-0 flex-1 px-1.5 leading-tight">
-          <h1 className="truncate text-[17px] font-semibold">
-            <bdi>{kb?.name ?? T.appTitle}</bdi>
+        <LogoMark size={40} className="shrink-0 rounded-full ring-1 ring-white/30" />
+        <div className="min-w-0 flex-1 px-2.5 leading-tight">
+          {/* dir="auto": an English machine name is cut at its end, not at its start. */}
+          <h1 dir="auto" className="truncate text-right text-[17px] font-semibold">
+            {kb?.name ?? T.appTitle}
           </h1>
-          {screen.title && (
-            <p className="truncate text-[13px] text-white/75">
-              <bdi>{screen.title}</bdi>
-            </p>
-          )}
+          <p dir="auto" className="truncate text-right text-[13px] text-white/75">
+            {screen.title ?? (isDocs ? T.doc.status : T.appTitle)}
+          </p>
         </div>
         {screen.candidates.length > 0 && (
           <HeaderButton label={T.header.map} onClick={() => setMaps((m) => [...m, screen.items.length])} disabled={busy}>
@@ -781,28 +816,29 @@ export function TechnicianApp() {
         </HeaderButton>
       </header>
 
-      <main ref={scroller} className="flex flex-1 flex-col overflow-y-auto px-4 pb-4 pt-3">
+      <main ref={scroller} className="flex flex-1 flex-col overflow-y-auto px-2.5 pb-3 pt-3">
         <div ref={content} className="mt-auto">
           {opening ? (
             <p role="status" className="pb-10 text-center text-[17px] text-graphite">
               {T.doc.opening}
             </p>
           ) : empty ? (
-            <div className="flex flex-col gap-3 pb-8">
-              <Logo size={30} />
-              <h2 className="text-[26px] font-semibold leading-[34px]">{isDocs ? T.doc.emptyTitle : T.chat.emptyTitle}</h2>
-              <p className="text-[17px] leading-[26px] text-graphite">{noDocuments ? T.doc.empty : isDocs ? T.doc.emptyLead : T.chat.emptyLead}</p>
-              {/* Two ways to start that need no typing. */}
+            // A new conversation opens the way a chat with a person does: a first message from
+            // the other side, and two ways to answer that need no typing.
+            <div className="flex flex-col gap-2">
+              <ChatNote tone="notice">{notice}</ChatNote>
+              <BotBubble>
+                <h2 className="font-normal">
+                  <Mixed text={noDocuments ? T.doc.empty : isDocs ? T.doc.welcome(kb?.name ?? T.appTitle) : T.chat.emptyLead} />
+                </h2>
+              </BotBubble>
               {isDocs && !noDocuments && (
-                <div className="grid grid-cols-2 gap-2.5 pt-3">
-                  <FilePicker accept="image/*" multiple onFiles={stagePhotos} className="flex h-[60px] items-center justify-center gap-2.5 rounded-[16px] bg-primary text-[17px] font-medium text-white active:bg-primary-strong">
-                    <CameraIcon />
+                <div className="flex flex-wrap gap-2 px-1">
+                  <FilePicker accept="image/*" multiple onFiles={stagePhotos} className="flex min-h-12 items-center gap-2 rounded-full border border-primary bg-paper px-4 text-[16px] font-medium text-primary shadow-[0_1px_1.5px_rgba(13,42,69,0.12)] active:bg-primary-soft">
+                    <CameraIcon className="h-5 w-5" />
                     <span>{T.doc.startPhoto}</span>
                   </FilePicker>
-                  <button onClick={() => startCall("voice")} className="flex h-[60px] items-center justify-center gap-2.5 rounded-[16px] border border-primary text-[17px] font-medium text-primary active:bg-primary-soft">
-                    <PhoneIcon />
-                    <span>{T.doc.startVoice}</span>
-                  </button>
+                  <QuickReplies actions={[{ label: T.doc.startVoice, run: () => startCall("voice") }]} />
                 </div>
               )}
             </div>
@@ -815,15 +851,24 @@ export function TechnicianApp() {
               live={call ? null : live}
               maps={maps}
               mapFrom={mapFrom}
+              times={conversation.times}
+              paired={isDocs}
+              day={conversation.times?.[0] ? dayLabel(conversation.times[0]) : undefined}
+              notice={notice}
               progress={call ? [] : progress}
               pending={
                 pending && (
-                  <div className="anim-rise flex flex-col items-end gap-1.5">
+                  <div className="anim-rise flex flex-col items-end gap-1.5 pt-1.5">
                     {pending.frames?.[0] && (
                       // eslint-disable-next-line @next/next/no-img-element -- local data URL
-                      <img src={pending.frames[0]} alt={T.chat.sentPhoto} className="w-[60%] rounded-2xl rounded-es-md" />
+                      <img src={pending.frames[0]} alt={T.chat.sentPhoto} className="w-[62%] rounded-[18px] rounded-se-[6px] border-4 border-bubble shadow-[0_1px_1.5px_rgba(13,42,69,0.18)]" />
                     )}
-                    {pending.said && <div className="max-w-[85%] rounded-[18px] rounded-es-md bg-bubble px-3.5 py-2.5 text-[17px] leading-[26px]">{pending.said}</div>}
+                    {pending.said && (
+                      <div className="max-w-[85%] rounded-[18px] rounded-se-[6px] bg-bubble px-3.5 py-2.5 text-[17px] leading-[26px] shadow-[0_1px_1.5px_rgba(13,42,69,0.18)]">
+                        {pending.said}
+                        <ChatTime at={pending.at} />
+                      </div>
+                    )}
                   </div>
                 )
               }
@@ -836,7 +881,7 @@ export function TechnicianApp() {
             />
           )}
           {error && (
-            <p role="alert" className="mt-4 rounded-xl border border-danger px-3.5 py-3 text-base leading-6 text-danger-ink">
+            <p role="alert" className="mt-3 rounded-xl border border-danger bg-paper px-3.5 py-3 text-base leading-6 text-danger-ink">
               {error}
             </p>
           )}
@@ -844,7 +889,7 @@ export function TechnicianApp() {
         </div>
       </main>
 
-      <div className="px-3 pb-1.5">
+      <div className="px-2 pb-[max(10px,env(safe-area-inset-bottom))] pt-1.5">
         <Composer
           placeholder={isDocs ? T.doc.placeholder : screen.mode === "identify" ? T.composer.describe : T.composer.answer}
           text={draft}
@@ -860,9 +905,9 @@ export function TechnicianApp() {
           onPhotos={stagePhotos}
           onVideo={stageVideo}
           onCancel={() => abort.current?.abort()}
+          onMic={isDocs ? () => startCall("voice") : undefined}
         />
       </div>
-      <p className="px-4 pb-3 pt-1.5 text-center text-[13px] leading-[18px] text-stone">{isDocs ? T.doc.disclaimer : T.disclaimer}</p>
 
       {menu && (
         <Menu

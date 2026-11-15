@@ -23,8 +23,10 @@
   --color-pebble: #91a0af;
   /* Borders of controls: at least 3:1 on paper, so a field is visible in sunlight. */
   --color-edge: #788898;
-  /* The technician's own messages. */
-  --color-bubble: #e2edf8;
+  /* The chat, like any messaging app: a tinted wall, white bubbles for the assistant, and a
+     blue-tinted bubble for the technician's own messages. */
+  --color-canvas: #e6ecf2;
+  --color-bubble: #cfe3f7;
   --color-primary: #145da0;
   --color-primary-strong: #0f4a80;
   --color-primary-soft: #e2edf8;
@@ -69,11 +71,13 @@ input.focus-in-box:focus-visible {
 @keyframes caret { 0%, 49% { opacity: 1 } 50%, 100% { opacity: 0 } }
 @keyframes shimmer { 0% { background-position: 100% 0 } 100% { background-position: -100% 0 } }
 @keyframes spin { to { transform: rotate(360deg) } }
+@keyframes dot { 0%, 60%, 100% { transform: none; opacity: 0.45 } 30% { transform: translateY(-4px); opacity: 1 } }
 @keyframes rise { from { opacity: 0; transform: translateY(8px) } to { opacity: 1; transform: none } }
 
 .anim-caret { animation: caret 1s steps(1) infinite }
 .anim-spin { animation: spin 0.9s linear infinite }
 .anim-rise { animation: rise 180ms ease-out both }
+.anim-dot { animation: dot 1.2s ease-in-out infinite }
 .anim-shimmer {
   background: linear-gradient(90deg, var(--color-stone) 0%, var(--color-stone) 40%, #c9c9c4 50%, var(--color-stone) 60%, var(--color-stone) 100%);
   background-size: 200% 100%;
@@ -84,6 +88,6 @@ input.focus-in-box:focus-visible {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .anim-caret, .anim-spin, .anim-rise, .anim-shimmer { animation: none }
+  .anim-caret, .anim-spin, .anim-rise, .anim-shimmer, .anim-dot { animation: none }
   .anim-shimmer { color: var(--color-stone); background: none }
 }

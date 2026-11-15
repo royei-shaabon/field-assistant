@@ -9,7 +9,7 @@ import type { PartialAnswer } from "@/lib/docs/ask";
 import type { CandidateView, ChatItem, CheckView, MarkView, Screen, TreeView } from "@/lib/screen";
 import type { StepView } from "@/lib/safety";
 import { T } from "@/lib/ui-text";
-import { Caution, DocAnswer, docAnswerWords, DocAsk, DocHazard, DocNote, Ideas } from "./DocChat";
+import { Caution, DocAnswer, docAnswerWords, DocAsk, DocHazard, DocNote, Ideas, QuickReplies } from "./DocChat";
 import { CheckIcon, DocIcon, WarningIcon } from "./icons";
 
 export type Media = Record<number, string[]>;
@@ -85,11 +85,58 @@ export function wordCount(text: string): number {
   return text.split(" ").length;
 }
 
-function TechBubble({ children }: { children: React.ReactNode }) {
+// The chat looks like the messaging apps a technician uses every day: the assistant's messages
+// in white bubbles on one side, their own in tinted bubbles on the other, the time in the corner.
+const BUBBLE = "min-w-0 rounded-[18px] px-3.5 py-2.5 text-[17px] leading-[26px] shadow-[0_1px_1.5px_rgba(13,42,69,0.18)]";
+
+export function ChatTime({ at }: { at?: string }) {
+  return at ? <span className="mt-1 block text-end font-mono text-[13px] leading-none text-stone">{at}</span> : null;
+}
+
+export function BotBubble({ children, time, wide = false }: { children: React.ReactNode; time?: string; wide?: boolean }) {
   return (
-    <div className="anim-rise flex justify-end">
-      <div className="max-w-[85%] rounded-[18px] rounded-es-md bg-bubble px-3.5 py-2.5 text-[17px] leading-[26px]">{children}</div>
+    <div className="anim-rise flex justify-start">
+      <div className={`${BUBBLE} rounded-ss-[6px] bg-paper ${wide ? "w-full" : "max-w-[90%]"}`}>
+        {children}
+        <ChatTime at={time} />
+      </div>
     </div>
+  );
+}
+
+export function TechBubble({ children, time }: { children: React.ReactNode; time?: string }) {
+  return (
+    <div className="anim-rise flex justify-end pt-1.5">
+      <div className={`${BUBBLE} max-w-[85%] rounded-se-[6px] bg-bubble`}>
+        {children}
+        <ChatTime at={time} />
+      </div>
+    </div>
+  );
+}
+
+// "Typing…", with what the assistant is doing right now.
+export function TypingBubble({ label }: { label: string }) {
+  return (
+    <BotBubble>
+      <span className="flex items-center gap-2.5 py-0.5">
+        <span aria-hidden className="flex gap-1">
+          {[0, 1, 2].map((i) => (
+            <span key={i} className="anim-dot h-2 w-2 rounded-full bg-stone" style={{ animationDelay: `${i * 160}ms` }} />
+          ))}
+        </span>
+        <span className="text-[15px] text-graphite">{label}…</span>
+      </span>
+    </BotBubble>
+  );
+}
+
+// A short line in the middle of the chat that nobody "said": the day, or a standing notice.
+export function ChatNote({ children, tone = "plain" }: { children: React.ReactNode; tone?: "plain" | "notice" }) {
+  return (
+    <p className={`mx-auto max-w-[88%] rounded-xl px-3 py-1.5 text-center text-[13px] leading-[19px] shadow-[0_1px_1px_rgba(13,42,69,0.1)] ${tone === "notice" ? "bg-signal-soft text-ink-soft" : "bg-paper text-graphite"}`}>
+      {children}
+    </p>
   );
 }
 
@@ -167,10 +214,10 @@ function MarkList({ marks }: { marks: MarkView[] }) {
   );
 }
 
-function MediaBubble({ item, frames }: { item: Extract<ChatItem, { kind: "media" }>; frames?: string[] }) {
+function MediaBubble({ item, frames, time }: { item: Extract<ChatItem, { kind: "media" }>; frames?: string[]; time?: string }) {
   return (
-    <div className="anim-rise flex flex-col items-end gap-1.5">
-      <div className="w-[60%] overflow-hidden rounded-2xl rounded-es-md bg-[#191b1e]">
+    <div className="anim-rise flex flex-col items-end gap-1.5 pt-1.5">
+      <div className="w-[62%] overflow-hidden rounded-[18px] rounded-se-[6px] border-4 border-bubble bg-[#191b1e] shadow-[0_1px_1.5px_rgba(13,42,69,0.18)]">
         {frames?.[0] ? (
           // eslint-disable-next-line @next/next/no-img-element -- local data URL
           <img src={frames[0]} alt={T.chat.sentPhoto} className="block w-full" />
@@ -186,7 +233,14 @@ function MediaBubble({ item, frames }: { item: Extract<ChatItem, { kind: "media"
           <span>{T.chat.frames}</span>
         </p>
       )}
-      {item.said && <div className="max-w-[80%] rounded-[18px] rounded-es-md bg-bubble px-3.5 py-2.5 text-[17px] leading-[26px]">{item.said}</div>}
+      {item.said ? (
+        <div className={`${BUBBLE} max-w-[85%] bg-bubble`}>
+          {item.said}
+          <ChatTime at={time} />
+        </div>
+      ) : (
+        <ChatTime at={time} />
+      )}
     </div>
   );
 }
@@ -300,6 +354,7 @@ function Item({
   animate,
   fresh = false,
   delay,
+  time,
   ...handlers
 }: {
   item: ChatItem;
@@ -310,6 +365,8 @@ function Item({
   // Arrived in this exchange (as opposed to a reopened conversation).
   fresh?: boolean;
   delay: number;
+  // When the message was sent, already formatted. Absent for conversations saved before times were kept.
+  time?: string;
 } & Handlers) {
   const say = (text: string) => (
     <p className="text-base leading-[25px]">
@@ -318,9 +375,9 @@ function Item({
   );
   switch (item.kind) {
     case "text":
-      return <TechBubble>{item.said}</TechBubble>;
+      return <TechBubble time={time}>{item.said}</TechBubble>;
     case "media":
-      return <MediaBubble item={item} frames={media[item.eventIndex]} />;
+      return <MediaBubble item={item} frames={media[item.eventIndex]} time={time} />;
     case "picked":
       return (
         <TechBubble>
@@ -414,22 +471,22 @@ function Item({
         </div>
       );
     case "doc_answer":
-      return <DocAnswer item={item} kbId={handlers.kbId ?? ""} frames={media[item.eventIndex]} animate={animate} delay={delay} feedback={fresh} />;
+      return <DocAnswer item={item} kbId={handlers.kbId ?? ""} frames={media[item.eventIndex]} animate={animate} delay={delay} feedback={fresh} time={time} />;
     case "doc_ask":
-      return <DocAsk item={item} interactive={interactive} animate={animate} delay={delay} onOption={handlers.onOption} />;
+      return <DocAsk item={item} interactive={interactive} animate={animate} delay={delay} onOption={handlers.onOption} time={time} />;
     case "doc_hazard":
       return <DocHazard topic={item.topic} sources={item.sources} kbId={handlers.kbId ?? ""} />;
     case "doc_ideas":
       return (
-        <div className="flex flex-col gap-3">
+        <div className="flex flex-col gap-2">
           {item.caution && <Caution topic={item.caution} />}
           <DocNote title={T.doc.ideasNotFound} />
-          <Ideas ideas={item.ideas} />
-          <DocNote title="" actions={interactive ? [{ label: T.doc.rephrase, run: handlers.onOther }, { label: T.doc.addPhoto, run: handlers.onAttach }] : []} />
+          <Ideas ideas={item.ideas} time={time} />
+          <QuickReplies actions={interactive ? [{ label: T.doc.rephrase, run: handlers.onOther }, { label: T.doc.addPhoto, run: handlers.onAttach }] : []} />
         </div>
       );
     case "doc_not_found":
-      return <DocNote title={T.doc.notFound} hint={T.doc.notFoundHint} actions={interactive ? [{ label: T.doc.rephrase, run: handlers.onOther }, { label: T.doc.addPhoto, run: handlers.onAttach }] : []} />;
+      return <DocNote time={time} title={T.doc.notFound} hint={T.doc.notFoundHint} actions={interactive ? [{ label: T.doc.rephrase, run: handlers.onOther }, { label: T.doc.addPhoto, run: handlers.onAttach }] : []} />;
     case "doc_error":
       return <DocNote title={T.doc.error} />;
     case "doc_empty":
@@ -578,7 +635,20 @@ export type ChatProps = {
   live?: PartialAnswer | null;
   // What the technician just sent, shown before the server answers.
   pending?: React.ReactNode;
+  // When each event was sent (by event index), and whether every event is one message from the
+  // technician followed by one reply (document conversations), so a chat item maps to its event.
+  times?: Record<number, number>;
+  paired?: boolean;
+  // Lines above the first message: the day, and the standing notice.
+  day?: string;
+  notice?: string;
 } & Handlers;
+
+const clock = (ms?: number) => (ms ? new Date(ms).toLocaleTimeString("he-IL", { hour: "2-digit", minute: "2-digit" }) : undefined);
+
+// Items that draw their own bubble or card. Everything else the assistant says goes in a bubble here.
+const SELF_FRAMED = new Set<ChatItem["kind"]>(["text", "media", "picked", "answer", "acknowledged", "track_stopped", "doc_answer", "doc_ask", "doc_hazard", "doc_ideas", "doc_not_found", "doc_error", "doc_empty"]);
+const selfFramed = (item: ChatItem) => SELF_FRAMED.has(item.kind) || (item.kind === "stopped" && item.reason === "danger");
 
 // The whole conversation, in reading order. Returns the typing time of new messages so the
 // caller can hold the answer buttons until the question is complete.
@@ -597,7 +667,7 @@ export function chatTypingMs(screen: Screen, animateFrom: number): number {
   return words * WORD_MS;
 }
 
-export function ChatView({ screen, media, animateFrom = Number.MAX_SAFE_INTEGER, maps = [], mapFrom = "text", progress = [], streamed = false, live = null, pending, ...handlers }: ChatProps) {
+export function ChatView({ screen, media, animateFrom = Number.MAX_SAFE_INTEGER, maps = [], mapFrom = "text", progress = [], streamed = false, live = null, pending, times, paired = false, day, notice, ...handlers }: ChatProps) {
   let delay = 0;
   const kinds = screen.items.map((i) => i.kind);
   const lastNeedMore = kinds.lastIndexOf("need_more");
@@ -610,19 +680,23 @@ export function ChatView({ screen, media, animateFrom = Number.MAX_SAFE_INTEGER,
       .forEach((_, i) =>
         nodes.push(
           <TechBubble key={`ask-${count}-${i}`}>{T.chat.mapAsk}</TechBubble>,
-          <div key={`map-${count}-${i}`} className="flex flex-col gap-2">
-            <p className="text-base leading-[25px]">{T.chat.mapIntro}</p>
-            <MapCard trees={screen.trees} candidates={screen.candidates} from={mapFrom} />
-          </div>,
+          <BotBubble key={`map-${count}-${i}`} wide>
+            <div className="flex flex-col gap-2">
+              <p className="text-base leading-[25px]">{T.chat.mapIntro}</p>
+              <MapCard trees={screen.trees} candidates={screen.candidates} from={mapFrom} />
+            </div>
+          </BotBubble>,
         ),
       );
 
   pushMaps(0);
   screen.items.forEach((item, i) => {
     const animate = i >= animateFrom;
-    nodes.push(
+    const time = paired ? clock(times?.[Math.floor(i / 2)]) : undefined;
+    const node = (
       <Item
         key={i}
+        time={time}
         item={item}
         screen={screen}
         media={media}
@@ -631,8 +705,9 @@ export function ChatView({ screen, media, animateFrom = Number.MAX_SAFE_INTEGER,
         fresh={animate}
         delay={delay}
         {...handlers}
-      />,
+      />
     );
+    nodes.push(selfFramed(item) ? node : <BotBubble key={i} wide={item.kind === "need_more" || item.kind === "done"}>{node}</BotBubble>);
     if (animate && item.kind === "candidates") delay += wordCount(item.list.length > 1 ? T.chat.candidatesMany : T.chat.candidatesOne) * WORD_MS;
     if (animate && (item.kind === "track_resolved" || item.kind === "track_closed")) delay += wordCount(item.kind === "track_resolved" ? item.resolution : (item.detail ?? T.chat.unclear)) * WORD_MS;
     if (animate && item.kind === "repeat") delay += wordCount(T.chat.repeat) * WORD_MS;
@@ -642,19 +717,22 @@ export function ChatView({ screen, media, animateFrom = Number.MAX_SAFE_INTEGER,
   });
 
   return (
-    <div className="flex flex-col gap-[22px]">
+    <div className="flex flex-col gap-2">
+      {day && <ChatNote>{day}</ChatNote>}
+      {notice && <ChatNote tone="notice">{notice}</ChatNote>}
       {/* A log: a screen reader announces each new message as it arrives. */}
-      <div role="log" aria-live="polite" aria-relevant="additions" className="flex flex-col gap-[22px]">
+      <div role="log" aria-live="polite" aria-relevant="additions" className="flex flex-col gap-2">
         {nodes}
         {pending}
         {live && <DocAnswer item={{ by: "bot", kind: "doc_answer", eventIndex: -1, marks: [], ...live }} kbId={handlers.kbId ?? ""} animate={false} delay={0} writing />}
       </div>
-      {/* Always mounted, so progress is announced when its text changes. */}
-      <div role="status">
-        <ProgressLines steps={progress} />
-      </div>
+      {/* Always mounted, so progress is announced when its text changes. While the answer is
+          already appearing step by step, the answer itself is the progress. */}
+      <div role="status">{progress.length > 0 && !live && <TypingBubble label={T.progress[progress.at(-1)!.key]} />}</div>
       {screen.current && !progress.length && (
-        <CurrentQuestion check={screen.current} animate={animateFrom <= screen.items.length} delay={delay} />
+        <BotBubble wide>
+          <CurrentQuestion check={screen.current} animate={animateFrom <= screen.items.length} delay={delay} />
+        </BotBubble>
       )}
     </div>
   );

@@ -17,6 +17,8 @@ export type SavedConversation = {
   updatedAt: number;
   // Small copies of the photos / video frames, by event index. Kept only for the newest few.
   media?: Record<number, string[]>;
+  // When each event was sent, by event index: the time shown in the corner of a message.
+  times?: Record<number, number>;
 };
 
 const KEEP_MEDIA = 3;
