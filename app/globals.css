@@ -1,33 +1,35 @@
 @import "tailwindcss";
 
-/* A work tool, not a toy. Three colours, each with one job:
-   - blue (primary) means "you can press this": actions, links, the numbers of the steps;
-   - yellow (signal) means "look here": marks on a picture and safety warnings;
+/* The brand (lib/brand.ts has the same values for icons).
+   - navy: the brand's own colour. Text, the top bar, dark cards, the call screen.
+   - blue (primary) means "you can press this": actions, links, the numbers of the steps.
+   - amber (signal) means "look here": marks on a picture and safety warnings. Also the point
+     in the logo.
    - red is danger only, green is "worked" only.
-   Neutrals are cool greys that sit with the blue. Type is IBM Plex Sans Hebrew with Plex Mono
-   for numbers and codes: one family, three weights (400 text, 500 controls, 600 headings). */
+   Type is Heebo, the usual face of Hebrew apps, with IBM Plex Mono for numbers and codes.
+   Weights: 400 text, 500 controls, 600 headings, 700 the name in the logo. */
 @theme {
-  --font-sans: "IBM Plex Sans Hebrew", "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", Arial, sans-serif;
+  --font-sans: Heebo, system-ui, -apple-system, "Segoe UI", Arial, sans-serif;
   --font-mono: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
 
-  --color-ink: #0f1a24;
-  --color-ink-soft: #2c3a47;
+  --color-ink: #0d2a45;
+  --color-ink-soft: #2a4259;
   --color-paper: #ffffff;
-  --color-mist: #f2f5f8;
-  --color-rule: #dde3e9;
-  --color-rule-soft: #e8edf1;
-  --color-graphite: #47545f;
-  --color-stone: #5d6b77;
-  --color-pebble: #93a0ab;
-  /* Borders of controls: 3.5:1 on paper, so a field is visible in sunlight. */
-  --color-edge: #7c8995;
+  --color-mist: #f2f6fa;
+  --color-rule: #dbe3eb;
+  --color-rule-soft: #e7edf3;
+  --color-graphite: #44566a;
+  --color-stone: #596b7d;
+  --color-pebble: #91a0af;
+  /* Borders of controls: at least 3:1 on paper, so a field is visible in sunlight. */
+  --color-edge: #788898;
   /* The technician's own messages. */
-  --color-bubble: #e3ecf4;
-  --color-primary: #0f4c81;
-  --color-primary-strong: #0b3a63;
-  --color-primary-soft: #e3ecf4;
-  --color-signal: #ffd43b;
-  --color-signal-soft: #fff4c2;
+  --color-bubble: #e2edf8;
+  --color-primary: #145da0;
+  --color-primary-strong: #0f4a80;
+  --color-primary-soft: #e2edf8;
+  --color-signal: #ffb81c;
+  --color-signal-soft: #fff1cc;
   --color-danger: #c9291c;
   --color-danger-ink: #a51f14;
   --color-ok: #12703a;

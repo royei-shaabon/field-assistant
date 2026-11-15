@@ -6,6 +6,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { DocMeta, DocOrigin, KbMeta, Usage } from "@/lib/store/types";
 import { T } from "@/lib/ui-text";
 import { CheckIcon, CloseIcon, DocIcon, PlusIcon, WarningIcon } from "./icons";
+import { Logo } from "./Logo";
 
 type Kb = KbMeta & { docs: DocMeta[]; usage: Usage };
 type Upload = { id: number; name: string; state: "working" | "done" | "error"; message?: string };
@@ -31,7 +32,8 @@ function Login({ closed, onDone }: { closed: boolean; onDone: () => void }) {
   };
   return (
     <main className="mx-auto flex min-h-dvh max-w-sm flex-col justify-center gap-5 px-5">
-      <h1 className="text-2xl font-semibold">{A.login.title}</h1>
+      <Logo size={40} tagline />
+      <h1 className="pt-2 text-2xl font-semibold">{A.login.title}</h1>
       {closed ? (
         <p className="rounded-xl bg-mist px-3.5 py-3 text-[15px] leading-6">{A.login.closed}</p>
       ) : (
@@ -392,9 +394,8 @@ export function AdminApp() {
     <div className="mx-auto flex min-h-dvh max-w-5xl flex-col px-4 pb-10 sm:px-6">
       <header className="flex h-16 items-center justify-between">
         <div className="flex items-center gap-2.5">
-          <span aria-hidden className="grid h-8 w-8 place-items-center rounded-[10px] bg-ink">
-            <span className="h-3 w-3 rounded-[4px] bg-signal" />
-          </span>
+          <Logo size={32} />
+          <span aria-hidden className="h-6 w-px bg-rule" />
           <h1 className="text-lg font-semibold">{A.title}</h1>
         </div>
         <div className="flex items-center gap-1">

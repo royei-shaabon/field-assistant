@@ -11,6 +11,7 @@ import { T } from "@/lib/ui-text";
 import type { DocMark } from "@/lib/docs/ask";
 import { MarkedImage, StopCard } from "./Chat";
 import { DocHazard, MarksLegend } from "./DocChat";
+import { LogoMark } from "./Logo";
 import { ApertureIcon, HangUpIcon, MicIcon, MicOffIcon } from "./icons";
 
 type Recognition = {
@@ -312,9 +313,7 @@ export function CallView({
         {kind === "voice" && (
           <div className="flex flex-1 items-center justify-center">
             <span className={`grid h-28 w-28 place-items-center rounded-full bg-white/10 ${state === "speaking" ? "ring-8 ring-signal/30" : state === "listening" ? "ring-4 ring-white/15" : ""}`}>
-              <span className="grid h-16 w-16 place-items-center rounded-2xl bg-white">
-                <span className="h-5 w-5 rounded-md bg-signal" />
-              </span>
+              <LogoMark size={64} className="rounded-[24%] ring-2 ring-white/40" />
             </span>
           </div>
         )}

@@ -23,6 +23,7 @@ import {
 } from "@/lib/client/conversations";
 import { T } from "@/lib/ui-text";
 import { CallView, type Speech } from "./Call";
+import { Logo } from "./Logo";
 import { ChatView, type ProgressStep } from "./Chat";
 import { CameraIcon, CloseIcon, MapIcon, MenuIcon, PhoneIcon, PlusIcon, SendIcon, VideoIcon } from "./icons";
 
@@ -195,7 +196,7 @@ function Menu({
       <div aria-hidden onClick={onClose} className="absolute inset-0 bg-ink/50" />
       <div ref={ref} role="dialog" aria-modal="true" aria-label={T.doc.menu} className="anim-rise relative flex w-[86%] flex-col bg-paper shadow-[0_0_32px_rgba(18,18,18,0.18)]">
         <div className="flex h-[60px] shrink-0 items-center justify-between pe-1.5 ps-4">
-          <span className="text-[17px] font-semibold">{T.appTitle}</span>
+          <Logo size={30} />
           <button onClick={onClose} aria-label={T.header.close} className="grid h-12 w-12 place-items-center rounded-full active:bg-mist">
             <CloseIcon />
           </button>
@@ -400,7 +401,9 @@ function AccessCode({ onDone }: { onDone: () => void }) {
   };
   return (
     <main className="mx-auto flex min-h-dvh max-w-sm flex-col justify-center gap-4 px-5 py-8">
-      <h1 className="text-[28px] font-semibold leading-9">{T.appTitle}</h1>
+      <h1 className="pb-2">
+        <Logo size={44} tagline />
+      </h1>
       <p className="text-[17px] leading-[26px] text-graphite">{T.doc.access.lead}</p>
       <form onSubmit={submit} className="flex flex-col gap-3 pt-2">
         <label htmlFor="access-code" className="text-base font-medium">
@@ -445,7 +448,9 @@ function AccessCode({ onDone }: { onDone: () => void }) {
 function Notice({ text, action, onAction }: { text: string; action?: string; onAction?: () => void }) {
   return (
     <main className="mx-auto flex min-h-dvh max-w-sm flex-col justify-center gap-5 px-5">
-      <h1 className="text-[28px] font-semibold leading-9">{T.appTitle}</h1>
+      <h1 className="pb-1">
+        <Logo size={40} />
+      </h1>
       <p role="alert" className="text-[19px] leading-7">
         {text}
       </p>
@@ -460,7 +465,7 @@ function Notice({ text, action, onAction }: { text: string; action?: string; onA
 
 function HeaderButton({ label, onClick, disabled, children }: { label: string; onClick: () => void; disabled?: boolean; children: React.ReactNode }) {
   return (
-    <button onClick={onClick} disabled={disabled} className="flex h-14 min-w-[52px] flex-col items-center justify-center gap-1 rounded-xl px-1.5 text-ink-soft active:bg-mist disabled:opacity-40">
+    <button onClick={onClick} disabled={disabled} className="flex h-14 min-w-[52px] flex-col items-center justify-center gap-1 rounded-xl px-1.5 text-white active:bg-white/15 disabled:opacity-45">
       {children}
       <span className="text-[13px] font-medium leading-none">{label}</span>
     </button>
@@ -749,7 +754,7 @@ export function TechnicianApp() {
 
   return (
     <div className="mx-auto flex h-dvh max-w-md flex-col bg-paper">
-      <header className="flex h-[68px] shrink-0 items-center gap-0.5 border-b border-rule px-1.5">
+      <header className="on-dark flex h-[68px] shrink-0 items-center gap-0.5 bg-ink px-1.5 text-white">
         <HeaderButton label={T.doc.menu} onClick={() => setMenu(true)}>
           <MenuIcon />
         </HeaderButton>
@@ -758,7 +763,7 @@ export function TechnicianApp() {
             <bdi>{kb?.name ?? T.appTitle}</bdi>
           </h1>
           {screen.title && (
-            <p className="truncate text-[13px] text-graphite">
+            <p className="truncate text-[13px] text-white/75">
               <bdi>{screen.title}</bdi>
             </p>
           )}
@@ -784,6 +789,7 @@ export function TechnicianApp() {
             </p>
           ) : empty ? (
             <div className="flex flex-col gap-3 pb-8">
+              <Logo size={30} />
               <h2 className="text-[26px] font-semibold leading-[34px]">{isDocs ? T.doc.emptyTitle : T.chat.emptyTitle}</h2>
               <p className="text-[17px] leading-[26px] text-graphite">{noDocuments ? T.doc.empty : isDocs ? T.doc.emptyLead : T.chat.emptyLead}</p>
               {/* Two ways to start that need no typing. */}

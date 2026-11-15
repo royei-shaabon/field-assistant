@@ -3,10 +3,11 @@
 // own words.
 import type { Progress } from "./conversation";
 import type { StopReason } from "./orchestrator";
+import { BRAND } from "./brand";
 import { DISCLAIMER } from "./safety";
 
 export const T = {
-  appTitle: "עוזר תקלות",
+  appTitle: BRAND.name,
   device: "NMAX 155",
   disclaimer: DISCLAIMER,
   home: {

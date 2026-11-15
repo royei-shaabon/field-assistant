@@ -1,12 +1,14 @@
 import Link from "next/link";
 import { LEGAL_LINKS, type LegalDoc } from "@/lib/legal-text";
+import { Logo } from "./Logo";
 
 // A plain reading page: one column, real headings and lists.
 export function LegalPage({ doc }: { doc: LegalDoc }) {
   return (
     <div className="mx-auto min-h-dvh max-w-2xl px-5 pb-12 pt-6">
-      <nav aria-label="ניווט" className="pb-6">
-        <Link href="/" className="text-[15px] font-medium underline underline-offset-4">
+      <nav aria-label="ניווט" className="flex items-center justify-between pb-8">
+        <Logo size={30} />
+        <Link href="/" className="text-[15px] font-medium text-primary underline underline-offset-4">
           חזרה לעוזר
         </Link>
       </nav>
