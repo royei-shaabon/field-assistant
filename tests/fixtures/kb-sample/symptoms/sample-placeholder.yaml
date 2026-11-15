@@ -1,0 +1,39 @@
+# SAMPLE: קובץ לדוגמה בלבד, כדי להראות את מבנה העץ ולבדוק את kb:validate.
+# אין כאן ידע מקצועי על NMAX. כל הטקסטים הם placeholders.
+# יוחלף או יימחק בשלב 5 (איסוף תוכן).
+id: sample-placeholder
+title: "SAMPLE תקלה לדוגמה"
+sample: true
+visual_cues:
+  - "SAMPLE רמז חזותי לדוגמה"
+steps:
+  - id: s1
+    check: "SAMPLE בדיקה 1: האם תנאי א מתקיים?"
+    how: "SAMPLE הסבר לדוגמה איך בודקים"
+    source: { type: manual, ref: sample-manual, page: 1 }
+    hazard: false
+    on_pass: s2
+    on_fail: { resolve: "SAMPLE פתרון לדוגמה לבדיקה 1" }
+  - id: s2
+    check: "SAMPLE בדיקה 2: האם תנאי ב מתקיים?"
+    source: { type: manual, ref: sample-manual, page: 2 }
+    hazard: false
+    tip:
+      author: "SAMPLE מכונאי לדוגמה"
+      text: "SAMPLE טיפ שטח לדוגמה"
+      source: { type: mechanic, ref: sample-mechanic }
+    on_pass: s3
+    on_fail: s4
+  - id: s3
+    check: "SAMPLE בדיקה 3: צעד שמסומן מסוכן"
+    source: { type: manual, ref: sample-manual, page: 3 }
+    hazard: true
+    on_pass: { escalate: "SAMPLE סיבת הסלמה לדוגמה (צעד מסוכן)" }
+    on_fail: { escalate: "SAMPLE סיבת הסלמה לדוגמה (צעד מסוכן)" }
+  - id: s4
+    check: "SAMPLE בדיקה 4: האם תנאי ג מתקיים?"
+    source: { type: mechanic, ref: sample-mechanic }
+    hazard: false
+    on_pass: { resolve: "SAMPLE פתרון לדוגמה לבדיקה 4" }
+    on_fail: { escalate: "SAMPLE סיבת הסלמה לדוגמה" }
+escalate_after_steps: 6

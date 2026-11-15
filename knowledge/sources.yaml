@@ -1,0 +1,14 @@
+# רישום המקורות. כל source.ref במאגר חייב להופיע כאן.
+# המקורות המסומנים sample: true אינם מסמכים אמיתיים.
+sources:
+  - id: spec-examples
+    type: spec
+    title: "דוגמה מהאפיון · לא מאומת"
+    date: "2026-10-28"
+    notes: "בדיקות שמוזכרות כדוגמה ב-docs/spec.md. לא נבדקו מול מדריך. מוחלפות בשלב 5."
+    sample: true
+  - id: sample-mechanic
+    type: mechanic
+    title: "מכונאי לדוגמה"
+    date: "2026-10-28"
+    sample: true

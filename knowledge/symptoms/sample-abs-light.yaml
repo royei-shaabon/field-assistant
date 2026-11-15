@@ -1,0 +1,19 @@
+# SAMPLE: האפיון אומר רק שהתקלה "כוללת עצירה (בלמים)". לא נבדק מול מדריך.
+id: sample-abs-light
+title: "נורית ABS דולקת"
+sample: true
+visual_cues: ["נורית ABS דולקת בלוח המחוונים"]
+steps:
+  - id: s1
+    check: "האם הנורית נשארת דולקת גם אחרי כיבוי והתנעה מחדש?"
+    source: { type: spec, ref: spec-examples }
+    hazard: false
+    on_pass: s2
+    on_fail: { resolve: "הנורית כבתה. לתעד ולעקוב בנסיעה הבאה" }
+  - id: s2
+    check: "בדיקת מערכת הבלמים וה-ABS"
+    source: { type: spec, ref: spec-examples }
+    hazard: true
+    on_pass: { escalate: "עבודה על הבלמים עלולה להיות מסוכנת" }
+    on_fail: { escalate: "עבודה על הבלמים עלולה להיות מסוכנת" }
+escalate_after_steps: 6

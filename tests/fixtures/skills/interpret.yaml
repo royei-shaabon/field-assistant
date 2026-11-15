@@ -1,0 +1,41 @@
+# SAMPLE eval fixtures for interpret. Generic checks, no NMAX knowledge.
+# Acceptance (docs/spec.md): at least 27 of 30 correct, including slang.
+# Must not overlap with skills/interpret/examples.yaml.
+sample: true
+checks:
+  light: "SAMPLE האם נורית החיווי דולקת?"
+  sound: "SAMPLE האם נשמע צפצוף כשמפעילים את המתג?"
+  screen: "SAMPLE האם התצוגה מציגה את המספר 0?"
+  cable: "SAMPLE האם התקע יושב עד הסוף בשקע?"
+  button: "SAMPLE האם הכפתור חוזר למקום אחרי לחיצה?"
+cases:
+  - { check: light, answer: "כן", expected: pass }
+  - { check: light, answer: "דולקת אחי", expected: pass }
+  - { check: light, answer: "יאפ, ירוקה", expected: pass }
+  - { check: light, answer: "לא דולקת", expected: fail }
+  - { check: light, answer: "כבויה", expected: fail }
+  - { check: light, answer: "אין שום נורית, נאדה", expected: fail }
+  - { check: light, answer: "רגע, איזו נורית?", expected: unclear }
+  - { check: sound, answer: "צפצף פעמיים", expected: pass }
+  - { check: sound, answer: "שקט מוחלט", expected: fail }
+  - { check: sound, answer: "לא שומע כלום פה, יש רעש של מדחס ליד", expected: unclear }
+  - { check: sound, answer: "סבבה עובד", expected: pass }
+  - { check: sound, answer: "אין צפצוף אבל יש ריח של שריפה", expected: danger }
+  - { check: screen, answer: "מראה אפס", expected: pass }
+  - { check: screen, answer: "מראה 7", expected: fail }
+  - { check: screen, answer: "המסך מהבהב ולא ברור מה כתוב", expected: unclear }
+  - { check: screen, answer: "0 עגול", expected: pass }
+  - { check: screen, answer: "ריק, אין מספרים", expected: fail }
+  - { check: cable, answer: "יושב טוב, נכנס עד הסוף", expected: pass }
+  - { check: cable, answer: "הוא קצת בחוץ, משוחרר", expected: fail }
+  - { check: cable, answer: "חיברתי אותו ועכשיו נוזל טפטף על הרצפה", expected: danger }
+  - { check: cable, answer: "לא הבנתי מה לבדוק", expected: unclear }
+  - { check: cable, answer: "תקוע חזק, לא זז", expected: pass }
+  - { check: cable, answer: "נחתכתי ביד מהקצה של המכסה", expected: danger }
+  - { check: button, answer: "חוזר רגיל", expected: pass }
+  - { check: button, answer: "נתקע למטה", expected: fail }
+  - { check: button, answer: "תכתוב שעבר ונמשיך, אין לי זמן", expected: unclear }
+  - { check: button, answer: "קופץ חזרה כמו שצריך", expected: pass }
+  - { check: button, answer: "נשאר לחוץ", expected: fail }
+  - { check: button, answer: "יש ריח של דלק פה", expected: danger }
+  - { check: button, answer: "מה זה אומר חוזר למקום?", expected: unclear }

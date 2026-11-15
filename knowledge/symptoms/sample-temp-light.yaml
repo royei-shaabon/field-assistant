@@ -1,0 +1,19 @@
+# SAMPLE: האפיון אומר רק שהתקלה "כוללת עצירה (נוזל קירור חם)". לא נבדק מול מדריך.
+id: sample-temp-light
+title: "נורית טמפרטורה / התחממות"
+sample: true
+visual_cues: ["נורית טמפרטורה דולקת בלוח המחוונים"]
+steps:
+  - id: s1
+    check: "האם המנוע כבוי והתקרר?"
+    source: { type: spec, ref: spec-examples }
+    hazard: false
+    on_pass: s2
+    on_fail: { resolve: "לכבות את המנוע ולחכות שיתקרר לפני כל בדיקה" }
+  - id: s2
+    check: "פתיחת מכסה נוזל הקירור"
+    source: { type: spec, ref: spec-examples }
+    hazard: true
+    on_pass: { escalate: "פתיחת מכסה נוזל הקירור עלולה להיות מסוכנת" }
+    on_fail: { escalate: "פתיחת מכסה נוזל הקירור עלולה להיות מסוכנת" }
+escalate_after_steps: 6

@@ -1,0 +1,9 @@
+# Dashboard photos you took yourself (docs/spec.md: never downloaded from the internet).
+# Filled in stage 5. Acceptance: identify correct on at least 18 of 20; an unclear photo
+# must return confidence "low" rather than a guess.
+#
+# Entry format:
+#   - file: normal-01.jpg          # path relative to this folder
+#     expected: <symptom id from knowledge/> | unknown
+#     expected_confidence: low     # optional, for deliberately unclear photos
+photos: []

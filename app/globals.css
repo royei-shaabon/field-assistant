@@ -1,0 +1,64 @@
+@import "tailwindcss";
+
+/* "Calm senior colleague": ink and paper, one signature colour (tool-yellow) that only ever
+   means "here" (image marks, the current question, the hazard stripe). Red is for danger only,
+   green only for "solved". Tokens match the design board. */
+@theme {
+  --font-sans: Rubik, system-ui, -apple-system, "Segoe UI", Arial, sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+
+  --color-ink: #121212;
+  --color-ink-soft: #3c3c38;
+  --color-paper: #ffffff;
+  --color-mist: #f4f4f2;
+  --color-rule: #e4e4e0;
+  --color-rule-soft: #ececea;
+  --color-graphite: #5c5c58;
+  --color-stone: #6e6e69;
+  --color-pebble: #9a9a94;
+  --color-signal: #ffd43b;
+  --color-signal-soft: #fff4c2;
+  --color-danger: #d92d20;
+  --color-danger-ink: #b42318;
+  --color-ok: #157f3c;
+}
+
+body {
+  color: var(--color-ink);
+  background: var(--color-paper);
+  font-family: var(--font-sans);
+}
+
+button:focus-visible,
+input:focus-visible,
+a:focus-visible,
+label:focus-within {
+  outline: 2px solid var(--color-ink);
+  outline-offset: 2px;
+}
+
+.hazard-stripe {
+  background: repeating-linear-gradient(-45deg, var(--color-ink) 0 10px, var(--color-signal) 10px 20px);
+}
+
+@keyframes caret { 0%, 49% { opacity: 1 } 50%, 100% { opacity: 0 } }
+@keyframes shimmer { 0% { background-position: 100% 0 } 100% { background-position: -100% 0 } }
+@keyframes spin { to { transform: rotate(360deg) } }
+@keyframes rise { from { opacity: 0; transform: translateY(8px) } to { opacity: 1; transform: none } }
+
+.anim-caret { animation: caret 1s steps(1) infinite }
+.anim-spin { animation: spin 0.9s linear infinite }
+.anim-rise { animation: rise 180ms ease-out both }
+.anim-shimmer {
+  background: linear-gradient(90deg, var(--color-stone) 0%, var(--color-stone) 40%, #c9c9c4 50%, var(--color-stone) 60%, var(--color-stone) 100%);
+  background-size: 200% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  animation: shimmer 1.6s linear infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .anim-caret, .anim-spin, .anim-rise, .anim-shimmer { animation: none }
+  .anim-shimmer { color: var(--color-stone); background: none }
+}

@@ -1,0 +1,42 @@
+# SAMPLE: בנוי רק מהבדיקות שהאפיון מזכיר כדוגמה (docs/spec.md, טבלת 8 התקלות וסכמת התקלה).
+# לא נבדק מול מדריך. יוחלף בשלב 5.
+id: sample-no-crank
+title: "המנוע לא מתניע, אין סיבוב מתנע"
+sample: true
+visual_cues: ["לוח המחוונים דולק", "אין צליל מתנע"]
+steps:
+  - id: s1
+    check: "האם רגלית הצד מקופלת?"
+    source: { type: spec, ref: spec-examples }
+    hazard: false
+    on_pass: s2
+    on_fail: { resolve: "לקפל את רגלית הצד ולנסות להתניע שוב" }
+  - id: s2
+    check: "האם ידית הבלם לחוצה בזמן ההתנעה?"
+    source: { type: spec, ref: spec-examples }
+    hazard: false
+    tip:
+      author: "מכונאי לדוגמה"
+      text: "כאן יופיע טיפ מהראיון עם המכונאי."
+      source: { type: mechanic, ref: sample-mechanic }
+    on_pass: s3
+    on_fail: { resolve: "ללחוץ על ידית הבלם ולנסות להתניע שוב" }
+  - id: s3
+    check: "האם מתג הדומם במצב פועל?"
+    source: { type: spec, ref: spec-examples }
+    hazard: false
+    on_pass: s4
+    on_fail: { resolve: "להעביר את מתג הדומם למצב פועל ולנסות שוב" }
+  - id: s4
+    check: "האם המפתח החכם מזוהה?"
+    source: { type: spec, ref: spec-examples }
+    hazard: false
+    on_pass: s5
+    on_fail: { resolve: "להמשיך לפי התקלה 'המפתח החכם לא מזוהה'" }
+  - id: s5
+    check: "האם מתח המצבר תקין?"
+    source: { type: spec, ref: spec-examples }
+    hazard: false
+    on_pass: { escalate: "כל הבדיקות הבסיסיות עברו. התקלה דורשת בדיקה מעמיקה יותר" }
+    on_fail: { escalate: "חשד לתקלת מערכת הטעינה" }
+escalate_after_steps: 6

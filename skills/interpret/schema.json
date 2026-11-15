@@ -1,0 +1,11 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "interpret output",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["outcome", "note"],
+  "properties": {
+    "outcome": { "type": "string", "enum": ["pass", "fail", "unclear", "danger"] },
+    "note": { "type": "string" }
+  }
+}

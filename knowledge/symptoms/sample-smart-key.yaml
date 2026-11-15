@@ -1,0 +1,13 @@
+# SAMPLE: האפיון אומר רק שזו "תקלה נפוצה ופשוטה, טובה לפתיחת הדמו". לא נבדק מול מדריך.
+id: sample-smart-key
+title: "המפתח החכם לא מזוהה"
+sample: true
+visual_cues: ["חיווי שהמפתח לא מזוהה"]
+steps:
+  - id: s1
+    check: "האם המפתח החכם נמצא קרוב לקטנוע?"
+    source: { type: spec, ref: spec-examples }
+    hazard: false
+    on_pass: { escalate: "המפתח קרוב ועדיין לא מזוהה. התקלה דורשת בדיקה מעמיקה יותר" }
+    on_fail: { resolve: "לקרב את המפתח לקטנוע ולנסות שוב" }
+escalate_after_steps: 6

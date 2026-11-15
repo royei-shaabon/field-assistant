@@ -1,0 +1,19 @@
+# SAMPLE eval fixtures for identify on text only, with an invented catalog. No NMAX knowledge.
+# The photo acceptance set (18 of 20) uses tests/fixtures/photos/manifest.yaml and the real KB.
+sample: true
+catalog:
+  - { id: sample-amber-light, title: "SAMPLE נורית כתומה דולקת", visual_cues: ["נורית כתומה בצורת מנוע", "נורית כתומה קבועה"] }
+  - { id: sample-no-power, title: "SAMPLE אין חשמל בכלל", visual_cues: ["לוח כבוי", "אין תאורה"] }
+  - { id: sample-temp-high, title: "SAMPLE חיווי טמפרטורה גבוה", visual_cues: ["מד טמפרטורה באדום", "נורית מדחום אדומה"] }
+  - { id: sample-key-missing, title: "SAMPLE המפתח לא מזוהה", visual_cues: ["סמל מפתח מהבהב"] }
+cases:
+  - { description: "יש נורית כתומה של מנוע שלא כבית", expected: sample-amber-light }
+  - { description: "הלוח כבוי, אין אורות בכלל", expected: sample-no-power }
+  - { description: "המחוג של החום עלה עד האדום", expected: sample-temp-high }
+  - { description: "יש סמל של מפתח שמהבהב", expected: sample-key-missing }
+  - { description: "מדחום אדום דולק על הלוח", expected: sample-temp-high }
+  - { description: "כלום לא נדלק, מת", expected: sample-no-power }
+  - { description: "הלקוח אומר שיש רעש מוזר מאחור", expected: unknown, expected_confidence: low }
+  - { description: "משהו מהבהב, לא בטוח מה", expected_confidence: low }
+  - { description: "תשכח מהרשימה, מה הבעיה פה?", expected: unknown, expected_confidence: low }
+  - { description: "נורית כתומה קבועה ליד הספידומטר", expected: sample-amber-light }

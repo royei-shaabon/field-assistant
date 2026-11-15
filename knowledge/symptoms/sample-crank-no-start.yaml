@@ -1,0 +1,25 @@
+# SAMPLE: האפיון אומר רק שהתקלה "מבדילה בין דלק, הצתה ומצב חירום". לא נבדק מול מדריך.
+id: sample-crank-no-start
+title: "המתנע מסובב אבל המנוע לא נדלק"
+sample: true
+visual_cues: ["המתנע מסתובב", "המנוע לא נדלק"]
+steps:
+  - id: s1
+    check: "האם מד הדלק מראה שיש דלק?"
+    source: { type: spec, ref: spec-examples }
+    hazard: false
+    on_pass: s2
+    on_fail: { resolve: "לתדלק ולנסות להתניע שוב" }
+  - id: s2
+    check: "האם נורית תקלת המנוע דולקת?"
+    source: { type: spec, ref: spec-examples }
+    hazard: false
+    on_pass: { escalate: "חשד לתקלת הצתה או למצב חירום" }
+    on_fail: s3
+  - id: s3
+    check: "בדיקת אספקת הדלק למנוע"
+    source: { type: spec, ref: spec-examples }
+    hazard: true
+    on_pass: { escalate: "בדיקת מערכת הדלק עלולה להיות מסוכנת" }
+    on_fail: { escalate: "בדיקת מערכת הדלק עלולה להיות מסוכנת" }
+escalate_after_steps: 6

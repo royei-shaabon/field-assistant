@@ -1,0 +1,147 @@
+// The knowledge base store. Everything is keyed under kbs/<kbId>/:
+//   kb.json                 the knowledge base itself
+//   docs/<docId>.meta.json  one document
+//   docs/<docId>.text.json  its passages (what search and the model read)
+//   docs/<docId>.file       the original upload (what "open the source" serves)
+import path from "node:path";
+import { FsDriver } from "./fs-driver";
+import type { BlobDriver, DocMeta, KbMeta, Passage, StoredDoc, Usage } from "./types";
+
+export type { BlobDriver, DocMeta, DocOrigin, KbMeta, Passage, StoredDoc, Usage } from "./types";
+
+export const EMPTY_USAGE: Usage = { questions: 0, answer: 0, ask: 0, not_found: 0, hazard: 0, error: 0 };
+
+const ID = /^[a-z0-9][a-z0-9-]{1,60}$/;
+
+export class NotFound extends Error {}
+export class Invalid extends Error {}
+
+const json = (v: unknown) => Buffer.from(JSON.stringify(v));
+const parse = <T>(b: Buffer | null): T | null => (b ? (JSON.parse(b.toString("utf8")) as T) : null);
+
+export function slug(name: string): string {
+  const ascii = name
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 40);
+  return ascii.length >= 2 ? ascii : `kb-${Date.now().toString(36)}`;
+}
+
+export class KbStore {
+  constructor(private driver: BlobDriver) {}
+
+  private checkId(id: string) {
+    if (!ID.test(id)) throw new Invalid("bad id");
+  }
+
+  async listKbs(): Promise<KbMeta[]> {
+    const keys = (await this.driver.list("kbs")).filter((k) => /^kbs\/[^/]+\/kb\.json$/.test(k));
+    const all = await Promise.all(keys.map(async (k) => parse<KbMeta>(await this.driver.read(k))));
+    return all.filter((k): k is KbMeta => Boolean(k)).sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+  }
+
+  async getKb(id: string): Promise<KbMeta | null> {
+    if (!ID.test(id)) return null;
+    return parse<KbMeta>(await this.driver.read(`kbs/${id}/kb.json`));
+  }
+
+  async createKb(input: { id?: string; name: string; description?: string }): Promise<KbMeta> {
+    const name = input.name.trim();
+    if (!name || name.length > 80) throw new Invalid("name");
+    let id = input.id ?? slug(name);
+    this.checkId(id);
+    for (let n = 2; await this.getKb(id); n++) id = `${input.id ?? slug(name)}-${n}`;
+    const now = new Date().toISOString();
+    const kb: KbMeta = { id, name, description: (input.description ?? "").trim().slice(0, 400), createdAt: now, updatedAt: now };
+    await this.driver.write(`kbs/${id}/kb.json`, json(kb));
+    return kb;
+  }
+
+  async updateKb(id: string, patch: { name?: string; description?: string }): Promise<KbMeta> {
+    const kb = await this.getKb(id);
+    if (!kb) throw new NotFound("kb");
+    const name = patch.name?.trim() ?? kb.name;
+    if (!name || name.length > 80) throw new Invalid("name");
+    const next = { ...kb, name, description: (patch.description ?? kb.description).trim().slice(0, 400), updatedAt: new Date().toISOString() };
+    await this.driver.write(`kbs/${id}/kb.json`, json(next));
+    return next;
+  }
+
+  async deleteKb(id: string): Promise<void> {
+    this.checkId(id);
+    await this.driver.remove(`kbs/${id}`);
+  }
+
+  private async touch(kbId: string): Promise<void> {
+    const kb = await this.getKb(kbId);
+    if (kb) await this.driver.write(`kbs/${kbId}/kb.json`, json({ ...kb, updatedAt: new Date().toISOString() }));
+  }
+
+  async listDocs(kbId: string): Promise<DocMeta[]> {
+    this.checkId(kbId);
+    const keys = (await this.driver.list(`kbs/${kbId}/docs`)).filter((k) => k.endsWith(".meta.json"));
+    const all = await Promise.all(keys.map(async (k) => parse<DocMeta>(await this.driver.read(k))));
+    return all.filter((d): d is DocMeta => Boolean(d)).sort((a, b) => a.uploadedAt.localeCompare(b.uploadedAt));
+  }
+
+  async addDoc(kbId: string, doc: Omit<DocMeta, "id" | "kbId" | "uploadedAt">, passages: Passage[], file: Buffer): Promise<DocMeta> {
+    if (!(await this.getKb(kbId))) throw new NotFound("kb");
+    const id = `d${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
+    const meta: DocMeta = { ...doc, id, kbId, uploadedAt: new Date().toISOString() };
+    const base = `kbs/${kbId}/docs/${id}`;
+    await this.driver.write(`${base}.file`, file);
+    await this.driver.write(`${base}.text.json`, json(passages));
+    await this.driver.write(`${base}.meta.json`, json(meta)); // last: a document exists once its meta does
+    await this.touch(kbId);
+    return meta;
+  }
+
+  async deleteDoc(kbId: string, docId: string): Promise<void> {
+    this.checkId(kbId);
+    this.checkId(docId);
+    const base = `kbs/${kbId}/docs/${docId}`;
+    await Promise.all([".meta.json", ".text.json", ".file"].map((s) => this.driver.remove(base + s)));
+    await this.touch(kbId);
+  }
+
+  async getDocFile(kbId: string, docId: string): Promise<{ meta: DocMeta; data: Buffer } | null> {
+    if (!ID.test(kbId) || !ID.test(docId)) return null;
+    const base = `kbs/${kbId}/docs/${docId}`;
+    const meta = parse<DocMeta>(await this.driver.read(`${base}.meta.json`));
+    const data = await this.driver.read(`${base}.file`);
+    return meta && data ? { meta, data } : null;
+  }
+
+  async getUsage(kbId: string): Promise<Usage> {
+    this.checkId(kbId);
+    return { ...EMPTY_USAGE, ...(parse<Usage>(await this.driver.read(`kbs/${kbId}/usage.json`)) ?? {}) };
+  }
+
+  // Counts one reply. Read-modify-write: two replies at the same instant may count as one,
+  // which is fine for a usage overview.
+  async recordUsage(kbId: string, kind: Exclude<keyof Usage, "questions" | "lastAt">): Promise<void> {
+    const usage = await this.getUsage(kbId);
+    const next: Usage = { ...usage, questions: usage.questions + 1, [kind]: usage[kind] + 1, lastAt: new Date().toISOString() };
+    await this.driver.write(`kbs/${kbId}/usage.json`, json(next));
+  }
+
+  // Every document with its passages: what the search index is built from.
+  async loadDocs(kbId: string): Promise<StoredDoc[]> {
+    const metas = await this.listDocs(kbId);
+    return Promise.all(
+      metas.map(async (meta) => ({
+        meta,
+        passages: parse<Passage[]>(await this.driver.read(`kbs/${kbId}/docs/${meta.id}.text.json`)) ?? [],
+      })),
+    );
+  }
+}
+
+let shared: KbStore | undefined;
+
+// DATA_DIR points at a persistent directory in a hosted deployment. Default: ./data.
+export function kbStore(): KbStore {
+  shared ??= new KbStore(new FsDriver(path.resolve(/*turbopackIgnore: true*/ process.env.DATA_DIR ?? "data")));
+  return shared;
+}

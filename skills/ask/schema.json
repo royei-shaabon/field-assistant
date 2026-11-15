@@ -1,0 +1,49 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["kind", "title", "steps", "question", "options", "marks", "hazard"],
+  "properties": {
+    "kind": { "enum": ["answer", "ask", "not_found"] },
+    "title": { "type": "string" },
+    "steps": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["text", "ref", "quote"],
+        "properties": {
+          "text": { "type": "string" },
+          "ref": { "type": "string" },
+          "quote": { "type": "string" }
+        }
+      }
+    },
+    "question": { "type": "string" },
+    "options": { "type": "array", "items": { "type": "string" } },
+    "marks": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["frame", "step", "label", "box"],
+        "properties": {
+          "frame": { "type": "integer" },
+          "step": { "type": "integer" },
+          "label": { "type": "string" },
+          "box": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["x", "y", "w", "h"],
+            "properties": {
+              "x": { "type": "integer" },
+              "y": { "type": "integer" },
+              "w": { "type": "integer" },
+              "h": { "type": "integer" }
+            }
+          }
+        }
+      }
+    },
+    "hazard": { "enum": ["none", "brakes", "fuel", "hot_coolant", "running_engine", "other"] }
+  }
+}

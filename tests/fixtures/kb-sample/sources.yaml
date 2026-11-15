@@ -1,0 +1,13 @@
+# רישום המקורות. כל source.ref במאגר חייב להופיע כאן.
+# המקורות המסומנים sample: true הם placeholders ולא מסמכים אמיתיים.
+sources:
+  - id: sample-manual
+    type: manual
+    title: "SAMPLE מדריך לדוגמה. לא מסמך אמיתי"
+    date: "2026-10-28"
+    sample: true
+  - id: sample-mechanic
+    type: mechanic
+    title: "SAMPLE מכונאי לדוגמה"
+    date: "2026-10-28"
+    sample: true

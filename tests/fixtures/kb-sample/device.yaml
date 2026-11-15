@@ -1,0 +1,9 @@
+# שאלה פתוחה באפיון: קוד הדגם והשנתון נקבעים מהרישיון או מה-VIN של הקטנוע שזמין לצילום.
+# עד אז הכול null ו-verified: false.
+make: Yamaha
+model_name: NMAX
+model_code: null
+year: null
+manual_version: null
+verified: false
+notes: "ממתין לאימות קוד דגם ושנתון. ראו docs/spec.md, סעיף היקף."

@@ -1,0 +1,13 @@
+# SAMPLE: האפיון אומר רק שהתקלה "מראה 'זו לא תקלה, אלא תנאי הפעלה'". לא נבדק מול מדריך.
+id: sample-stop-start
+title: "עצירה-התנעה לא עובדת"
+sample: true
+visual_cues: ["חיווי עצירה-התנעה לא דולק"]
+steps:
+  - id: s1
+    check: "האם מתקיימים כל תנאי ההפעלה של עצירה-התנעה?"
+    source: { type: spec, ref: spec-examples }
+    hazard: false
+    on_pass: { escalate: "התנאים מתקיימים והמערכת לא פועלת. התקלה דורשת בדיקה מעמיקה יותר" }
+    on_fail: { resolve: "זו לא תקלה. המערכת פועלת רק כשתנאי ההפעלה מתקיימים" }
+escalate_after_steps: 6
