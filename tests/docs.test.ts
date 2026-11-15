@@ -105,6 +105,7 @@ test("answer: steps with a real source are kept, invented or misquoted steps are
   const run = await askDocuments(agent, kb.index, { kbName: "x", docs: kb.docs, question: "מה לחץ האוויר?", images: [], history: [] }, (p) => stages.push(p.stage));
   assert.deepEqual(run.searches, [["tyre pressure"]]);
   assert.deepEqual(stages, ["searching", "searching", "reading", "checking"]);
+  assert.equal(agent.plans[0].fast, true, "the first search is tried on the fast model; here it fails and the loop carries on");
   assert.equal(run.result.kind, "answer");
   const answer = run.result as Extract<DocResult, { kind: "answer" }>;
   assert.deepEqual(answer.steps.map((s) => s.text), ["SAMPLE קדמי 200"]);
@@ -248,4 +249,22 @@ test("a passage cannot break out of its wrapper, and a hazard word in the Hebrew
   const sent = (agent.turns[1].messages.at(-1)!.content[0] as { content: string }).content;
   assert.equal(sent.match(/<\/passage>/g)?.length, 1, "only the wrapper's own closing tag remains");
   assert.equal((run.result as Extract<DocResult, { kind: "answer" }>).caution, "brakes");
+});
+
+test("first search: the fast model's queries put the passages in the first message, and one call answers", async () => {
+  const { kb, docId } = await sampleKb();
+  const agent = new FakeAgent([{ final: draft({ steps: [{ text: "SAMPLE אחורי 225", ref: `${docId}:3`, quote: "Rear tyre pressure is 225 kPa when cold." }] }) }]);
+  agent.plan = ["tyre pressure", "", "rear tyre"];
+  const stages: string[] = [];
+  const run = await askDocuments(agent, kb.index, { kbName: "x", docs: kb.docs, question: "כמה אוויר מאחור?", images: [], history: [] }, (p) => stages.push(p.stage));
+  assert.equal(agent.turns.length, 1, "no tool round trip");
+  assert.deepEqual(run.searches, [["tyre pressure", "rear tyre"]]);
+  assert.deepEqual(stages, ["searching", "searching", "reading", "writing", "checking"]);
+  assert.ok(JSON.stringify(agent.turns[0].messages[0]).includes(`<passage ref=\\"${docId}:3\\"`));
+  assert.equal(run.result.kind, "answer", "a passage from the first search is a valid source");
+  // No queries from the planner (not a question about the machine): the loop runs as before.
+  const idle = new FakeAgent([{ final: draft({ kind: "not_found" }) }]);
+  idle.plan = [];
+  const none = await askDocuments(idle, kb.index, { kbName: "x", docs: kb.docs, question: "שלום", images: [], history: [] });
+  assert.deepEqual([none.searches.length, none.result.kind], [0, "not_found"]);
 });

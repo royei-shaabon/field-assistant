@@ -3,6 +3,8 @@
 import Anthropic from "@anthropic-ai/sdk";
 
 export const MODEL = "claude-sonnet-5-5";
+// A small, fast model for short helper steps where speed matters more than depth.
+export const FAST_MODEL = "claude-haiku-5-5";
 
 export type SkillContent =
   | { type: "text"; text: string }
@@ -12,6 +14,8 @@ export type ModelRequest = {
   system: string;
   content: SkillContent[];
   schema: Record<string, unknown>;
+  // Run on FAST_MODEL.
+  fast?: boolean;
 };
 
 // text is null when the model produced no usable text (refusal, max_tokens, empty).
@@ -62,8 +66,8 @@ function apiSchema(schema: Record<string, unknown>): Record<string, unknown> {
 // output is pinned by structured outputs (json_schema) plus low effort instead.
 export function buildMessageParams(request: ModelRequest): Anthropic.Beta.Messages.MessageCreateParamsNonStreaming {
   return {
-    model: MODEL,
-    max_tokens: 2048,
+    model: request.fast ? FAST_MODEL : MODEL,
+    max_tokens: request.fast ? 512 : 2048,
     system: request.system,
     messages: [
       {
@@ -76,8 +80,8 @@ export function buildMessageParams(request: ModelRequest): Anthropic.Beta.Messag
       },
     ],
     output_config: { effort: "low", format: { type: "json_schema", schema: apiSchema(request.schema) } },
-    betas: ["server-side-fallback-2026-07-01"],
-    fallbacks: "default",
+    // The small model has no server-side fallback.
+    ...(request.fast ? {} : { betas: ["server-side-fallback-2026-07-01"], fallbacks: "default" as const }),
   };
 }
 

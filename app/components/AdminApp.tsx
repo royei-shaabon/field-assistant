@@ -139,7 +139,7 @@ function UsageTiles({ usage }: { usage: Usage }) {
   );
 }
 
-type DiagnoseCheck = { name: "key_and_model" | "question_answering"; ok: boolean; ms: number; detail?: string };
+type DiagnoseCheck = { name: "key_and_model" | "question_answering" | "fast_search"; ok: boolean; ms: number; detail?: string };
 
 // Asks the server to try the model: first the key, then one full question on a sample page.
 // On failure the provider's own message is shown, so the implementer knows what to fix.

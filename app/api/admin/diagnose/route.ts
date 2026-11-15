@@ -51,5 +51,20 @@ export async function POST() {
       }),
     );
   }
+  if (checks[0].ok) {
+    // The first search falls back silently when it fails, so this is the only place it shows.
+    checks.push(
+      await timed("fast_search", async () => {
+        const r = await new AnthropicModelClient(client).complete({
+          system: "Return two short English search queries for the question.",
+          content: [{ type: "text", text: "איפה כפתור האיפוס?" }],
+          schema: { type: "object", additionalProperties: false, required: ["queries"], properties: { queries: { type: "array", items: { type: "string" } } } },
+          fast: true,
+        });
+        if (r.text === null) throw new Error(`no output (stop_reason: ${r.stopReason})`);
+        return r.text.slice(0, 120);
+      }),
+    );
+  }
   return Response.json({ model: MODEL, checks }, { headers: { "Cache-Control": "no-store" } });
 }

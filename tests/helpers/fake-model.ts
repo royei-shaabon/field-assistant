@@ -28,8 +28,14 @@ export class FakeAgent implements ModelClient {
   turns: AgentRequest[] = [];
   constructor(private replies: TurnReply[]) {}
 
-  async complete(): Promise<ModelResponse> {
-    throw new Error("FakeAgent only answers tool-loop turns");
+  // The first-search step. Without `plan` it fails, and the loop runs with no head start.
+  plans: ModelRequest[] = [];
+  plan?: string[];
+
+  async complete(request: ModelRequest): Promise<ModelResponse> {
+    this.plans.push(request);
+    if (!this.plan) throw new Error("FakeAgent has no plan for the first search");
+    return { text: JSON.stringify({ queries: this.plan }), stopReason: "end_turn" };
   }
 
   async turn(request: AgentRequest): Promise<AgentTurn> {

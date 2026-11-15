@@ -204,7 +204,7 @@ export const T = {
     remove: "מחיקה",
     renameDoc: "שינוי שם",
     renameDocPrompt: "השם שהטכנאים יראו ליד כל תשובה (למשל: מדריך בעלים Rebel 500):",
-    diagnose: { run: "בדיקת חיבור למודל", running: "בודק…", ok: "תקין", failed: "נכשל", key_and_model: "מפתח ומודל", question_answering: "שאלה ותשובה מלאה" },
+    diagnose: { run: "בדיקת חיבור למודל", running: "בודק…", ok: "תקין", failed: "נכשל", key_and_model: "מפתח ומודל", question_answering: "שאלה ותשובה מלאה", fast_search: "חיפוש מהיר (מודל קטן)" },
     open: "פתיחה",
     technicianLink: "קישור לטכנאי",
     copy: "העתקה",

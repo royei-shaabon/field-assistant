@@ -177,6 +177,41 @@ export function verifyDraft(draft: Draft, seen: Map<string, Hit>, question: stri
   };
 }
 
+// --- the first search ---------------------------------------------------------------------
+
+const PLAN_SYSTEM = `A field technician asks a question in Hebrew about a machine. Their knowledge base holds the documents listed in the input.
+Write 2 to 4 short keyword search queries, in the language of the documents, that would find the passages answering the question: the direct term, a synonym, and where a manual would put it (for example "tire pressure", "specifications tires").
+If photos are attached, use what they show (an indicator, a part) to choose the terms.
+If the question only makes sense with the conversation history, use the history to complete it.
+Return an empty list when the message is not a question about the machine or its documents.`;
+
+const PLAN_SCHEMA = {
+  type: "object",
+  additionalProperties: false,
+  required: ["queries"],
+  properties: { queries: { type: "array", items: { type: "string" } } },
+};
+
+function runSearch(index: SearchIndex, queries: string[]): Hit[] {
+  const merged = new Map<string, Hit>();
+  for (const q of queries) for (const h of index.search(q, PER_QUERY)) if (!merged.has(h.ref) || merged.get(h.ref)!.score < h.score) merged.set(h.ref, h);
+  return [...merged.values()].sort((a, b) => b.score - a.score).slice(0, PER_SEARCH);
+}
+
+// A small fast model writes the first queries, so the main model starts with the passages in
+// hand and usually answers in one call. Any failure here just means no head start.
+async function firstSearch(client: ModelClient, index: SearchIndex, context: string, input: AskInput): Promise<{ queries: string[]; hits: Hit[] } | null> {
+  try {
+    const reply = await client.complete({ system: PLAN_SYSTEM, content: [...input.images, { type: "text", text: context }], schema: PLAN_SCHEMA, fast: true });
+    const raw = (JSON.parse(reply.text ?? "{}") as { queries?: unknown }).queries;
+    const queries = (Array.isArray(raw) ? raw : []).filter((q): q is string => typeof q === "string" && q.trim().length > 0).slice(0, 4);
+    if (!queries.length) return null;
+    return { queries, hits: runSearch(index, queries) };
+  } catch {
+    return null;
+  }
+}
+
 // --- the tool loop -------------------------------------------------------------------------
 
 function describeResult(r: DocResult): string {
@@ -187,7 +222,7 @@ function describeResult(r: DocResult): string {
   return "No answer (technical error).";
 }
 
-function firstMessage(input: AskInput): AgentMessage {
+function contextOf(input: AskInput): string {
   const context = {
     knowledge_base: input.kbName,
     documents: input.docs.map((d) => ({ name: d.name, from: d.origin, pages: d.passages })),
@@ -195,7 +230,7 @@ function firstMessage(input: AskInput): AgentMessage {
     attached: input.images.length ? `${input.images.length} ${input.media === "video" ? "video frames" : "photo(s)"}` : "nothing",
     technician: input.question ?? "(no text, only the attached media)",
   };
-  return { role: "user", content: [...input.images.map(imageBlock), { type: "text", text: JSON.stringify(context, null, 1) }] };
+  return JSON.stringify(context, null, 1);
 }
 
 function searchResultText(hits: Hit[]): string {
@@ -220,8 +255,20 @@ export async function askDocuments(
   const seen = new Map<string, Hit>();
   const searches: string[][] = [];
   const errors: string[] = [];
-  const messages: AgentMessage[] = [firstMessage(input)];
+  const context = contextOf(input);
   progress({ stage: input.images.length ? "looking" : "searching" });
+
+  const head = await firstSearch(client, index, context, input);
+  let found = "";
+  if (head) {
+    searches.push(head.queries);
+    for (const h of head.hits) seen.set(h.ref, h);
+    progress({ stage: "searching", detail: head.queries[0] });
+    if (head.hits.length) progress({ stage: "reading", detail: `${head.hits[0].docName} · ${head.hits.slice(0, 3).map((h) => h.n).join(", ")}` });
+    found = `\n\nA first search was already run for you with the queries ${JSON.stringify(head.queries)}. Its results:\n\n${searchResultText(head.hits)}\n\nAnswer from these passages when they are enough. Search again only if they lack what the answer needs.`;
+    progress({ stage: "writing" });
+  }
+  const messages: AgentMessage[] = [{ role: "user", content: [...input.images.map(imageBlock), { type: "text", text: context + found }] }];
 
   try {
     for (let turn = 0; turn < MAX_TURNS; turn++) {
@@ -239,9 +286,7 @@ export async function askDocuments(
           if (searches.length >= MAX_SEARCHES) return { type: "tool_result" as const, tool_use_id: call.id, content: "Search limit reached. Answer from the passages you already have." };
           searches.push(queries);
           progress({ stage: "searching", detail: queries[0] });
-          const merged = new Map<string, Hit>();
-          for (const q of queries) for (const h of index.search(q, PER_QUERY)) if (!merged.has(h.ref) || merged.get(h.ref)!.score < h.score) merged.set(h.ref, h);
-          const hits = [...merged.values()].sort((a, b) => b.score - a.score).slice(0, PER_SEARCH);
+          const hits = runSearch(index, queries);
           for (const h of hits) seen.set(h.ref, h);
           if (hits.length) progress({ stage: "reading", detail: `${hits[0].docName} · ${hits.slice(0, 3).map((h) => h.n).join(", ")}` });
           return { type: "tool_result" as const, tool_use_id: call.id, content: searchResultText(hits) };
