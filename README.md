@@ -32,6 +32,14 @@ ANTHROPIC_API_KEY=... ADMIN_PASSWORD=... npm run dev
 3. מגדירים `ANTHROPIC_API_KEY`, `ADMIN_PASSWORD` ו-`ACCESS_CODE`.
 4. נכנסים ל-`/admin`, ומעלים את המסמכים.
 
+### Google Cloud Run (סקריפט אחד)
+ב-[Google Cloud Shell](https://shell.cloud.google.com), מתוך תיקיית הריפו:
+```bash
+./scripts/deploy-gcp.sh
+```
+הסקריפט מבקש את המפתח, את הסיסמה ואת קוד הכניסה, יוצר bucket למסמכים, מחבר אותו כ-`/data`, ופורס את השירות.
+אפשר להריץ אותו שוב כדי לעדכן גרסה. המסמכים נשארים ב-bucket.
+
 Vercel לא מתאים כמו שהוא: אין בו דיסק קבוע, והעלאות מוגבלות ל-4.5MB.
 מצלמה ומיקרופון בטלפון עובדים רק ב-HTTPS, ושירותי האחסון האלה נותנים HTTPS אוטומטית.
 
