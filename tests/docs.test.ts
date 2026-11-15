@@ -645,3 +645,22 @@ test("Vertex embeddings: request shape, batching, one-by-one retry on a refused 
     Object.assign(process.env, saved.env);
   }
 });
+
+test("timing: every stage of an answer is measured, and nothing else changes", async () => {
+  const { kb, docId } = await sampleKb();
+  const step = { text: "SAMPLE קדמי 200", ref: `${docId}:3`, quote: "Front tyre pressure is 200 kPa when cold." };
+  const agent = new FakeAgent([{ search: ["tyre pressure"] }, { final: draft({ steps: [step] }) }]);
+  agent.plan = ["tyre pressure"];
+  const run = await askDocuments(agent, kb.index, { kbName: "x", docs: kb.docs, question: "כמה אוויר?", images: [], history: [] });
+  assert.equal(run.result.kind, "answer");
+  const t = run.timing;
+  assert.deepEqual(t.turns.map((x) => x.skill), [true, false], "one call that asked for a skill, one that answered");
+  assert.equal(t.turns[0].firstText, null, "a call that only asks for a skill writes no text");
+  assert.ok(t.turns[1].firstText !== null && t.firstStep !== null);
+  for (const n of [t.plan, t.search, t.images, t.skills, t.total, t.firstStep!, ...t.turns.map((x) => x.total)]) assert.ok(Number.isFinite(n) && n >= 0);
+  assert.ok(t.total >= t.firstStep!);
+  // The conversation layer hands the numbers on.
+  let seen: unknown;
+  await handleDocConversation(kb, new FakeAgent([{ final: draft({ kind: "not_found" }) }]), { events: [], input: { kind: "ask", text: "שאלה" } }, undefined, undefined, { onTiming: (x) => (seen = x) });
+  assert.ok(seen && typeof (seen as { total: number }).total === "number");
+});

@@ -340,20 +340,25 @@ const PLAN_SCHEMA = {
 
 // A small fast model writes the first queries, so the main model starts with the passages in
 // hand and usually answers in one call. Any failure here just means no head start.
-async function firstSearch(client: ModelClient, index: SearchIndex, context: string, input: AskInput): Promise<{ queries: string[]; hits: Hit[] } | null> {
+async function firstSearch(client: ModelClient, index: SearchIndex, context: string, input: AskInput, timing: AskTiming): Promise<{ queries: string[]; hits: Hit[] } | null> {
   let queries: string[];
+  const planStarted = Date.now();
   try {
     const reply = await client.complete({ system: PLAN_SYSTEM, content: [...input.images, { type: "text", text: context }], schema: PLAN_SCHEMA, fast: true });
     queries = cleanQueries((JSON.parse(reply.text ?? "{}") as { queries?: unknown }).queries);
+    timing.plan = Date.now() - planStarted;
     // No queries: the small model judged that this is not a question about the machine.
     if (!queries.length) return null;
   } catch {
+    timing.plan = Date.now() - planStarted;
     // Without the small model there are no keyword queries, but the question itself can still
     // be searched by meaning.
     queries = [];
   }
   // The technician's own words are searched by meaning as well, whatever language they are in.
+  const searchStarted = Date.now();
   const hits = await runSearch(index, queries, { embedder: input.embedder, also: input.question });
+  timing.search = Date.now() - searchStarted;
   return hits.length || queries.length ? { queries: queries.length ? queries : [input.question ?? ""], hits } : null;
 }
 
@@ -389,7 +394,23 @@ function searchResultText(hits: Hit[]): string {
     .join("\n\n");
 }
 
-export type AskRun = { result: DocResult; searches: string[][]; errors: string[] };
+// Where the time of one answer went, in milliseconds. Measured only; nothing depends on it.
+export type AskTiming = {
+  // The small model writing the first queries, then the first search itself (with the query embedding).
+  plan: number;
+  search: number;
+  // Rendering the found pages as pictures for the main model.
+  images: number;
+  // One entry per call to the main model: until its first text, its whole length, and whether it asked for a skill.
+  turns: { firstText: number | null; total: number; skill: boolean }[];
+  // Skills the agent asked for during the loop.
+  skills: number;
+  // From the start until the first verified step was sent to the phone.
+  firstStep: number | null;
+  total: number;
+};
+
+export type AskRun = { result: DocResult; searches: string[][]; errors: string[]; timing: AskTiming };
 
 export async function askDocuments(
   client: ModelClient,
@@ -408,12 +429,15 @@ export async function askDocuments(
   const shots = new Map<string, PageShot>();
   const searches: string[][] = [];
   const errors: string[] = [];
+  const started = Date.now();
+  const timing: AskTiming = { plan: 0, search: 0, images: 0, turns: [], skills: 0, firstStep: null, total: 0 };
+  const done = (result: DocResult): AskRun => ({ result, searches, errors, timing: { ...timing, total: Date.now() - started } });
   const frameSizes = input.images.map((i) => imageSize(i.data, i.mediaType));
   const context = contextOf(input, index, frameSizes);
   progress({ stage: input.images.length ? "looking" : "searching" });
 
   const content: AgentMessage["content"] = [...input.images.map(imageBlock)];
-  const head = await firstSearch(client, index, context, input);
+  const head = await firstSearch(client, index, context, input, timing);
   let found = "";
   if (head) {
     searches.push(head.queries);
@@ -425,7 +449,9 @@ export async function askDocuments(
     // The best pages also go in as pictures, so the answer can show the manual's own drawing.
     if (input.pageImage) {
       const pages = head.hits.filter((h) => h.unit === "page").slice(0, PAGES_AS_IMAGES);
+      const imagesStarted = Date.now();
       const rendered = await Promise.all(pages.map((h) => input.pageImage!(h).catch(() => null)));
+      timing.images = Date.now() - imagesStarted;
       pages.forEach((h, i) => {
         const shot = rendered[i];
         if (!shot) return;
@@ -439,10 +465,14 @@ export async function askDocuments(
   const messages: AgentMessage[] = [{ role: "user", content }];
 
   let shown = 0;
+  let turnStarted = started;
+  let turnFirstText: number | null = null;
   const onText = (snapshot: string) => {
+    turnFirstText ??= Date.now() - turnStarted;
     const partial = partialAnswer(snapshot, seen, input.question);
     if (partial && partial.steps.length > shown) {
       shown = partial.steps.length;
+      timing.firstStep ??= Date.now() - started;
       onPartial(partial);
     }
   };
@@ -453,7 +483,10 @@ export async function askDocuments(
         errors.push("client disconnected");
         break;
       }
+      turnStarted = Date.now();
+      turnFirstText = null;
       const reply = await client.turn({ system: prompt, messages, tools: skills.map(({ name, description, input_schema }) => ({ name, description, input_schema })), schema }, onText);
+      timing.turns.push({ firstText: turnFirstText, total: Date.now() - turnStarted, skill: reply.toolCalls.length > 0 });
 
       if (reply.toolCalls.length) {
         messages.push(reply.assistant);
@@ -469,7 +502,9 @@ export async function askDocuments(
             results.push({ type: "tool_result" as const, tool_use_id: call.id, content: "Skill limit reached. Answer from the passages you already have." });
             continue;
           }
+          const skillStarted = Date.now();
           const outcome = await used.run({ index, seen, embedder: input.embedder }, call.input);
+          timing.skills += Date.now() - skillStarted;
           searches.push(cleanQueries((call.input as { queries?: unknown })?.queries));
           progress({ stage: "searching", detail: outcome.label });
           for (const h of outcome.hits) seen.set(h.ref, h);
@@ -496,12 +531,12 @@ export async function askDocuments(
         errors.push(`schema: ${new Ajv().errorsText(validate.errors)}`);
         break;
       }
-      return { result: verifyDraft(draft, seen, input.question, frameSizes, shots, input.ideas !== false), searches, errors };
+      return done(verifyDraft(draft, seen, input.question, frameSizes, shots, input.ideas !== false));
     }
     if (!errors.length) errors.push("too many turns");
   } catch (e) {
     const status = (e as { status?: number }).status;
     errors.push(`${status ? `HTTP ${status}: ` : ""}${(e as Error).message}`);
   }
-  return { result: { kind: "error" }, searches, errors };
+  return done({ kind: "error" });
 }

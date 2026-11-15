@@ -42,6 +42,11 @@ export async function POST(request: Request) {
             // Each verified step goes to the phone as soon as it is written.
             onPartial: (partial) => send({ partial }),
             embedder: embedder(),
+            // Where the time went: numbers only, for the log and for scripts/live-check.ts.
+            onTiming: (timing) => {
+              console.log(`[timing ${kbId}]`, JSON.stringify(timing));
+              send({ timing });
+            },
             pageImage: async (hit) => {
               const image = await pageImage(kbId, hit.docId, hit.n);
               return image && { data: image.png.toString("base64"), mediaType: "image/png" as const, width: image.width, height: image.height };
