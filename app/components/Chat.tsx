@@ -9,7 +9,7 @@ import type { PartialAnswer } from "@/lib/docs/ask";
 import type { CandidateView, ChatItem, CheckView, MarkView, Screen, TreeView } from "@/lib/screen";
 import type { StepView } from "@/lib/safety";
 import { T } from "@/lib/ui-text";
-import { DocAnswer, docAnswerWords, DocAsk, DocHazard, DocNote, Ideas } from "./DocChat";
+import { Caution, DocAnswer, docAnswerWords, DocAsk, DocHazard, DocNote, Ideas } from "./DocChat";
 import { CheckIcon, DocIcon, WarningIcon } from "./icons";
 
 export type Media = Record<number, string[]>;
@@ -422,6 +422,7 @@ function Item({
     case "doc_ideas":
       return (
         <div className="flex flex-col gap-3">
+          {item.caution && <Caution topic={item.caution} />}
           <DocNote title={T.doc.ideasNotFound} />
           <Ideas ideas={item.ideas} />
           <DocNote title="" actions={interactive ? [{ label: T.doc.rephrase, run: handlers.onOther }, { label: T.doc.addPhoto, run: handlers.onAttach }] : []} />

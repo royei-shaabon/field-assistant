@@ -112,8 +112,11 @@ when the input says suggested checks are off.
 The application orders the checks itself from `likelihood` and `minutes` (a quick check of an
 unlikely cause can come first), so give honest values and do not write an order into the text.
 Do not give specific values (torques, pressures, clearances, voltages of this model) from
-memory: specific numbers come only from the documents. Give no check at all on a hazard topic
-(see `hazard`): there the application shows only what the documents say.
+memory: specific numbers come only from the documents. On a hazard topic (see `hazard`) the
+application shows your checks under a safety warning, so keep them to looking, listening,
+smelling and reading an indicator or a gauge from the outside: nothing that opens a system,
+disconnects a line or a connector, or puts hands near moving or hot parts. Set `hazard`
+honestly for the checks as well as for the steps.
 
 `figures` (0 to 2): the manual's own drawing, shown to the technician inside the answer. Some
 pages arrive as pictures, each introduced by "Picture of the page with ref ...". When such a

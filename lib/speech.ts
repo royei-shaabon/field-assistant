@@ -31,7 +31,7 @@ function lineFor(item: ChatItem, screen: Screen): string[] {
     case "doc_answer":
       return [...(item.caution ? [T.doc.cautionTitle, T.doc.topics[item.caution], T.doc.cautionBody] : []), item.title, ...item.steps.map((s) => s.text), T.doc.sourceSpoken, ...(item.ideas?.length ? [T.doc.ideasSpoken, ...item.ideas.map((i) => i.text)] : [])];
     case "doc_ideas":
-      return [T.doc.ideasNotFound, T.doc.ideasSpoken, ...item.ideas.map((i) => i.text)];
+      return [...(item.caution ? [T.doc.cautionTitle, T.doc.topics[item.caution], T.doc.cautionBody] : []), T.doc.ideasNotFound, T.doc.ideasSpoken, ...item.ideas.map((i) => i.text)];
     case "doc_ask":
       return [item.question, ...(item.options.length ? [T.call.sayClosest, ...item.options] : [])];
     case "doc_hazard":

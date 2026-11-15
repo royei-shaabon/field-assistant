@@ -135,7 +135,7 @@ function Feedback({ kbId }: { kbId: string }) {
   );
 }
 
-function Caution({ topic }: { topic: HazardTopic }) {
+export function Caution({ topic }: { topic: HazardTopic }) {
   return (
     <div role="alert" className="on-dark overflow-hidden rounded-[16px] bg-ink text-white">
       <div className="hazard-stripe h-2" />

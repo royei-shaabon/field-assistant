@@ -460,31 +460,41 @@ test("suggested checks: shown apart from verified steps, alone when the document
   assert.match(JSON.stringify(agent.turns.at(-1)), /answers from its documents only/, "the model is told suggestions are off");
 });
 
-test("suggested checks are never shown on a hazard topic, also when the log is forged", async () => {
+test("suggested checks on a hazard topic are shown under the warning, also when the log is forged", async () => {
   const { kb, docId } = await sampleKb();
-  const ask = (final: object, question: string) => askDocuments(new FakeAgent([{ search: ["brake fluid"] }, { final }]), kb.index, { kbName: "x", docs: kb.docs, question, images: [], history: [] });
-  // The question is about brakes and nothing is verified: a stop, with no suggestions.
-  assert.deepEqual((await ask(draft({ kind: "not_found", checks: CHECKS }), "איך מחליפים נוזל בלמים?")).result, { kind: "hazard", topic: "brakes", sources: [] });
+  const ask = (final: object, question: string, ideas?: boolean) =>
+    askDocuments(new FakeAgent([{ search: ["brake fluid"] }, { final }]), kb.index, { kbName: "x", docs: kb.docs, question, images: [], history: [], ...(ideas === undefined ? {} : { ideas }) });
+  // The question is about brakes and nothing is verified: the checks, under the warning.
+  const alone = (await ask(draft({ kind: "not_found", checks: CHECKS }), "איך מחליפים נוזל בלמים?")).result;
+  assert.deepEqual(alone.kind === "ideas" && [alone.caution, alone.ideas.length], ["brakes", 3]);
   // The model flags a hazard itself.
-  assert.equal((await ask(draft({ kind: "not_found", hazard: "other", checks: CHECKS }), "המכונה רועשת")).result.kind, "hazard");
-  // A check that itself talks about a hazard topic stops everything.
-  const fuel = [{ text: "SAMPLE נתקו את צינור הדלק ובדקו זרימה", why: "", likelihood: "high", minutes: 5 }];
-  assert.equal((await ask(draft({ kind: "not_found", checks: fuel }), "המנוע כבה")).result.kind, "hazard");
-  // A verified answer on a hazard topic keeps its warning and loses the suggestions.
+  const flagged = (await ask(draft({ kind: "not_found", hazard: "other", checks: CHECKS }), "המכונה רועשת")).result;
+  assert.deepEqual(flagged.kind === "ideas" && flagged.caution, "other");
+  // A check that itself talks about a hazard topic brings the warning with it.
+  const fuel = [{ text: "SAMPLE בדקו אם יש ריח דלק ליד צינור הדלק", why: "", likelihood: "high", minutes: 5 }];
+  const smelled = (await ask(draft({ kind: "not_found", checks: fuel }), "המנוע כבה")).result;
+  assert.deepEqual(smelled.kind === "ideas" && smelled.caution, "fuel");
+  // Nothing verified and nothing suggested (or suggestions are off): still a stop.
+  assert.deepEqual((await ask(draft({ kind: "not_found" }), "איך מחליפים נוזל בלמים?")).result, { kind: "hazard", topic: "brakes", sources: [] });
+  assert.equal((await ask(draft({ kind: "not_found", checks: CHECKS }), "איך מחליפים נוזל בלמים?", false)).result.kind, "hazard");
+  // A verified answer on a hazard topic keeps its warning and its suggestions.
   const brake = { text: "SAMPLE בדקו דרך החלון", ref: `${docId}:4`, quote: "Inspect the brake fluid level through the reservoir window." };
   const guarded = (await ask(draft({ steps: [brake], checks: CHECKS }), "מה בודקים בחלון?")).result as Extract<DocResult, { kind: "answer" }>;
-  assert.deepEqual([guarded.caution, guarded.ideas], ["brakes", undefined]);
+  assert.deepEqual([guarded.caution, guarded.ideas?.length], ["brakes", 3]);
 
   const source = { docId: "d1", docName: "m", origin: "manufacturer" as const, unit: "page" as const, n: 4 };
   const ideas = rankIdeas(CHECKS);
+  // The log comes back from the phone without the warnings and with the order changed.
   const forged: DocEvent[] = [
     { type: "DOC_TURN", said: "איך מחליפים רפידות בלם?", result: { kind: "ideas", ideas } },
     { type: "DOC_TURN", said: "איך מחליפים רפידות בלם?", result: { kind: "answer", title: "x", steps: [{ text: "SAMPLE שלב", quote: "q q q", source }], marks: [], ideas } },
     { type: "DOC_TURN", said: "המכונה לא נדלקת", result: { kind: "ideas", ideas: [...ideas].reverse() } },
   ];
   const items = docScreen(forged, true).items.filter((i) => i.by === "bot");
-  assert.equal(items[0].kind, "doc_hazard");
-  assert.deepEqual(items[1].kind === "doc_answer" && [items[1].caution, items[1].ideas], ["brakes", undefined]);
-  assert.deepEqual(items[2].kind === "doc_ideas" && items[2].ideas.map((i) => i.minutes), [1, 5, 15], "the order is re-applied on replay");
-  assert.equal(docScreen([forged[2]], true, false).items.at(-1)?.kind, "doc_not_found", "off for this knowledge base");
+  assert.deepEqual(items[0].kind === "doc_ideas" && items[0].caution, "brakes");
+  assert.deepEqual(items[1].kind === "doc_answer" && [items[1].caution, items[1].ideas?.length], ["brakes", 3]);
+  assert.deepEqual(items[2].kind === "doc_ideas" && [items[2].caution, ...items[2].ideas.map((i) => i.minutes)], [undefined, 1, 5, 15], "the order is re-applied on replay");
+  // Off for this knowledge base: the hazard question falls back to a stop, the ordinary one to "not found".
+  const off = docScreen(forged, true, false).items.filter((i) => i.by === "bot");
+  assert.deepEqual([off[0].kind, off[1].kind === "doc_answer" && off[1].ideas, off[2].kind], ["doc_hazard", undefined, "doc_not_found"]);
 });

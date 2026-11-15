@@ -36,7 +36,8 @@ export type DocMark = { frame: number; step: number; label: string; box: { x: nu
 
 export type Likelihood = "high" | "medium" | "low";
 // A place to check that is NOT from the documents: the model's general professional knowledge.
-// `minutes` is how long the check takes. Shown apart from the verified steps, and never on a hazard topic.
+// `minutes` is how long the check takes. Shown apart from the verified steps; on a hazard topic,
+// under the same warning as the steps.
 export type DocIdea = { text: string; why: string; likelihood: Likelihood; minutes: number };
 
 // What is stored in the conversation and shown. `quote` is the manual's own wording, shown
@@ -45,7 +46,7 @@ export type DocResult =
   // `caution`: the answer touches a hazard topic and is shown under a warning.
   | { kind: "answer"; title: string; steps: { text: string; quote: string; source: SourceView }[]; marks: DocMark[]; figures?: DocFigure[]; caution?: HazardTopic; ideas?: DocIdea[] }
   // Nothing in the documents, only suggested checks from general knowledge.
-  | { kind: "ideas"; ideas: DocIdea[] }
+  | { kind: "ideas"; ideas: DocIdea[]; caution?: HazardTopic }
   | { kind: "ask"; question: string; options: string[] }
   | { kind: "not_found" }
   | { kind: "hazard"; topic: HazardTopic; sources: SourceView[] }
@@ -222,12 +223,14 @@ export function verifyDraft(
 
   const kept = keepSteps(draft.steps, seen);
 
-  // A hazard topic with nothing verified to show: a stop, so nobody improvises.
+  // A hazard topic with nothing to show at all: a stop, so nobody improvises.
   const topic = hazardTopic(question, draft);
-  if (topic && kept.length === 0) return { kind: "hazard", topic, sources: [] };
-  // Suggestions from general knowledge are never shown on a hazard topic.
-  const ideas = topic || !allowIdeas ? [] : rankIdeas(draft.checks);
-  if (draft.kind === "not_found" || kept.length === 0) return ideas.length ? { kind: "ideas", ideas } : { kind: "not_found" };
+  // Suggestions from general knowledge. On a hazard topic they are shown under the warning.
+  const ideas = allowIdeas ? rankIdeas(draft.checks) : [];
+  if (draft.kind === "not_found" || kept.length === 0) {
+    if (ideas.length) return { kind: "ideas", ideas, ...(topic ? { caution: topic } : {}) };
+    return topic ? { kind: "hazard", topic, sources: [] } : { kind: "not_found" };
+  }
 
   // Marks point at steps by index; re-point them after dropped steps.
   const index = new Map(kept.map((k, i) => [k.from, i]));

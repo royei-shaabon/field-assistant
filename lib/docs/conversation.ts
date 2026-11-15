@@ -61,7 +61,7 @@ const requestSchema = obj(["events", "input"], {
             },
           }),
           obj(["kind", "question", "options"], { kind: kind("ask"), question: text(300), options: { type: "array", maxItems: 4, items: text(120) } }),
-          obj(["kind", "ideas"], { kind: kind("ideas"), ideas: { ...ideas, minItems: 1 } }),
+          obj(["kind", "ideas"], { kind: kind("ideas"), caution: { enum: ["brakes", "fuel", "hot_coolant", "running_engine", "other"] }, ideas: { ...ideas, minItems: 1 } }),
           obj(["kind"], { kind: kind("not_found") }),
           obj(["kind", "topic", "sources"], {
             kind: kind("hazard"),
@@ -94,21 +94,21 @@ const requestSchema = obj(["events", "input"], {
 const validateRequest = new Ajv().compile<DocRequest>(requestSchema);
 
 // The event log comes back from the client, so the hazard rule is applied again on every
-// replay: an answer on a hazard topic gets its warning back, whatever the log says, and
-// suggested checks are never shown on a hazard topic or when the knowledge base turned them off.
+// replay: anything on a hazard topic gets its warning back, whatever the log says, and
+// suggested checks are dropped when the knowledge base turned them off.
 function guarded(event: DocEvent, allowIdeas: boolean): DocResult {
   const r = event.result;
   if (r.kind === "ideas") {
-    const topic = hazardTopic(event.said, { hazard: "none", steps: [], checks: r.ideas });
-    if (topic) return { kind: "hazard", topic, sources: [] };
+    const caution = r.caution ?? hazardTopic(event.said, { hazard: "none", steps: [], checks: r.ideas }) ?? undefined;
     const kept = allowIdeas ? rankIdeas(r.ideas) : [];
-    return kept.length ? { kind: "ideas", ideas: kept } : { kind: "not_found" };
+    if (kept.length) return { kind: "ideas", ideas: kept, ...(caution ? { caution } : {}) };
+    return caution ? { kind: "hazard", topic: caution, sources: [] } : { kind: "not_found" };
   }
   if (r.kind !== "answer") return r;
   const topic = hazardTopic(event.said, { hazard: "none", steps: r.steps.map((s) => ({ text: s.text, ref: "", quote: s.quote })), checks: r.ideas });
   const caution = r.caution ?? topic ?? undefined;
   const { ideas: logged, ...rest } = r;
-  const kept = caution || !allowIdeas ? [] : rankIdeas(logged);
+  const kept = allowIdeas ? rankIdeas(logged) : [];
   return { ...rest, marks: validDocMarks(r.marks, event.frames ?? 0, r.steps.length), ...(caution ? { caution } : {}), ...(kept.length ? { ideas: kept } : {}) };
 }
 
@@ -122,7 +122,7 @@ export function docScreen(events: DocEvent[], hasDocuments: boolean, allowIdeas 
     if (r.kind === "answer") {
       title ??= r.title;
       items.push({ by: "bot", kind: "doc_answer", eventIndex, title: r.title, steps: r.steps, marks: r.marks, ...(r.figures?.length ? { figures: r.figures } : {}), ...(r.caution ? { caution: r.caution } : {}), ...(r.ideas?.length ? { ideas: r.ideas } : {}) });
-    } else if (r.kind === "ideas") items.push({ by: "bot", kind: "doc_ideas", ideas: r.ideas });
+    } else if (r.kind === "ideas") items.push({ by: "bot", kind: "doc_ideas", ideas: r.ideas, ...(r.caution ? { caution: r.caution } : {}) });
     else if (r.kind === "ask") items.push({ by: "bot", kind: "doc_ask", question: r.question, options: r.options });
     else if (r.kind === "hazard") items.push({ by: "bot", kind: "doc_hazard", topic: r.topic, sources: r.sources });
     else if (r.kind === "not_found") items.push({ by: "bot", kind: "doc_not_found" });
