@@ -38,7 +38,7 @@ export class FakeAgent implements ModelClient {
     return { text: JSON.stringify({ queries: this.plan }), stopReason: "end_turn" };
   }
 
-  async turn(request: AgentRequest): Promise<AgentTurn> {
+  async turn(request: AgentRequest, onText?: (snapshot: string) => void): Promise<AgentTurn> {
     this.turns.push(structuredClone(request));
     const next = this.replies.length > 1 ? this.replies.shift()! : this.replies[0];
     const reply = typeof next === "function" ? next(request) : next;
@@ -53,6 +53,8 @@ export class FakeAgent implements ModelClient {
       };
     }
     const text = JSON.stringify(reply.final);
+    // Like the real client: the text arrives in pieces.
+    for (let end = 40; onText && end < text.length + 40; end += 40) onText(text.slice(0, end));
     return { stopReason: "end_turn", text, toolCalls: [], assistant: { role: "assistant", content: [{ type: "text", text }] } };
   }
 }

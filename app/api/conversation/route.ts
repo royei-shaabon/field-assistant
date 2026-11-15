@@ -1,6 +1,7 @@
 import { loadKnowledgeBase, type KnowledgeBase } from "@/lib/kb";
 import { BadRequest, handleConversation } from "@/lib/conversation";
 import { handleDocConversation } from "@/lib/docs/conversation";
+import { pageImage } from "@/lib/docs/page-image";
 import { AnthropicModelClient } from "@/lib/llm";
 import { needsCode, technicianAllowed } from "@/lib/server/access";
 import { loadDocKb, SAMPLE_KB_ID, sampleKbVisible } from "@/lib/server/kbs";
@@ -36,7 +37,14 @@ export async function POST(request: Request) {
         } else {
           const kb = await loadDocKb(kbId);
           if (!kb) throw new BadRequest("unknown knowledge base");
-          const result = await handleDocConversation(kb, client!, body, (p) => send({ progress: p.stage, detail: p.detail }), request.signal);
+          const result = await handleDocConversation(kb, client!, body, (p) => send({ progress: p.stage === "reading" ? "pages" : p.stage, detail: p.detail }), request.signal, {
+            // Each verified step goes to the phone as soon as it is written.
+            onPartial: (partial) => send({ partial }),
+            pageImage: async (hit) => {
+              const image = await pageImage(kbId, hit.docId, hit.n);
+              return image && { data: image.png.toString("base64"), mediaType: "image/png" as const, aspect: image.width / image.height };
+            },
+          });
           // A new turn was added: count it for the implementer's usage overview.
           const before = Array.isArray(body?.events) ? body.events.length : 0;
           if (result.events.length > before) await kbStore().recordUsage(kbId, result.events.at(-1)!.result.kind).catch(() => {});

@@ -26,7 +26,7 @@ export type ClientInput =
   | { kind: "end" };
 
 // Progress the server reports while it works, so the chat can show it live.
-export type Progress = "reading" | "looking" | "matching" | "interpreting" | "choosing" | "searching" | "writing" | "checking";
+export type Progress = "reading" | "looking" | "matching" | "interpreting" | "choosing" | "searching" | "pages" | "writing" | "checking";
 
 export type ConversationRequest = { events: Event[]; input: ClientInput };
 export type ConversationResponse = { events: Event[]; screen: Screen };

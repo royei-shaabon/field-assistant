@@ -1,0 +1,13 @@
+{
+  "name": "search_documents",
+  "access": "read",
+  "description": "Keyword search over the passages of this knowledge base. Returns the best matching passages with their reference, document name and page. Queries must be in the language of the documents.",
+  "input_schema": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": ["queries"],
+    "properties": {
+      "queries": { "type": "array", "items": { "type": "string" }, "description": "2 to 4 short keyword queries." }
+    }
+  }
+}

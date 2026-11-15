@@ -3,7 +3,7 @@
 "use client";
 
 import { useState } from "react";
-import type { DocMark, HazardTopic, SourceView } from "@/lib/docs/ask";
+import type { DocFigure, DocMark, HazardTopic, SourceView } from "@/lib/docs/ask";
 import type { ChatItem } from "@/lib/screen";
 import { T } from "@/lib/ui-text";
 import { MarkedImage, Reveal, WORD_MS, wordCount } from "./Chat";
@@ -74,6 +74,40 @@ function Marks({ marks, frames }: { marks: DocMark[]; frames?: string[] }) {
   );
 }
 
+// A drawing from the manual, cut out of the page picture. Tapping opens the whole page.
+function Figure({ kbId, figure }: { kbId: string; figure: DocFigure }) {
+  const { box, source, aspect } = figure;
+  const page = `/api/kbs/${kbId}/docs/${source.docId}/page/${source.n}`;
+  // A little air around the box, so a label at its edge is not cut.
+  const pad = 15;
+  const x = Math.max(0, box.x - pad);
+  const y = Math.max(0, box.y - pad);
+  const w = Math.min(1000 - x, box.w + 2 * pad);
+  const h = Math.min(1000 - y, box.h + 2 * pad);
+  return (
+    <figure className="anim-rise m-0 flex flex-col gap-1.5">
+      <a href={page} target="_blank" rel="noreferrer" className="block overflow-hidden rounded-2xl border border-edge bg-white">
+        <span
+          role="img"
+          aria-label={figure.caption || T.doc.figure}
+          className="block w-full"
+          style={{
+            aspectRatio: `${w * aspect} / ${h}`,
+            backgroundImage: `url(${page})`,
+            backgroundRepeat: "no-repeat",
+            backgroundSize: `${(1000 / w) * 100}% auto`,
+            backgroundPosition: `${w >= 1000 ? 0 : (x / (1000 - w)) * 100}% ${h >= 1000 ? 0 : (y / (1000 - h)) * 100}%`,
+          }}
+        />
+      </a>
+      <figcaption className="text-[15px] text-graphite">
+        <span>{T.doc.figure}</span>
+        {figure.caption && <span>: {figure.caption}</span>}
+      </figcaption>
+    </figure>
+  );
+}
+
 // "Helped" / "did not help": only a count reaches the server.
 function Feedback({ kbId }: { kbId: string }) {
   const [sent, setSent] = useState(false);
@@ -125,6 +159,7 @@ export function DocAnswer({
   animate,
   delay,
   feedback = false,
+  writing = false,
 }: {
   item: Answer;
   kbId: string;
@@ -133,6 +168,8 @@ export function DocAnswer({
   delay: number;
   // Offered on an answer that has just arrived, not on old ones in a reopened conversation.
   feedback?: boolean;
+  // Still being written: more steps are on the way, and there is nothing to rate yet.
+  writing?: boolean;
 }) {
   // One source for the whole answer is shown once, under the steps.
   const single = item.steps.every((s) => sameSource(s.source, item.steps[0].source));
@@ -173,14 +210,15 @@ export function DocAnswer({
                     {step.quote}
                   </blockquote>
                 </details>
-                {!single && <SourceLink kbId={kbId} source={step.source} />}
+                {!single && !writing && <SourceLink kbId={kbId} source={step.source} />}
               </div>
             </li>
           );
         })}
       </ol>
-      {single && <SourceLink kbId={kbId} source={item.steps[0].source} />}
-      {feedback && <Feedback kbId={kbId} />}
+      {!writing && item.figures?.map((f, i) => <Figure key={i} kbId={kbId} figure={f} />)}
+      {!writing && single && <SourceLink kbId={kbId} source={item.steps[0].source} />}
+      {!writing && feedback && <Feedback kbId={kbId} />}
     </article>
   );
 }

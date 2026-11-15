@@ -5,6 +5,7 @@
 
 import { useEffect, useState } from "react";
 import type { Progress } from "@/lib/conversation";
+import type { PartialAnswer } from "@/lib/docs/ask";
 import type { CandidateView, ChatItem, CheckView, MarkView, Screen, TreeView } from "@/lib/screen";
 import type { StepView } from "@/lib/safety";
 import { T } from "@/lib/ui-text";
@@ -267,6 +268,7 @@ function Item({
   media,
   interactive,
   animate,
+  fresh = false,
   delay,
   ...handlers
 }: {
@@ -275,6 +277,8 @@ function Item({
   media: Media;
   interactive: boolean;
   animate: boolean;
+  // Arrived in this exchange (as opposed to a reopened conversation).
+  fresh?: boolean;
   delay: number;
 } & Handlers) {
   const say = (text: string) => (
@@ -380,7 +384,7 @@ function Item({
         </div>
       );
     case "doc_answer":
-      return <DocAnswer item={item} kbId={handlers.kbId ?? ""} frames={media[item.eventIndex]} animate={animate} delay={delay} feedback={animate} />;
+      return <DocAnswer item={item} kbId={handlers.kbId ?? ""} frames={media[item.eventIndex]} animate={animate} delay={delay} feedback={fresh} />;
     case "doc_ask":
       return <DocAsk item={item} interactive={interactive} animate={animate} delay={delay} onOption={handlers.onOption} />;
     case "doc_hazard":
@@ -529,6 +533,10 @@ export type ChatProps = {
   maps?: number[];
   mapFrom?: "photo" | "video" | "text";
   progress?: ProgressStep[];
+  // The newest answer already appeared step by step: show it complete, without typing it out.
+  streamed?: boolean;
+  // An answer that is still being written.
+  live?: PartialAnswer | null;
   // What the technician just sent, shown before the server answers.
   pending?: React.ReactNode;
 } & Handlers;
@@ -550,7 +558,7 @@ export function chatTypingMs(screen: Screen, animateFrom: number): number {
   return words * WORD_MS;
 }
 
-export function ChatView({ screen, media, animateFrom = Number.MAX_SAFE_INTEGER, maps = [], mapFrom = "text", progress = [], pending, ...handlers }: ChatProps) {
+export function ChatView({ screen, media, animateFrom = Number.MAX_SAFE_INTEGER, maps = [], mapFrom = "text", progress = [], streamed = false, live = null, pending, ...handlers }: ChatProps) {
   let delay = 0;
   const kinds = screen.items.map((i) => i.kind);
   const lastNeedMore = kinds.lastIndexOf("need_more");
@@ -580,7 +588,8 @@ export function ChatView({ screen, media, animateFrom = Number.MAX_SAFE_INTEGER,
         screen={screen}
         media={media}
         interactive={(screen.mode === "identify" && i === lastNeedMore) || (screen.mode === "stop" && i === lastStop) || ((item.kind === "doc_ask" || item.kind === "doc_not_found") && i === lastAsk && !progress.length && !pending)}
-        animate={animate}
+        animate={animate && !(streamed && item.kind === "doc_answer")}
+        fresh={animate}
         delay={delay}
         {...handlers}
       />,
@@ -599,6 +608,7 @@ export function ChatView({ screen, media, animateFrom = Number.MAX_SAFE_INTEGER,
       <div role="log" aria-live="polite" aria-relevant="additions" className="flex flex-col gap-[22px]">
         {nodes}
         {pending}
+        {live && <DocAnswer item={{ by: "bot", kind: "doc_answer", eventIndex: -1, marks: [], ...live }} kbId={handlers.kbId ?? ""} animate={false} delay={0} writing />}
       </div>
       {/* Always mounted, so progress is announced when its text changes. */}
       <div role="status">

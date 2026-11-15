@@ -125,6 +125,7 @@ export class KbStore {
     this.checkId(docId);
     const base = `kbs/${kbId}/docs/${docId}`;
     await Promise.all([".meta.json", ".text.json", ".file"].map((s) => this.driver.remove(base + s)));
+    await this.driver.remove(`kbs/${kbId}/pages/${docId}`);
     await this.touch(kbId);
   }
 
@@ -134,6 +135,19 @@ export class KbStore {
     const meta = parse<DocMeta>(await this.driver.read(`${base}.meta.json`));
     const data = await this.driver.read(`${base}.file`);
     return meta && data ? { meta, data } : null;
+  }
+
+  // Rendered page pictures, kept next to the document they come from.
+  async getPageImage(kbId: string, docId: string, n: number): Promise<Buffer | null> {
+    this.checkId(kbId);
+    this.checkId(docId);
+    return this.driver.read(`kbs/${kbId}/pages/${docId}/${n}.png`);
+  }
+
+  async putPageImage(kbId: string, docId: string, n: number, png: Buffer): Promise<void> {
+    this.checkId(kbId);
+    this.checkId(docId);
+    await this.driver.write(`kbs/${kbId}/pages/${docId}/${n}.png`, png);
   }
 
   async getUsage(kbId: string): Promise<Usage> {

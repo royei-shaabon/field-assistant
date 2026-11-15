@@ -1,39 +1,50 @@
 // Answers a technician's question from the documents of one knowledge base.
-// The model searches (tool loop) and drafts; the code decides what reaches the technician:
+// The model can act only through the agent skills (lib/docs/agent-skills.ts), and it only
+// drafts; the code decides what reaches the technician:
 // every step must cite a passage that was really retrieved and quote text that is really in
 // it, and an answer on a hazard topic always carries a warning the model cannot remove.
 import fs from "node:fs";
 import path from "node:path";
 import Ajv from "ajv";
-import { imageBlock, type AgentMessage, type ModelClient, type SkillContent, type ToolDef } from "../llm";
+import { imageBlock, type AgentMessage, type ModelClient, type SkillContent } from "../llm";
 import { HAZARD_TOPICS } from "../safety";
 import type { DocMeta } from "../store/types";
+import { agentSkills, cleanQueries, runSearch } from "./agent-skills";
 import type { Hit, SearchIndex } from "./search";
 
 export const MAX_TURNS = 5;
 export const MAX_STEPS = 6;
-const PER_QUERY = 4;
-const PER_SEARCH = 8;
 // A question may search this many times in total, whatever the model asks for.
 const MAX_SEARCHES = 6;
 const PASSAGE_CHARS = 6000;
+// Pages of the first search that the model also gets as pictures, so it can point at a drawing.
+const PAGES_AS_IMAGES = 3;
+const MAX_FIGURES = 2;
 
 export type HazardTopic = "brakes" | "fuel" | "hot_coolant" | "running_engine" | "other";
 
 export type SourceView = { docId: string; docName: string; origin: DocMeta["origin"]; unit: DocMeta["unit"]; n: number };
+export type Box = { x: number; y: number; w: number; h: number };
+// A drawing cut out of a manual page: `box` in thousandths of the page, `aspect` = page width / height.
+export type DocFigure = { source: SourceView; caption: string; box: Box; aspect: number };
 export type DocMark = { frame: number; step: number; label: string; box: { x: number; y: number; w: number; h: number } };
 
 // What is stored in the conversation and shown. `quote` is the manual's own wording, shown
 // when the technician opens a source.
 export type DocResult =
   // `caution`: the answer touches a hazard topic and is shown under a warning.
-  | { kind: "answer"; title: string; steps: { text: string; quote: string; source: SourceView }[]; marks: DocMark[]; caution?: HazardTopic }
+  | { kind: "answer"; title: string; steps: { text: string; quote: string; source: SourceView }[]; marks: DocMark[]; figures?: DocFigure[]; caution?: HazardTopic }
   | { kind: "ask"; question: string; options: string[] }
   | { kind: "not_found" }
   | { kind: "hazard"; topic: HazardTopic; sources: SourceView[] }
   | { kind: "error" };
 
 export type AskProgress = { stage: "looking" | "searching" | "reading" | "writing" | "checking"; detail?: string };
+
+// The answer while it is still being written: only steps that already passed verification.
+export type PartialAnswer = { title: string; steps: { text: string; quote: string; source: SourceView }[]; caution?: HazardTopic };
+
+export type PageShot = { data: string; mediaType: "image/png"; aspect: number };
 
 export type AskInput = {
   kbName: string;
@@ -43,6 +54,8 @@ export type AskInput = {
   media?: "photo" | "video";
   // Earlier turns, oldest first.
   history: { said?: string; result: DocResult }[];
+  // Renders a page of a document as a picture. Absent in tests and for non-PDF documents.
+  pageImage?: (hit: Hit) => Promise<PageShot | null>;
 };
 
 type Draft = {
@@ -52,6 +65,7 @@ type Draft = {
   question: string;
   options: string[];
   marks: DocMark[];
+  figures: { ref: string; caption: string; box: Box }[];
   hazard: "none" | HazardTopic;
 };
 
@@ -64,18 +78,6 @@ function skill() {
   };
   return files;
 }
-
-const SEARCH_TOOL: ToolDef = {
-  name: "search_documents",
-  description:
-    "Keyword search over the passages of this knowledge base. Returns the best matching passages with their reference, document name and page. Queries must be in the language of the documents.",
-  input_schema: {
-    type: "object",
-    additionalProperties: false,
-    required: ["queries"],
-    properties: { queries: { type: "array", items: { type: "string" }, description: "1 to 4 short keyword queries." } },
-  },
-};
 
 // --- grounding -----------------------------------------------------------------------------
 
@@ -139,22 +141,34 @@ export function validDocMarks(marks: DocMark[], frames: number, steps: number): 
     .map((m) => ({ ...m, label: m.label.trim().slice(0, 40) }));
 }
 
-// Turns the model's draft into what may be shown. `seen` holds every passage the search
-// returned in this turn; a step that cites anything else, or misquotes, is dropped.
-export function verifyDraft(draft: Draft, seen: Map<string, Hit>, question: string | undefined, frames: number): DocResult {
+const inRange = (v: number) => Number.isInteger(v) && v >= 0 && v <= 1000;
+const validBox = ({ x, y, w, h }: Box) => [x, y, w, h].every(inRange) && w >= 60 && h >= 60 && x + w <= 1000 && y + h <= 1000;
+
+type KeptStep = { text: string; quote: string; source: SourceView; from: number };
+
+// A step is kept only when it cites a passage that was retrieved in this turn and quotes text
+// that is really in it.
+function keepSteps(steps: Draft["steps"], seen: Map<string, Hit>): KeptStep[] {
+  const kept: KeptStep[] = [];
+  steps.slice(0, MAX_STEPS).forEach((s, from) => {
+    const hit = seen.get(String(s.ref ?? "").trim());
+    if (hit && typeof s.text === "string" && s.text.trim() && typeof s.quote === "string" && quoteInPassage(s.quote, hit.text)) {
+      kept.push({ text: s.text.trim().slice(0, 600), quote: s.quote.trim().slice(0, 400), source: sourceOf(hit), from });
+    }
+  });
+  return kept;
+}
+
+// Turns the model's draft into what may be shown. `seen` holds every passage the skills
+// returned in this turn; `shots` the pages the model was shown as pictures.
+export function verifyDraft(draft: Draft, seen: Map<string, Hit>, question: string | undefined, frames: number, shots: Map<string, PageShot> = new Map()): DocResult {
   if (draft.kind === "ask") {
     const question2 = draft.question.trim();
     const options = draft.options.map((o) => o.trim()).filter(Boolean).slice(0, 4);
     return question2 ? { kind: "ask", question: question2.slice(0, 300), options } : { kind: "not_found" };
   }
 
-  const kept: { text: string; quote: string; source: SourceView; from: number }[] = [];
-  draft.steps.slice(0, MAX_STEPS).forEach((s, from) => {
-    const hit = seen.get(s.ref.trim());
-    if (hit && s.text.trim() && quoteInPassage(s.quote, hit.text)) {
-      kept.push({ text: s.text.trim().slice(0, 600), quote: s.quote.trim().slice(0, 400), source: sourceOf(hit), from });
-    }
-  });
+  const kept = keepSteps(draft.steps, seen);
 
   // A hazard topic with nothing verified to show: a stop, so nobody improvises.
   const topic = hazardTopic(question, draft);
@@ -168,13 +182,76 @@ export function verifyDraft(draft: Draft, seen: Map<string, Hit>, question: stri
     frames,
     kept.length,
   );
+  // A drawing is shown only from a page the model really saw, and only from a page the answer cites.
+  const cited = new Set(kept.map((k) => `${k.source.docId}:${k.source.n}`));
+  const figures: DocFigure[] = (draft.figures ?? [])
+    .filter((f) => shots.has(f.ref) && cited.has(f.ref) && seen.has(f.ref) && validBox(f.box))
+    .slice(0, MAX_FIGURES)
+    .map((f) => ({ source: sourceOf(seen.get(f.ref)!), caption: String(f.caption ?? "").trim().slice(0, 80), box: f.box, aspect: shots.get(f.ref)!.aspect }));
   return {
     kind: "answer",
     title: draft.title.trim().slice(0, 80),
     steps: kept.map(({ text, quote, source }) => ({ text, quote, source })),
     marks,
+    ...(figures.length ? { figures } : {}),
     ...(topic ? { caution: topic } : {}),
   };
+}
+
+// --- reading the answer while it is being written -------------------------------------------
+
+const jsonString = (text: string, key: string): string | undefined => {
+  const m = text.match(new RegExp(`"${key}"\\s*:\\s*("(?:[^"\\\\]|\\\\.)*")`));
+  if (!m) return undefined;
+  try {
+    return JSON.parse(m[1]) as string;
+  } catch {
+    return undefined;
+  }
+};
+
+// The step objects that are already complete in a partly written answer.
+function completeSteps(text: string): Draft["steps"] {
+  const start = text.search(/"steps"\s*:\s*\[/);
+  if (start < 0) return [];
+  const out: Draft["steps"] = [];
+  let depth = 0;
+  let inString = false;
+  let objectStart = -1;
+  for (let i = text.indexOf("[", start) + 1; i < text.length; i++) {
+    const c = text[i];
+    if (inString) {
+      if (c === "\\") i++;
+      else if (c === '"') inString = false;
+    } else if (c === '"') inString = true;
+    else if (c === "{") {
+      if (depth++ === 0) objectStart = i;
+    } else if (c === "}") {
+      if (--depth === 0) {
+        try {
+          out.push(JSON.parse(text.slice(objectStart, i + 1)));
+        } catch {
+          return out;
+        }
+      }
+    } else if (c === "]" && depth === 0) break;
+  }
+  return out;
+}
+
+// What can already be shown from a partly written answer: verified steps only, and the
+// warning as soon as anything calls for it.
+export function partialAnswer(text: string, seen: Map<string, Hit>, question: string | undefined): PartialAnswer | null {
+  if (jsonString(text, "kind") !== "answer") return null;
+  const title = jsonString(text, "title");
+  if (title === undefined) return null;
+  const steps = completeSteps(text);
+  const kept = keepSteps(steps, seen);
+  if (!kept.length) return null;
+  const flagged = jsonString(text, "hazard");
+  const hazard = flagged && flagged !== "none" ? (flagged as HazardTopic) : "none";
+  const topic = hazardTopic(question, { hazard, steps });
+  return { title: title.trim().slice(0, 80), steps: kept.map(({ text: t, quote, source }) => ({ text: t, quote, source })), ...(topic ? { caution: topic } : {}) };
 }
 
 // --- the first search ---------------------------------------------------------------------
@@ -192,19 +269,13 @@ const PLAN_SCHEMA = {
   properties: { queries: { type: "array", items: { type: "string" } } },
 };
 
-function runSearch(index: SearchIndex, queries: string[]): Hit[] {
-  const merged = new Map<string, Hit>();
-  for (const q of queries) for (const h of index.search(q, PER_QUERY)) if (!merged.has(h.ref) || merged.get(h.ref)!.score < h.score) merged.set(h.ref, h);
-  return [...merged.values()].sort((a, b) => b.score - a.score).slice(0, PER_SEARCH);
-}
-
 // A small fast model writes the first queries, so the main model starts with the passages in
 // hand and usually answers in one call. Any failure here just means no head start.
 async function firstSearch(client: ModelClient, index: SearchIndex, context: string, input: AskInput): Promise<{ queries: string[]; hits: Hit[] } | null> {
   try {
     const reply = await client.complete({ system: PLAN_SYSTEM, content: [...input.images, { type: "text", text: context }], schema: PLAN_SCHEMA, fast: true });
     const raw = (JSON.parse(reply.text ?? "{}") as { queries?: unknown }).queries;
-    const queries = (Array.isArray(raw) ? raw : []).filter((q): q is string => typeof q === "string" && q.trim().length > 0).slice(0, 4);
+    const queries = cleanQueries(raw);
     if (!queries.length) return null;
     return { queries, hits: runSearch(index, queries) };
   } catch {
@@ -249,15 +320,20 @@ export async function askDocuments(
   progress: (p: AskProgress) => void = () => {},
   // Aborted when the technician's phone disconnects: no more model calls are made.
   signal?: AbortSignal,
+  // Called as the answer is written, with the steps verified so far.
+  onPartial: (p: PartialAnswer) => void = () => {},
 ): Promise<AskRun> {
   const { prompt, schema } = skill();
+  const skills = agentSkills();
   const validate = new Ajv().compile<Draft>(schema);
   const seen = new Map<string, Hit>();
+  const shots = new Map<string, PageShot>();
   const searches: string[][] = [];
   const errors: string[] = [];
   const context = contextOf(input);
   progress({ stage: input.images.length ? "looking" : "searching" });
 
+  const content: AgentMessage["content"] = [...input.images.map(imageBlock)];
   const head = await firstSearch(client, index, context, input);
   let found = "";
   if (head) {
@@ -266,9 +342,30 @@ export async function askDocuments(
     progress({ stage: "searching", detail: head.queries[0] });
     if (head.hits.length) progress({ stage: "reading", detail: `${head.hits[0].docName} · ${head.hits.slice(0, 3).map((h) => h.n).join(", ")}` });
     found = `\n\nA first search was already run for you with the queries ${JSON.stringify(head.queries)}. Its results:\n\n${searchResultText(head.hits)}\n\nAnswer from these passages when they are enough. Search again only if they lack what the answer needs.`;
+    // The best pages also go in as pictures, so the answer can show the manual's own drawing.
+    if (input.pageImage) {
+      const pages = head.hits.filter((h) => h.unit === "page").slice(0, PAGES_AS_IMAGES);
+      const rendered = await Promise.all(pages.map((h) => input.pageImage!(h).catch(() => null)));
+      pages.forEach((h, i) => {
+        const shot = rendered[i];
+        if (!shot) return;
+        shots.set(h.ref, shot);
+        content.push({ type: "text", text: `Picture of the page with ref ${h.ref}:` }, imageBlock({ type: "image", mediaType: shot.mediaType, data: shot.data }));
+      });
+    }
     progress({ stage: "writing" });
   }
-  const messages: AgentMessage[] = [{ role: "user", content: [...input.images.map(imageBlock), { type: "text", text: context + found }] }];
+  content.push({ type: "text", text: context + found });
+  const messages: AgentMessage[] = [{ role: "user", content }];
+
+  let shown = 0;
+  const onText = (snapshot: string) => {
+    const partial = partialAnswer(snapshot, seen, input.question);
+    if (partial && partial.steps.length > shown) {
+      shown = partial.steps.length;
+      onPartial(partial);
+    }
+  };
 
   try {
     for (let turn = 0; turn < MAX_TURNS; turn++) {
@@ -276,20 +373,21 @@ export async function askDocuments(
         errors.push("client disconnected");
         break;
       }
-      const reply = await client.turn({ system: prompt, messages, tools: [SEARCH_TOOL], schema });
+      const reply = await client.turn({ system: prompt, messages, tools: skills.map(({ name, description, input_schema }) => ({ name, description, input_schema })), schema }, onText);
 
       if (reply.toolCalls.length) {
         messages.push(reply.assistant);
         const results = reply.toolCalls.map((call) => {
-          const raw = (call.input as { queries?: unknown })?.queries;
-          const queries = (Array.isArray(raw) ? raw : []).filter((q): q is string => typeof q === "string" && q.trim().length > 0).slice(0, 4);
-          if (searches.length >= MAX_SEARCHES) return { type: "tool_result" as const, tool_use_id: call.id, content: "Search limit reached. Answer from the passages you already have." };
-          searches.push(queries);
-          progress({ stage: "searching", detail: queries[0] });
-          const hits = runSearch(index, queries);
-          for (const h of hits) seen.set(h.ref, h);
-          if (hits.length) progress({ stage: "reading", detail: `${hits[0].docName} · ${hits.slice(0, 3).map((h) => h.n).join(", ")}` });
-          return { type: "tool_result" as const, tool_use_id: call.id, content: searchResultText(hits) };
+          // The agent can only use a declared skill. Anything else is refused, and nothing runs.
+          const used = skills.find((s) => s.name === call.name);
+          if (!used) return { type: "tool_result" as const, tool_use_id: call.id, is_error: true, content: `There is no skill named "${call.name}". Your skills: ${skills.map((s) => s.name).join(", ")}.` };
+          if (searches.length >= MAX_SEARCHES) return { type: "tool_result" as const, tool_use_id: call.id, content: "Skill limit reached. Answer from the passages you already have." };
+          const outcome = used.run({ index, seen }, call.input);
+          searches.push(cleanQueries((call.input as { queries?: unknown })?.queries));
+          progress({ stage: "searching", detail: outcome.label });
+          for (const h of outcome.hits) seen.set(h.ref, h);
+          if (outcome.hits.length) progress({ stage: "reading", detail: `${outcome.hits[0].docName} · ${outcome.hits.slice(0, 3).map((h) => h.n).join(", ")}` });
+          return { type: "tool_result" as const, tool_use_id: call.id, content: outcome.note ?? searchResultText(outcome.hits) };
         });
         messages.push({ role: "user", content: results });
         continue;
@@ -311,7 +409,7 @@ export async function askDocuments(
         errors.push(`schema: ${new Ajv().errorsText(validate.errors)}`);
         break;
       }
-      return { result: verifyDraft(draft, seen, input.question, input.images.length), searches, errors };
+      return { result: verifyDraft(draft, seen, input.question, input.images.length, shots), searches, errors };
     }
     if (!errors.length) errors.push("too many turns");
   } catch (e) {

@@ -6,7 +6,7 @@
 import type { KnowledgeBase, Outcome, Symptom } from "./kb";
 import { answeredCount, initialState, transition, waitingStop, type Event, type State, type StopReason, type Track } from "./orchestrator";
 import { validMarks, type Confidence, type StepView } from "./safety";
-import type { DocMark, HazardTopic, SourceView } from "./docs/ask";
+import type { DocFigure, DocMark, HazardTopic, SourceView } from "./docs/ask";
 
 export type MarkView = { frame: number; box: { x: number; y: number; w: number; h: number }; label: string; symptomTitle: string };
 
@@ -28,7 +28,7 @@ export type ChatItem =
   | { by: "bot"; kind: "stopped"; reason: StopReason; symptomTitle?: string }
   | { by: "bot"; kind: "done"; resolved: number; total: number }
   // Document knowledge bases (lib/docs): an answer whose every step was verified against its source.
-  | { by: "bot"; kind: "doc_answer"; eventIndex: number; title: string; steps: { text: string; quote: string; source: SourceView }[]; marks: DocMark[]; caution?: HazardTopic }
+  | { by: "bot"; kind: "doc_answer"; eventIndex: number; title: string; steps: { text: string; quote: string; source: SourceView }[]; marks: DocMark[]; figures?: DocFigure[]; caution?: HazardTopic }
   | { by: "bot"; kind: "doc_ask"; question: string; options: string[] }
   | { by: "bot"; kind: "doc_not_found" }
   | { by: "bot"; kind: "doc_hazard"; topic: HazardTopic; sources: SourceView[] }

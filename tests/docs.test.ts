@@ -6,7 +6,8 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { askDocuments, hazardTopic, quoteInPassage, type DocResult } from "../lib/docs/ask";
+import { agentSkills, loadAgentSkills } from "../lib/docs/agent-skills";
+import { askDocuments, hazardTopic, partialAnswer, quoteInPassage, type DocResult, type PartialAnswer } from "../lib/docs/ask";
 import { docScreen, handleDocConversation, type DocEvent } from "../lib/docs/conversation";
 import { ingest, splitIntoParts, UnsupportedFile } from "../lib/docs/ingest";
 import { SearchIndex, tokens } from "../lib/docs/search";
@@ -38,7 +39,7 @@ async function sampleKb() {
   return { store, kb: { meta, docs, index: new SearchIndex(await store.loadDocs(meta.id)) }, docId: d.id };
 }
 
-const draft = (over: object) => ({ kind: "answer", title: "SAMPLE כותרת", steps: [], question: "", options: [], marks: [], hazard: "none", ...over });
+const draft = (over: object) => ({ kind: "answer", hazard: "none", title: "SAMPLE כותרת", steps: [], figures: [], question: "", options: [], marks: [], ...over });
 
 test("ingest keeps real PDF page numbers and counts pages without text", async () => {
   const { doc, passages } = await ingest("sample_manual.pdf", makePdf(PAGES));
@@ -267,4 +268,107 @@ test("first search: the fast model's queries put the passages in the first messa
   idle.plan = [];
   const none = await askDocuments(idle, kb.index, { kbName: "x", docs: kb.docs, question: "שלום", images: [], history: [] });
   assert.deepEqual([none.searches.length, none.result.kind], [0, "not_found"]);
+});
+
+test("the agent acts only through declared read-only skills; anything else is refused", async () => {
+  assert.deepEqual(agentSkills().map((s) => [s.name, s.access]), [["read_pages", "read"], ["search_documents", "read"]]);
+  // A declaration that asks for more than "read", or has no code behind it, does not load.
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "skills-"));
+  const declare = (name: string, body: object) => (fs.mkdirSync(path.join(dir, name)), fs.writeFileSync(path.join(dir, name, "skill.json"), JSON.stringify({ name, description: "x", input_schema: { type: "object" }, ...body })));
+  declare("search_documents", { access: "write" });
+  assert.throws(() => loadAgentSkills(dir), /only "read" access/);
+  fs.rmSync(dir, { recursive: true });
+  fs.mkdirSync(dir);
+  declare("delete_documents", { access: "read" });
+  assert.throws(() => loadAgentSkills(dir), /declared but not implemented/);
+
+  // The model asks for a skill that does not exist: it gets a refusal, and nothing else happens.
+  const { kb, docId } = await sampleKb();
+  const agent = new FakeAgent([
+    () => ({ search: ["x"] }),
+    { final: draft({ kind: "not_found" }) },
+  ]);
+  const original = agent.turn.bind(agent);
+  let first = true;
+  agent.turn = async (request, onText) => {
+    const reply = await original(request, onText);
+    if (first && reply.toolCalls.length) {
+      first = false;
+      reply.toolCalls[0].name = "delete_documents";
+    }
+    return reply;
+  };
+  const run = await askDocuments(agent, kb.index, { kbName: "x", docs: kb.docs, question: "מחק הכול", images: [], history: [] });
+  const refusal = JSON.stringify(agent.turns[1].messages.at(-1));
+  assert.ok(refusal.includes("There is no skill named") && refusal.includes("is_error"));
+  assert.deepEqual([run.searches.length, run.result.kind], [0, "not_found"]);
+  assert.equal((await kb.index.search("tyre")).length > 0 && docId.length > 0, true, "the knowledge base is untouched");
+});
+
+test("read_pages gives only the page after one the agent already holds", async () => {
+  const { kb, docId } = await sampleKb();
+  const [read] = agentSkills().filter((s) => s.name === "read_pages");
+  const seen = new Map([[`${docId}:2`, { ...kb.index.get(`${docId}:2`)!, score: 1 }]]);
+  assert.deepEqual(read.run({ index: kb.index, seen }, { after_ref: `${docId}:2` }).hits.map((h) => h.ref), [`${docId}:3`]);
+  assert.deepEqual(read.run({ index: kb.index, seen }, { after_ref: `${docId}:3` }).hits, [], "page 3 was never given to the agent");
+  assert.deepEqual(read.run({ index: kb.index, seen }, { after_ref: "../x:1" }).hits, []);
+});
+
+test("streaming: each step is sent as soon as it is complete and verified, never an unverified one", async () => {
+  const { kb, docId } = await sampleKb();
+  const agent = new FakeAgent([
+    {
+      final: draft({
+        steps: [
+          { text: "SAMPLE קדמי 200", ref: `${docId}:3`, quote: "Front tyre pressure is 200 kPa when cold." },
+          { text: "SAMPLE מומצא", ref: `${docId}:3`, quote: "Use nitrogen for best results at altitude." },
+          { text: "SAMPLE אחורי 225", ref: `${docId}:3`, quote: "Rear tyre pressure is 225 kPa when cold." },
+        ],
+      }),
+    },
+  ]);
+  agent.plan = ["tyre pressure"];
+  const partials: PartialAnswer[] = [];
+  const run = await askDocuments(agent, kb.index, { kbName: "x", docs: kb.docs, question: "כמה אוויר?", images: [], history: [] }, () => {}, undefined, (p) => partials.push(p));
+  assert.deepEqual(partials.map((p) => p.steps.map((s) => s.text)), [["SAMPLE קדמי 200"], ["SAMPLE קדמי 200", "SAMPLE אחורי 225"]]);
+  assert.equal(partials[0].title, "SAMPLE כותרת");
+  assert.deepEqual((run.result as Extract<DocResult, { kind: "answer" }>).steps.map((s) => s.text), partials.at(-1)!.steps.map((s) => s.text), "the final answer is what was streamed");
+  // Half-written JSON shows nothing it cannot verify; a hazard flag arrives before the steps.
+  const seen = new Map([[`${docId}:3`, { ...kb.index.get(`${docId}:3`)!, score: 1 }]]);
+  assert.equal(partialAnswer('{"kind":"answer","hazard":"none","title":"SAMPLE","steps":[{"text":"SAMPLE חצי', seen, "x"), null);
+  assert.equal(partialAnswer('{"kind":"ask","hazard":"none","title":"","steps":[]', seen, "x"), null);
+  const flagged = partialAnswer(`{"kind":"answer","hazard":"brakes","title":"SAMPLE","steps":[{"text":"SAMPLE א","ref":"${docId}:3","quote":"Front tyre pressure is 200 kPa when cold."}`, seen, "x");
+  assert.equal(flagged?.caution, "brakes");
+});
+
+test("figures: a drawing is shown only from a page the model saw and the answer cites", async () => {
+  const { kb, docId } = await sampleKb();
+  const box = { x: 500, y: 100, w: 400, h: 300 };
+  const agent = new FakeAgent([
+    {
+      final: draft({
+        steps: [{ text: "SAMPLE שמן", ref: `${docId}:2`, quote: "The level must be between the upper and lower marks." }],
+        figures: [
+          { ref: `${docId}:2`, caption: "SAMPLE חלון בדיקה", box },
+          { ref: `${docId}:3`, caption: "SAMPLE עמוד שלא צוטט", box },
+          { ref: `${docId}:2`, caption: "SAMPLE תיבה קטנה מדי", box: { ...box, w: 10 } },
+          { ref: "nope:1", caption: "SAMPLE", box },
+        ],
+      }),
+    },
+  ]);
+  agent.plan = ["oil level"];
+  const asked: string[] = [];
+  const run = await askDocuments(agent, kb.index, {
+    kbName: "x",
+    docs: kb.docs,
+    question: "איך בודקים שמן?",
+    images: [],
+    history: [],
+    pageImage: async (hit) => (asked.push(hit.ref), { data: "AAAA", mediaType: "image/png", aspect: 1.4 }),
+  });
+  assert.ok(asked.includes(`${docId}:2`) && asked.length <= 3);
+  assert.ok(JSON.stringify(agent.turns[0].messages[0]).includes(`Picture of the page with ref ${docId}:2`));
+  const answer = run.result as Extract<DocResult, { kind: "answer" }>;
+  assert.deepEqual(answer.figures, [{ source: { docId, docName: "sample manual", origin: "manufacturer", unit: "page", n: 2 }, caption: "SAMPLE חלון בדיקה", box, aspect: 1.4 }]);
 });

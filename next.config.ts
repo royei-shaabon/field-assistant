@@ -4,6 +4,8 @@ const nextConfig: NextConfig = {
   /* config options here */
   cacheComponents: true,
   poweredByHeader: false,
+  // Native module (page pictures): loaded by Node, not bundled.
+  serverExternalPackages: ["@napi-rs/canvas"],
   async headers() {
     return [
       {

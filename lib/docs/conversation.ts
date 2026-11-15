@@ -5,7 +5,7 @@ import { MAX_EVENTS, MAX_IMAGES, MAX_IMAGE_BASE64, MAX_TEXT, BadRequest, type Cl
 import type { ModelClient } from "../llm";
 import type { ChatItem, Screen } from "../screen";
 import type { DocMeta, KbMeta } from "../store/types";
-import { askDocuments, hazardTopic, validDocMarks, type AskProgress, type DocResult } from "./ask";
+import { askDocuments, hazardTopic, validDocMarks, type AskInput, type AskProgress, type DocResult, type PartialAnswer } from "./ask";
 import type { SearchIndex } from "./search";
 
 export type DocEvent = { type: "DOC_TURN"; said?: string; media?: "photo" | "video"; frames?: number; result: DocResult };
@@ -43,6 +43,11 @@ const requestSchema = obj(["events", "input"], {
             caution: { enum: ["brakes", "fuel", "hot_coolant", "running_engine", "other"] },
             title: text(80),
             steps: { type: "array", maxItems: 6, items: obj(["text", "quote", "source"], { text: text(600), quote: text(400), source }) },
+            figures: {
+              type: "array",
+              maxItems: 2,
+              items: obj(["source", "caption", "box", "aspect"], { source, caption: text(80), box: obj(["x", "y", "w", "h"], { x: int, y: int, w: int, h: int }), aspect: { type: "number", minimum: 0.2, maximum: 5 } }),
+            },
             marks: {
               type: "array",
               maxItems: 6,
@@ -100,7 +105,7 @@ export function docScreen(events: DocEvent[], hasDocuments: boolean): Screen {
     const r = guarded(event);
     if (r.kind === "answer") {
       title ??= r.title;
-      items.push({ by: "bot", kind: "doc_answer", eventIndex, title: r.title, steps: r.steps, marks: r.marks, ...(r.caution ? { caution: r.caution } : {}) });
+      items.push({ by: "bot", kind: "doc_answer", eventIndex, title: r.title, steps: r.steps, marks: r.marks, ...(r.figures?.length ? { figures: r.figures } : {}), ...(r.caution ? { caution: r.caution } : {}) });
     } else if (r.kind === "ask") items.push({ by: "bot", kind: "doc_ask", question: r.question, options: r.options });
     else if (r.kind === "hazard") items.push({ by: "bot", kind: "doc_hazard", topic: r.topic, sources: r.sources });
     else if (r.kind === "not_found") items.push({ by: "bot", kind: "doc_not_found" });
@@ -117,6 +122,8 @@ export async function handleDocConversation(
   body: unknown,
   progress: (p: AskProgress) => void = () => {},
   signal?: AbortSignal,
+  // Live view of the answer while it is written, and the renderer of manual pages.
+  live: { onPartial?: (p: PartialAnswer) => void; pageImage?: AskInput["pageImage"] } = {},
 ): Promise<DocResponse> {
   if (!validateRequest(body)) throw new BadRequest(new Ajv().errorsText(validateRequest.errors));
   const { events, input } = body;
@@ -139,9 +146,11 @@ export async function handleDocConversation(
       images: images.map((i) => ({ type: "image" as const, ...i })),
       media,
       history: events.map((e) => ({ said: e.said, result: e.result })),
+      pageImage: live.pageImage,
     },
     progress,
     signal,
+    live.onPartial,
   );
   if (run.errors.length) console.error(`[ask ${kb.meta.id}]`, run.errors.join("; "));
   const event: DocEvent = { type: "DOC_TURN", result: run.result, ...(said ? { said } : {}), ...(media ? { media, frames: images.length } : {}) };

@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import type { ClientInput, Progress } from "@/lib/conversation";
+import type { PartialAnswer } from "@/lib/docs/ask";
 import type { DocInput } from "@/lib/docs/conversation";
 import { LEGAL_LINKS } from "@/lib/legal-text";
 import type { Screen } from "@/lib/screen";
@@ -47,6 +48,7 @@ async function post(
   events: SavedConversation["events"],
   input: Input,
   onProgress: (p: Progress) => void,
+  onPartial: (p: PartialAnswer) => void,
   signal: AbortSignal,
 ): Promise<Reply> {
   const res = await fetch("/api/conversation", {
@@ -67,8 +69,9 @@ async function post(
       const line = buffer.slice(0, nl).trim();
       buffer = buffer.slice(nl + 1);
       if (!line) continue;
-      const msg = JSON.parse(line) as { progress?: Progress; result?: Reply; error?: string };
+      const msg = JSON.parse(line) as { progress?: Progress; partial?: PartialAnswer; result?: Reply; error?: string };
       if (msg.progress) onProgress(msg.progress);
+      if (msg.partial) onPartial(msg.partial);
       if (msg.result) return msg.result;
       if (msg.error) throw new Error(msg.error);
     }
@@ -525,7 +528,11 @@ export function TechnicianApp() {
   const [opening, setOpening] = useState(false);
   const [progress, setProgress] = useState<ProgressStep[]>([]);
   const [pending, setPending] = useState<Pending | null>(null);
+  // The answer while the server is still writing it: verified steps, one after another.
+  const [live, setLive] = useState<PartialAnswer | null>(null);
   const [animateFrom, setAnimateFrom] = useState(Number.MAX_SAFE_INTEGER);
+  // The newest answer was already shown step by step, so it is not typed out again.
+  const [streamed, setStreamed] = useState(false);
   const [maps, setMaps] = useState<number[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [menu, setMenu] = useState(false);
@@ -565,7 +572,7 @@ export function TechnicianApp() {
   useEffect(() => {
     pinned.current = true;
     bottom.current?.scrollIntoView({ block: "end" });
-  }, [active, pending, progress, maps]);
+  }, [active, pending, progress, maps, live]);
 
   const fresh = (forKb = kbRef.current): Active => ({
     conversation: { id: newConversationId(), kbId: forKb, events: [], mode: "identify", updatedAt: Date.now() },
@@ -589,6 +596,8 @@ export function TechnicianApp() {
     setError(null);
     setPending(sent ?? null);
     setProgress([]);
+    setLive(null);
+    let streamed = false;
     const controller = new AbortController();
     abort.current = controller;
     try {
@@ -596,7 +605,12 @@ export function TechnicianApp() {
         base.conversation.kbId || kbRef.current,
         base.conversation.events,
         input,
-        (p) => setProgress((steps) => [...steps.map((s) => ({ ...s, done: true })), { key: p, done: false }]),
+        // The same stage reported twice in a row is one line.
+        (p) => setProgress((steps) => (steps.at(-1)?.key === p ? steps : [...steps.map((s) => ({ ...s, done: true })), { key: p, done: false }])),
+        (p) => {
+          streamed = true;
+          setLive(p);
+        },
         controller.signal,
       );
       let media = base.conversation.media;
@@ -616,6 +630,7 @@ export function TechnicianApp() {
       if (res.events.length) saveConversation(conversation);
       const from = base.screen.items.length;
       setAnimateFrom(input.kind === "view" ? Number.MAX_SAFE_INTEGER : from);
+      setStreamed(streamed);
       setActive({ conversation, screen: res.screen });
       if (speak) setSpeech((s) => ({ id: s.id + 1, lines: speechFor(res.screen, from) }));
       return true;
@@ -629,6 +644,7 @@ export function TechnicianApp() {
       setBusy(false);
       setPending(null);
       setProgress([]);
+      setLive(null);
     }
   }, []);
 
@@ -702,7 +718,7 @@ export function TechnicianApp() {
   const first = conversation.events[0];
   const mapFrom = first?.type === "IDENTIFY_RESULT" && first.media ? first.media : "text";
   const noDocuments = isDocs && kb !== undefined && kb.documents === 0;
-  const empty = screen.items.length === 0 && !pending && !opening;
+  const empty = screen.items.length === 0 && !pending && !opening && !live;
   const canAttach = isDocs || screen.mode === "identify" || screen.mode === "done" || screen.mode === "ended";
 
   const switchKb = (id: string) => {
@@ -776,6 +792,8 @@ export function TechnicianApp() {
               screen={screen}
               media={conversation.media ?? {}}
               animateFrom={animateFrom}
+              streamed={streamed}
+              live={call ? null : live}
               maps={maps}
               mapFrom={mapFrom}
               progress={call ? [] : progress}

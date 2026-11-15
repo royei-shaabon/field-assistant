@@ -1,0 +1,13 @@
+{
+  "name": "read_pages",
+  "access": "read",
+  "description": "Reads the page right after a passage you already have, from the same document. Use it when a procedure or a table clearly continues on the next page. Returns that page as a passage with its own reference.",
+  "input_schema": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": ["after_ref"],
+    "properties": {
+      "after_ref": { "type": "string", "description": "The ref of a passage you were given, for example dk3f9a:52. The page after it is returned." }
+    }
+  }
+}

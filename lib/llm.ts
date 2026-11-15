@@ -35,7 +35,8 @@ export type AgentTurn = {
 
 export interface ModelClient {
   complete(request: ModelRequest): Promise<ModelResponse>;
-  turn(request: AgentRequest): Promise<AgentTurn>;
+  // `onText` receives the text written so far, as it grows.
+  turn(request: AgentRequest, onText?: (snapshot: string) => void): Promise<AgentTurn>;
 }
 
 export function imageBlock(c: Extract<SkillContent, { type: "image" }>) {
@@ -99,8 +100,10 @@ export class AnthropicModelClient implements ModelClient {
     return { text: text && "text" in text ? text.text : null, stopReason: response.stop_reason };
   }
 
-  async turn(request: AgentRequest): Promise<AgentTurn> {
-    const response = await this.client.beta.messages.create(buildTurnParams(request));
+  async turn(request: AgentRequest, onText?: (snapshot: string) => void): Promise<AgentTurn> {
+    const stream = this.client.beta.messages.stream(buildTurnParams(request));
+    if (onText) stream.on("text", (_delta, snapshot) => onText(snapshot));
+    const response = await stream.finalMessage();
     const text = response.content.findLast((b) => b.type === "text");
     return {
       stopReason: response.stop_reason,
