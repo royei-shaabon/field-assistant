@@ -1,5 +1,6 @@
-// Keyword search (BM25) over the passages of one knowledge base. The model writes the queries
-// in the language of the documents, so a Hebrew question can find an English manual page.
+// Search over the passages of one knowledge base, two ways: by keywords (BM25), where the model
+// writes the queries in the language of the documents, and by meaning (vectors), when the
+// documents have a meaning index. The two are combined in lib/docs/agent-skills.ts.
 import type { StoredDoc } from "../store/types";
 
 export type Hit = {
@@ -37,7 +38,7 @@ export function tokens(text: string): string[] {
   return (text.toLowerCase().match(/[\p{L}\p{N}]+/gu) ?? []).filter((w) => w.length > 1 && !STOP.has(w)).map(stem);
 }
 
-type Entry = { hit: Omit<Hit, "score">; tf: Map<string, number>; length: number };
+type Entry = { hit: Omit<Hit, "score">; tf: Map<string, number>; length: number; vec?: Float32Array; model?: string };
 
 export class SearchIndex {
   private entries: Entry[] = [];
@@ -46,7 +47,7 @@ export class SearchIndex {
   private languages = new Map<string, "Hebrew" | "English" | "other">();
 
   constructor(docs: StoredDoc[]) {
-    for (const { meta, passages } of docs) {
+    for (const { meta, passages, vectors } of docs) {
       // The language of a document, from a sample of its text: queries must be written in it.
       const sample = passages.slice(0, 40).map((p) => p.text).join(" ").slice(0, 20_000);
       const hebrew = (sample.match(/[\u0590-\u05ff]/g) ?? []).length;
@@ -61,6 +62,7 @@ export class SearchIndex {
           hit: { ref: `${meta.id}:${p.n}`, docId: meta.id, docName: meta.name, origin: meta.origin, unit: meta.unit, n: p.n, text: p.text },
           tf,
           length: words.length,
+          ...(vectors?.byN.has(p.n) ? { vec: vectors.byN.get(p.n), model: vectors.model } : {}),
         });
       }
     }
@@ -77,6 +79,24 @@ export class SearchIndex {
 
   get(ref: string): Omit<Hit, "score"> | undefined {
     return this.entries.find((e) => e.hit.ref === ref)?.hit;
+  }
+
+  // True when some passages can be searched by meaning with this embedding model.
+  hasVectors(model: string): boolean {
+    return this.entries.some((e) => e.model === model);
+  }
+
+  // The passages closest in meaning to the query vector. Vectors are unit length, so the dot
+  // product is the cosine similarity.
+  semantic(query: Float32Array, model: string, limit = 5): Hit[] {
+    const scored: Hit[] = [];
+    for (const e of this.entries) {
+      if (e.model !== model || !e.vec || e.vec.length !== query.length) continue;
+      let dot = 0;
+      for (let i = 0; i < query.length; i++) dot += e.vec[i] * query[i];
+      if (dot > 0) scored.push({ ...e.hit, score: dot });
+    }
+    return scored.sort((a, b) => b.score - a.score).slice(0, limit);
   }
 
   search(query: string, limit = 5): Hit[] {

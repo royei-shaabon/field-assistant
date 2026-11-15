@@ -6,19 +6,50 @@
 import fs from "node:fs";
 import path from "node:path";
 import type { ToolDef } from "../llm";
+import type { Embedder } from "./embed";
 import type { Hit, SearchIndex } from "./search";
 
 const PER_QUERY = 4;
 const PER_SEARCH = 8;
 
-export type SkillContext = { index: SearchIndex; seen: Map<string, Hit> };
+export type SkillContext = { index: SearchIndex; seen: Map<string, Hit>; embedder?: Embedder | null };
 export type SkillOutcome = { hits: Hit[]; note?: string; label?: string };
-type Handler = (ctx: SkillContext, input: unknown) => SkillOutcome;
+type Handler = (ctx: SkillContext, input: unknown) => SkillOutcome | Promise<SkillOutcome>;
 
-export function runSearch(index: SearchIndex, queries: string[]): Hit[] {
+function keywordSearch(index: SearchIndex, queries: string[]): Hit[] {
   const merged = new Map<string, Hit>();
   for (const q of queries) for (const h of index.search(q, PER_QUERY)) if (!merged.has(h.ref) || merged.get(h.ref)!.score < h.score) merged.set(h.ref, h);
   return [...merged.values()].sort((a, b) => b.score - a.score).slice(0, PER_SEARCH);
+}
+
+// Hybrid search. Every query is searched by keywords and, when the knowledge base has a
+// meaning index, by meaning; `also` (the technician's own words, in any language) is searched
+// by meaning only. The ranked lists are fused by reciprocal rank: a passage that several lists
+// put near the top comes first. With no meaning index, or when the embedding service fails,
+// this is the keyword search alone.
+const RRF = 60;
+export async function runSearch(index: SearchIndex, queries: string[], opts: { embedder?: Embedder | null; also?: string } = {}): Promise<Hit[]> {
+  const embedder = opts.embedder;
+  if (!embedder || !index.hasVectors(embedder.model)) return keywordSearch(index, queries);
+  const texts = [...queries, ...(opts.also?.trim() ? [opts.also.trim()] : [])];
+  if (!texts.length) return [];
+  let vectors: Float32Array[];
+  try {
+    vectors = await embedder.embed(texts, "query");
+  } catch (e) {
+    console.error("[search] embedding the query failed, keyword search only:", (e as Error).message);
+    return keywordSearch(index, queries);
+  }
+  // Short lists: the tail of a ranked list is noise, and fusing it in would dilute the top.
+  const lists = [...queries.map((q) => index.search(q, PER_QUERY)), ...vectors.map((v) => index.semantic(v, embedder.model, PER_QUERY))];
+  const fused = new Map<string, Hit>();
+  for (const list of lists) {
+    list.forEach((h, rank) => {
+      const score = (fused.get(h.ref)?.score ?? 0) + 1 / (RRF + rank + 1);
+      fused.set(h.ref, { ...h, score });
+    });
+  }
+  return [...fused.values()].sort((a, b) => b.score - a.score).slice(0, PER_SEARCH);
 }
 
 export function cleanQueries(raw: unknown): string[] {
@@ -26,9 +57,9 @@ export function cleanQueries(raw: unknown): string[] {
 }
 
 const HANDLERS: Record<string, Handler> = {
-  search_documents: ({ index }, input) => {
+  search_documents: async ({ index, embedder }, input) => {
     const queries = cleanQueries((input as { queries?: unknown })?.queries);
-    return { hits: runSearch(index, queries), label: queries[0] };
+    return { hits: await runSearch(index, queries, { embedder }), label: queries[0] };
   },
   // Only the page after one the agent already holds, in the same document.
   read_pages: ({ index, seen }, input) => {

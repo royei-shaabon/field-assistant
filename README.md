@@ -25,6 +25,21 @@ ANTHROPIC_API_KEY=... ADMIN_PASSWORD=... npm run dev
 | `DAILY_QUESTION_LIMIT` | לא | תקרת שאלות ביום לכל השירות. ברירת מחדל: 1000. |
 | `DATA_DIR` | לא | איפה נשמרים המאגרים. ברירת מחדל: `./data`. בייצור: תיקייה קבועה (volume). |
 | `HIDE_SAMPLE_KB` | לא | `1` מסתיר את מאגר עצי התקלות לדוגמה. |
+| `EMBEDDINGS` | לא | `vertex` מפעיל חיפוש לפי משמעות (היברידי) דרך Vertex AI. בלעדיו: חיפוש לפי מילים. |
+| `EMBED_MODEL` | לא | מודל ה-embedding. ברירת מחדל: `text-multilingual-embedding-002`. שינוי מחייב בנייה מחדש של האינדקס. |
+| `EMBED_LOCATION` | לא | האזור של Vertex AI. ברירת מחדל: `us-central1`. |
+| `EMBED_BATCH` | לא | כמה קטעים בבקשה אחת. ברירת מחדל: 16. למודל שמקבל קטע אחד בבקשה: `1`. |
+
+### חיפוש לפי משמעות (Vertex AI)
+ב-Cloud Run אין צורך במפתח: השירות מזדהה בזהות שלו. פעם אחת, ב-Cloud Shell:
+```bash
+gcloud services enable aiplatform.googleapis.com
+```
+```bash
+gcloud run services update field-assistant --region me-west1 --update-env-vars EMBEDDINGS=vertex
+```
+אחר כך, ב-`/admin`: "בדיקת חיבור למודל" מציגה שורה "חיפוש לפי משמעות", ולכל מסמך קיים יש כפתור "השלמת האינדקס".
+מסמך חדש נכנס לאינדקס מיד אחרי ההעלאה. אם הבדיקה מחזירה 403, חשבון השירות צריך את התפקיד "Vertex AI User".
 
 ## פריסה
 האפליקציה צריכה שרת Node רגיל עם דיסק קבוע, כי המסמכים נשמרים בתיקייה.

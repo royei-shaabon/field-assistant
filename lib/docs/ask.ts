@@ -10,6 +10,7 @@ import { imageBlock, type AgentMessage, type ModelClient, type SkillContent } fr
 import { HAZARD_TOPICS } from "../safety";
 import type { DocMeta } from "../store/types";
 import { agentSkills, cleanQueries, runSearch } from "./agent-skills";
+import type { Embedder } from "./embed";
 import { imageSize, type Size } from "./image-size";
 import type { Hit, SearchIndex } from "./search";
 
@@ -71,6 +72,8 @@ export type AskInput = {
   pageImage?: (hit: Hit) => Promise<PageShot | null>;
   // False when this knowledge base answers from its documents only. Default: suggestions allowed.
   ideas?: boolean;
+  // Search by meaning next to keywords, when configured and the documents have a meaning index.
+  embedder?: Embedder | null;
 };
 
 type Draft = {
@@ -338,15 +341,20 @@ const PLAN_SCHEMA = {
 // A small fast model writes the first queries, so the main model starts with the passages in
 // hand and usually answers in one call. Any failure here just means no head start.
 async function firstSearch(client: ModelClient, index: SearchIndex, context: string, input: AskInput): Promise<{ queries: string[]; hits: Hit[] } | null> {
+  let queries: string[];
   try {
     const reply = await client.complete({ system: PLAN_SYSTEM, content: [...input.images, { type: "text", text: context }], schema: PLAN_SCHEMA, fast: true });
-    const raw = (JSON.parse(reply.text ?? "{}") as { queries?: unknown }).queries;
-    const queries = cleanQueries(raw);
+    queries = cleanQueries((JSON.parse(reply.text ?? "{}") as { queries?: unknown }).queries);
+    // No queries: the small model judged that this is not a question about the machine.
     if (!queries.length) return null;
-    return { queries, hits: runSearch(index, queries) };
   } catch {
-    return null;
+    // Without the small model there are no keyword queries, but the question itself can still
+    // be searched by meaning.
+    queries = [];
   }
+  // The technician's own words are searched by meaning as well, whatever language they are in.
+  const hits = await runSearch(index, queries, { embedder: input.embedder, also: input.question });
+  return hits.length || queries.length ? { queries: queries.length ? queries : [input.question ?? ""], hits } : null;
 }
 
 // --- the tool loop -------------------------------------------------------------------------
@@ -368,6 +376,7 @@ function contextOf(input: AskInput, index: SearchIndex, frameSizes: (Size | null
     history: input.history.slice(-4).map((h) => ({ technician: h.said ?? "(sent media)", assistant: describeResult(h.result) })),
     attached: input.images.length ? `${input.images.length} ${input.media === "video" ? "video frames" : "photo(s)"}` : "nothing",
     technician: input.question ?? "(no text, only the attached media)",
+    search: input.embedder && index.hasVectors(input.embedder.model) ? "keywords and meaning" : "keywords",
     suggested_checks: input.ideas === false ? "off: this knowledge base answers from its documents only, return an empty `checks` list" : "allowed",
   };
   return JSON.stringify(context, null, 1);
@@ -448,18 +457,25 @@ export async function askDocuments(
 
       if (reply.toolCalls.length) {
         messages.push(reply.assistant);
-        const results = reply.toolCalls.map((call) => {
+        const results = [];
+        for (const call of reply.toolCalls) {
           // The agent can only use a declared skill. Anything else is refused, and nothing runs.
           const used = skills.find((s) => s.name === call.name);
-          if (!used) return { type: "tool_result" as const, tool_use_id: call.id, is_error: true, content: `There is no skill named "${call.name}". Your skills: ${skills.map((s) => s.name).join(", ")}.` };
-          if (searches.length >= MAX_SEARCHES) return { type: "tool_result" as const, tool_use_id: call.id, content: "Skill limit reached. Answer from the passages you already have." };
-          const outcome = used.run({ index, seen }, call.input);
+          if (!used) {
+            results.push({ type: "tool_result" as const, tool_use_id: call.id, is_error: true, content: `There is no skill named "${call.name}". Your skills: ${skills.map((s) => s.name).join(", ")}.` });
+            continue;
+          }
+          if (searches.length >= MAX_SEARCHES) {
+            results.push({ type: "tool_result" as const, tool_use_id: call.id, content: "Skill limit reached. Answer from the passages you already have." });
+            continue;
+          }
+          const outcome = await used.run({ index, seen, embedder: input.embedder }, call.input);
           searches.push(cleanQueries((call.input as { queries?: unknown })?.queries));
           progress({ stage: "searching", detail: outcome.label });
           for (const h of outcome.hits) seen.set(h.ref, h);
           if (outcome.hits.length) progress({ stage: "reading", detail: `${outcome.hits[0].docName} · ${outcome.hits.slice(0, 3).map((h) => h.n).join(", ")}` });
-          return { type: "tool_result" as const, tool_use_id: call.id, content: outcome.note ?? searchResultText(outcome.hits) };
-        });
+          results.push({ type: "tool_result" as const, tool_use_id: call.id, content: outcome.note ?? searchResultText(outcome.hits) });
+        }
         messages.push({ role: "user", content: results });
         continue;
       }

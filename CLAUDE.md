@@ -26,6 +26,11 @@
   מזהים עוברים בדיקת תבנית, ומפתח לא יכול לצאת מתיקיית השורש.
 - קליטה (`ingest.ts`): PDF נשמר לפי עמודים אמיתיים. docx, טקסט, md, csv, json, html נחתכים לחלקים. עמודים בלי טקסט נספרים.
 - חיפוש (`search.ts`): BM25 בזיכרון, אינדקס לכל מאגר, נבנה מחדש כש-`updatedAt` של המאגר משתנה.
+- **חיפוש היברידי (`EMBEDDINGS=vertex`):** `lib/docs/embed.ts` פונה ל-Vertex AI בזהות של השירות (בלי מפתח). `lib/docs/semantic.ts`
+  בונה וקטור לכל קטע (`indexDoc`, ממשיך מאיפה שנעצר), והם נשמרים ליד המסמך (`.vec.json`, `.vec.bin`) עם שם המודל.
+  `runSearch` ב-`agent-skills.ts` מאחד את רשימות המילים והמשמעות לפי דירוג (RRF). השאלה של הטכנאי, בשפה שלה, נכנסת לחיפוש
+  הראשון. הסוכן מגיע לחיפוש לפי משמעות רק דרך הסקיל `search_documents`. בלי `EMBEDDINGS`, כשהשירות נכשל, או כשהווקטורים
+  ממודל אחר: חיפוש לפי מילים בלבד. שינוי כאן מחייב בדיקה ב-`tests/docs.test.ts`.
 - **הסוכן פועל רק דרך סקילים.** למודל אין יכולת משלו: הוא יכול לבקש סקיל בשמו, והקוד מחליט אם הסקיל קיים ומריץ אותו.
   סקיל מוצהר ב-`skills/agent/<name>/skill.json` (תיאור, סכמה, `access`) וממומש ב-`lib/docs/agent-skills.ts`.
   כל הסקילים הם `read` בלבד. הצהרה עם גישה אחרת, או בלי מימוש, מונעת מהשרת לענות. בקשה לסקיל שלא קיים מקבלת סירוב.
@@ -107,7 +112,8 @@
 - `npm test`: בדיקות (node:test דרך tsx), כולל הסקילים מול מודל מדומה. לא פונה לרשת.
 - `npm run skill-eval`: מריץ את `identify` ו-`interpret` מול המודל האמיתי על הקבועים ב-`tests/fixtures/`. דורש מפתח API ועולה כסף. ראו `.claude/skills/skill-eval/`.
 - `npm run dev` / `npm run build` / `npm run lint`.
-- משתני סביבה: `ANTHROPIC_API_KEY`, `ADMIN_PASSWORD`, `ACCESS_CODE`, `SESSION_SECRET`, `DAILY_QUESTION_LIMIT`, `DATA_DIR`, `HIDE_SAMPLE_KB`. פריסה: ראו `README.md`.
+- משתני סביבה: `ANTHROPIC_API_KEY`, `ADMIN_PASSWORD`, `ACCESS_CODE`, `SESSION_SECRET`, `DAILY_QUESTION_LIMIT`, `DATA_DIR`, `HIDE_SAMPLE_KB`,
+  `EMBEDDINGS` (`vertex` מפעיל חיפוש לפי משמעות), `EMBED_MODEL`, `EMBED_LOCATION`, `EMBED_BATCH`. פריסה: ראו `README.md`.
 
 ## סקילי המוצר (`skills/`, `lib/skills/`)
 - כל קריאה למודל עוברת דרך `lib/llm.ts`. מודל: `claude-sonnet-5-5`, פלט JSON דרך structured outputs.

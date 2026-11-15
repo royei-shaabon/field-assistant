@@ -36,7 +36,11 @@ export type DocMeta = {
 // How a knowledge base is used: one counter per kind of reply.
 export type Usage = { questions: number; answer: number; ask: number; not_found: number; ideas: number; hazard: number; error: number; helpful: number; unhelpful: number; lastAt?: string };
 
-export type StoredDoc = { meta: DocMeta; passages: Passage[] };
+// The meaning index of one document: a unit-length vector per passage number, and the embedding
+// model that made them (vectors of different models cannot be compared).
+export type DocVectors = { model: string; dims: number; byN: Map<number, Float32Array> };
+
+export type StoredDoc = { meta: DocMeta; passages: Passage[]; vectors?: DocVectors };
 
 // Where the bytes live. The file system driver is the default; a hosted deployment can swap in
 // object storage without touching anything above this interface.

@@ -16,6 +16,8 @@ export const LIMITS = {
   ask: { max: 30, windowMs: 5 * 60_000 },
   askDaily: { max: Number(process.env.DAILY_QUESTION_LIMIT) || 1000, windowMs: 24 * 60 * 60_000 },
   upload: { max: 60, windowMs: 10 * 60_000 },
+  // Building the meaning index calls the embedding service: one call per ~45 seconds of work.
+  index: { max: 120, windowMs: 10 * 60_000 },
 } satisfies Record<string, Limit>;
 
 // True when the call is allowed; counts it.

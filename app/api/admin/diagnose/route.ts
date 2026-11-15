@@ -1,5 +1,6 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { askDocuments } from "@/lib/docs/ask";
+import { embedder } from "@/lib/docs/embed";
 import { SearchIndex } from "@/lib/docs/search";
 import { AnthropicModelClient, MODEL } from "@/lib/llm";
 import { forbidden, isAdmin } from "@/lib/server/admin-auth";
@@ -63,6 +64,19 @@ export async function POST() {
         });
         if (r.text === null) throw new Error(`no output (stop_reason: ${r.stopReason})`);
         return r.text.slice(0, 120);
+      }),
+    );
+  }
+  // Search by meaning: only when it is switched on. A Hebrew question and an English sentence
+  // with the same meaning should come out close.
+  const using = embedder();
+  if (using) {
+    checks.push(
+      await timed("embeddings", async () => {
+        const [doc] = await using.embed(["The reset button is on the left side of the control panel."], "document");
+        const [same, other] = await using.embed(["איפה כפתור האיפוס?", "מה מזג האוויר מחר?"], "query");
+        const dot = (a: Float32Array, b: Float32Array) => a.reduce((sum, x, i) => sum + x * b[i], 0);
+        return `${using.model}, ${doc.length} dims, related ${dot(doc, same).toFixed(2)} vs unrelated ${dot(doc, other).toFixed(2)}`;
       }),
     );
   }

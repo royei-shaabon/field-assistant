@@ -6,7 +6,9 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { agentSkills, loadAgentSkills } from "../lib/docs/agent-skills";
+import { agentSkills, loadAgentSkills, runSearch } from "../lib/docs/agent-skills";
+import { normalize, VertexEmbedder, type Embedder } from "../lib/docs/embed";
+import { indexDoc } from "../lib/docs/semantic";
 import { askDocuments, hazardTopic, partialAnswer, quoteInPassage, rankIdeas, toThousandths, type DocResult, type PartialAnswer } from "../lib/docs/ask";
 import { imageSize } from "../lib/docs/image-size";
 import { docScreen, handleDocConversation, type DocEvent } from "../lib/docs/conversation";
@@ -337,9 +339,9 @@ test("read_pages gives only the page after one the agent already holds", async (
   const { kb, docId } = await sampleKb();
   const [read] = agentSkills().filter((s) => s.name === "read_pages");
   const seen = new Map([[`${docId}:2`, { ...kb.index.get(`${docId}:2`)!, score: 1 }]]);
-  assert.deepEqual(read.run({ index: kb.index, seen }, { after_ref: `${docId}:2` }).hits.map((h) => h.ref), [`${docId}:3`]);
-  assert.deepEqual(read.run({ index: kb.index, seen }, { after_ref: `${docId}:3` }).hits, [], "page 3 was never given to the agent");
-  assert.deepEqual(read.run({ index: kb.index, seen }, { after_ref: "../x:1" }).hits, []);
+  assert.deepEqual((await read.run({ index: kb.index, seen }, { after_ref: `${docId}:2` })).hits.map((h) => h.ref), [`${docId}:3`]);
+  assert.deepEqual((await read.run({ index: kb.index, seen }, { after_ref: `${docId}:3` })).hits, [], "page 3 was never given to the agent");
+  assert.deepEqual((await read.run({ index: kb.index, seen }, { after_ref: "../x:1" })).hits, []);
 });
 
 test("streaming: each step is sent as soon as it is complete and verified, never an unverified one", async () => {
@@ -497,4 +499,149 @@ test("suggested checks on a hazard topic are shown under the warning, also when 
   // Off for this knowledge base: the hazard question falls back to a stop, the ordinary one to "not found".
   const off = docScreen(forged, true, false).items.filter((i) => i.by === "bot");
   assert.deepEqual([off[0].kind, off[1].kind === "doc_answer" && off[1].ideas, off[2].kind], ["doc_hazard", undefined, "doc_not_found"]);
+});
+
+// A stand-in for the embedding model: texts about the same thing, in Hebrew or English, get
+// vectors that point the same way. No network.
+const CONCEPTS = [/tyre|tire|pressure|צמיג|אוויר|לחץ/gi, /\boil\b|שמן/gi, /brake|בלם|בלמים/gi];
+class FakeEmbedder implements Embedder {
+  calls: { texts: string[]; kind: string }[] = [];
+  failNext = false;
+  constructor(readonly model = "fake-embed-1") {}
+  async embed(texts: string[], kind: "document" | "query") {
+    if (this.failNext) {
+      this.failNext = false;
+      throw new Error("embeddings HTTP 503: SAMPLE outage");
+    }
+    this.calls.push({ texts, kind });
+    return texts.map((t) => normalize([...CONCEPTS.map((c) => (t.match(c) ?? []).length), 0.01]));
+  }
+}
+
+async function indexedKb(embedder: Embedder) {
+  const { store, kb, docId } = await sampleKb();
+  await indexDoc(store, embedder, kb.meta.id, docId);
+  return { store, docId, kb: { ...kb, index: new SearchIndex(await store.loadDocs(kb.meta.id)) } };
+}
+
+test("meaning index: built per passage, continues after a failure, rebuilt for another model, deleted with the document", async () => {
+  const { store, kb, docId } = await sampleKb();
+  const embedder = new FakeEmbedder();
+  assert.equal(await store.getVectors(kb.meta.id, docId), null);
+  // The service fails: nothing is stored, and the next call starts from where this one stopped.
+  embedder.failNext = true;
+  await assert.rejects(indexDoc(store, embedder, kb.meta.id, docId), /503/);
+  assert.equal(await store.vectorInfo(kb.meta.id, docId), null);
+  // A call with no time left does no work and says it is not done.
+  assert.deepEqual(await indexDoc(store, embedder, kb.meta.id, docId, 0), { indexed: 0, total: 4, done: false });
+  assert.deepEqual(await indexDoc(store, embedder, kb.meta.id, docId), { indexed: 4, total: 4, done: true });
+  assert.equal(embedder.calls.at(-1)!.kind, "document");
+  assert.match(embedder.calls.at(-1)!.texts[1], /^sample manual\nSAMPLE Engine oil/, "the document name goes in with the passage");
+  // Stored as raw floats and read back the same; the scanned page (5) has no vector.
+  const vectors = (await store.getVectors(kb.meta.id, docId))!;
+  assert.deepEqual([vectors.model, vectors.dims, [...vectors.byN.keys()]], ["fake-embed-1", 4, [1, 2, 3, 4]]);
+  assert.ok(Math.abs(vectors.byN.get(3)![0] - 1) < 0.01, "page 3 is about tyres");
+  // Done already: no more calls to the service.
+  const before = embedder.calls.length;
+  assert.equal((await indexDoc(store, embedder, kb.meta.id, docId)).done, true);
+  assert.equal(embedder.calls.length, before);
+  // Another model cannot reuse these vectors.
+  const other = new FakeEmbedder("fake-embed-2");
+  assert.equal((await indexDoc(store, other, kb.meta.id, docId)).indexed, 4);
+  assert.equal((await store.vectorInfo(kb.meta.id, docId))!.model, "fake-embed-2");
+  await store.deleteDoc(kb.meta.id, docId);
+  assert.equal(await store.vectorInfo(kb.meta.id, docId), null);
+});
+
+test("hybrid search: a Hebrew question finds an English page by meaning; keywords alone do not", async () => {
+  const embedder = new FakeEmbedder();
+  const { kb, docId } = await indexedKb(embedder);
+  const hebrew = "כמה אוויר צריך בצמיג?";
+  assert.deepEqual(await runSearch(kb.index, [hebrew]), [], "no shared word with an English manual");
+  const byMeaning = await runSearch(kb.index, [], { embedder, also: hebrew });
+  assert.equal(byMeaning[0].ref, `${docId}:3`);
+  assert.equal(embedder.calls.at(-1)!.kind, "query");
+  // Keywords and meaning together: the page the keywords and their meaning agree on comes
+  // first, and the page only the Hebrew question points at is in the results too.
+  const both = (await runSearch(kb.index, ["oil level"], { embedder, also: hebrew })).map((h) => h.ref);
+  assert.equal(both[0], `${docId}:2`);
+  assert.ok(both.includes(`${docId}:3`));
+  const agree = await runSearch(kb.index, ["tyre pressure"], { embedder, also: hebrew });
+  assert.equal(agree[0].ref, `${docId}:3`);
+});
+
+test("hybrid search falls back to keywords when the embedding service fails or the index is of another model", async () => {
+  const embedder = new FakeEmbedder();
+  const { kb, docId } = await indexedKb(embedder);
+  const keywords = (await runSearch(kb.index, ["brake fluid"])).map((h) => h.ref);
+  assert.equal(keywords[0], `${docId}:4`);
+  embedder.failNext = true;
+  assert.deepEqual((await runSearch(kb.index, ["brake fluid"], { embedder })).map((h) => h.ref), keywords);
+  const other = new FakeEmbedder("fake-embed-2");
+  assert.equal(kb.index.hasVectors(other.model), false);
+  assert.deepEqual((await runSearch(kb.index, ["brake fluid"], { embedder: other })).map((h) => h.ref), keywords);
+  assert.equal(other.calls.length, 0, "no call for an index it cannot search");
+  // A knowledge base with no meaning index at all.
+  const plain = await sampleKb();
+  assert.equal((await runSearch(plain.kb.index, ["brake fluid"], { embedder }))[0].ref, `${plain.docId}:4`);
+});
+
+test("the agent searches by meaning only through its skill, and the first search uses the technician's own words", async () => {
+  const embedder = new FakeEmbedder();
+  const { kb, docId } = await indexedKb(embedder);
+  const step = { text: "SAMPLE קדמי 200", ref: `${docId}:3`, quote: "Front tyre pressure is 200 kPa when cold." };
+  // The small model is down (FakeAgent has no plan): the question itself is searched by meaning.
+  const direct = new FakeAgent([{ final: draft({ steps: [step] }) }]);
+  const run = await askDocuments(direct, kb.index, { kbName: "x", docs: kb.docs, question: "כמה אוויר צריך בצמיג?", images: [], history: [], embedder });
+  assert.equal(run.result.kind, "answer");
+  const first = JSON.stringify(direct.turns[0].messages[0]);
+  assert.match(first, /Front tyre pressure is 200 kPa/, "the passage is in the first message");
+  assert.match(first, /keywords and meaning/, "the agent is told how its search works");
+  // Without an embedder the same question reaches the agent with no passages and plain keyword search.
+  const blind = new FakeAgent([{ final: draft({ steps: [step] }) }]);
+  const none = await askDocuments(blind, kb.index, { kbName: "x", docs: kb.docs, question: "כמה אוויר צריך בצמיג?", images: [], history: [] });
+  assert.deepEqual(none.result, { kind: "not_found" }, "a step that cites a passage nobody retrieved is dropped");
+  assert.doesNotMatch(JSON.stringify(blind.turns[0].messages[0]), /keywords and meaning/);
+  // The skill: a Hebrew query that shares no word with the manual still returns the page.
+  const [search] = agentSkills().filter((s) => s.name === "search_documents");
+  const seen = new Map();
+  assert.equal((await search.run({ index: kb.index, seen, embedder }, { queries: ["לחץ אוויר בצמיג"] })).hits[0].ref, `${docId}:3`);
+  assert.deepEqual((await search.run({ index: kb.index, seen }, { queries: ["לחץ אוויר בצמיג"] })).hits, []);
+});
+
+test("Vertex embeddings: request shape, batching, one-by-one retry on a refused batch, and the provider's message on failure", async () => {
+  const saved = { fetch: globalThis.fetch, env: { ...process.env } };
+  Object.assign(process.env, { GOOGLE_CLOUD_PROJECT: "sample-project", GOOGLE_ACCESS_TOKEN: "sample-token", EMBED_BATCH: "2", EMBED_LOCATION: "us-central1", EMBED_MODEL: "sample-model" });
+  const requests: { url: string; auth: string; texts: string[]; task: string }[] = [];
+  let refuseBatches = false;
+  let down = false;
+  globalThis.fetch = (async (url: string, init: RequestInit) => {
+    const body = JSON.parse(String(init.body)) as { instances: { content: string; task_type: string }[] };
+    requests.push({ url: String(url), auth: (init.headers as Record<string, string>).Authorization, texts: body.instances.map((i) => i.content), task: body.instances[0].task_type });
+    if (down) return Response.json({ error: { message: "SAMPLE permission denied on resource" } }, { status: 403 });
+    if (refuseBatches && body.instances.length > 1) return Response.json({ error: { message: "SAMPLE one instance per request" } }, { status: 400 });
+    return Response.json({ predictions: body.instances.map((i) => ({ embeddings: { values: [3, 4, i.content.length] } })) });
+  }) as typeof fetch;
+  try {
+    const vertex = new VertexEmbedder();
+    const out = await vertex.embed(["a", "bb", "ccc"], "document");
+    assert.equal(requests[0].url, "https://us-central1-aiplatform.googleapis.com/v1/projects/sample-project/locations/us-central1/publishers/google/models/sample-model:predict");
+    assert.deepEqual([requests[0].auth, requests[0].task], ["Bearer sample-token", "RETRIEVAL_DOCUMENT"]);
+    assert.deepEqual(requests.map((r) => r.texts), [["a", "bb"], ["ccc"]], "EMBED_BATCH texts per request");
+    assert.equal(out.length, 3);
+    assert.ok(Math.abs(Math.hypot(...out[0]) - 1) < 1e-6, "vectors are unit length");
+    // A model that takes one text per request refuses the batch: each text is sent alone.
+    requests.length = 0;
+    refuseBatches = true;
+    assert.equal((await vertex.embed(["a", "bb"], "query")).length, 2);
+    assert.deepEqual(requests.map((r) => r.texts.length), [2, 1, 1]);
+    assert.equal(requests[1].task, "RETRIEVAL_QUERY");
+    // A real failure surfaces the provider's message, and never the token.
+    down = true;
+    await assert.rejects(vertex.embed(["a"], "query"), (e: Error) => /HTTP 403: SAMPLE permission denied/.test(e.message) && !e.message.includes("sample-token"));
+  } finally {
+    globalThis.fetch = saved.fetch;
+    for (const k of Object.keys(process.env)) if (!(k in saved.env)) delete process.env[k];
+    Object.assign(process.env, saved.env);
+  }
 });

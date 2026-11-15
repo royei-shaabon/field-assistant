@@ -5,7 +5,7 @@
 //   docs/<docId>.file       the original upload (what "open the source" serves)
 import path from "node:path";
 import { FsDriver } from "./fs-driver";
-import type { BlobDriver, DocMeta, KbMeta, Passage, StoredDoc, Usage } from "./types";
+import type { BlobDriver, DocMeta, DocVectors, KbMeta, Passage, StoredDoc, Usage } from "./types";
 
 export type { BlobDriver, DocMeta, DocOrigin, KbMeta, Passage, StoredDoc, Usage } from "./types";
 
@@ -124,7 +124,7 @@ export class KbStore {
     this.checkId(kbId);
     this.checkId(docId);
     const base = `kbs/${kbId}/docs/${docId}`;
-    await Promise.all([".meta.json", ".text.json", ".file"].map((s) => this.driver.remove(base + s)));
+    await Promise.all([".meta.json", ".text.json", ".file", ".vec.json", ".vec.bin"].map((s) => this.driver.remove(base + s)));
     await this.driver.remove(`kbs/${kbId}/pages/${docId}`);
     await this.touch(kbId);
   }
@@ -171,14 +171,57 @@ export class KbStore {
     await this.driver.write(`kbs/${kbId}/usage.json`, json({ ...usage, [field]: usage[field] + 1 }));
   }
 
-  // Every document with its passages: what the search index is built from.
+  async getPassages(kbId: string, docId: string): Promise<{ name: string; passages: Passage[] } | null> {
+    this.checkId(kbId);
+    this.checkId(docId);
+    const base = `kbs/${kbId}/docs/${docId}`;
+    const meta = parse<DocMeta>(await this.driver.read(`${base}.meta.json`));
+    const passages = parse<Passage[]>(await this.driver.read(`${base}.text.json`));
+    return meta && passages ? { name: meta.name, passages } : null;
+  }
+
+  // The meaning index of a document: a small JSON header and the vectors as raw 32-bit floats.
+  async vectorInfo(kbId: string, docId: string): Promise<{ model: string; count: number } | null> {
+    this.checkId(kbId);
+    this.checkId(docId);
+    const head = parse<{ model: string; dims: number; ns: number[] }>(await this.driver.read(`kbs/${kbId}/docs/${docId}.vec.json`));
+    return head ? { model: head.model, count: head.ns.length } : null;
+  }
+
+  async getVectors(kbId: string, docId: string): Promise<DocVectors | null> {
+    this.checkId(kbId);
+    this.checkId(docId);
+    const base = `kbs/${kbId}/docs/${docId}`;
+    const head = parse<{ model: string; dims: number; ns: number[] }>(await this.driver.read(`${base}.vec.json`));
+    const bin = head && (await this.driver.read(`${base}.vec.bin`));
+    if (!head || !bin || !(head.dims > 0) || bin.byteLength !== head.ns.length * head.dims * 4) return null;
+    const copy = new Uint8Array(bin.byteLength);
+    copy.set(bin);
+    const all = new Float32Array(copy.buffer);
+    return { model: head.model, dims: head.dims, byN: new Map(head.ns.map((n, i) => [n, all.subarray(i * head.dims, (i + 1) * head.dims)])) };
+  }
+
+  async putVectors(kbId: string, docId: string, vectors: DocVectors): Promise<void> {
+    this.checkId(kbId);
+    this.checkId(docId);
+    const base = `kbs/${kbId}/docs/${docId}`;
+    if (!(await this.driver.read(`${base}.meta.json`))) throw new NotFound("doc");
+    const ns = [...vectors.byN.keys()].sort((a, b) => a - b);
+    const all = new Float32Array(ns.length * vectors.dims);
+    ns.forEach((n, i) => all.set(vectors.byN.get(n)!, i * vectors.dims));
+    await this.driver.write(`${base}.vec.bin`, Buffer.from(all.buffer));
+    await this.driver.write(`${base}.vec.json`, json({ model: vectors.model, dims: vectors.dims, ns }));
+    await this.touch(kbId); // rebuilds the search index, which holds the vectors
+  }
+
+  // Every document with its passages and its meaning index: what the search index is built from.
   async loadDocs(kbId: string): Promise<StoredDoc[]> {
     const metas = await this.listDocs(kbId);
     return Promise.all(
-      metas.map(async (meta) => ({
-        meta,
-        passages: parse<Passage[]>(await this.driver.read(`kbs/${kbId}/docs/${meta.id}.text.json`)) ?? [],
-      })),
+      metas.map(async (meta) => {
+        const vectors = await this.getVectors(kbId, meta.id);
+        return { meta, passages: parse<Passage[]>(await this.driver.read(`kbs/${kbId}/docs/${meta.id}.text.json`)) ?? [], ...(vectors ? { vectors } : {}) };
+      }),
     );
   }
 }

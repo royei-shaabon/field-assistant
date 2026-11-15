@@ -6,6 +6,7 @@ import type { ModelClient } from "../llm";
 import type { ChatItem, Screen } from "../screen";
 import type { DocMeta, KbMeta } from "../store/types";
 import { askDocuments, hazardTopic, rankIdeas, validDocMarks, type AskInput, type AskProgress, type DocResult, type PartialAnswer } from "./ask";
+import type { Embedder } from "./embed";
 import type { SearchIndex } from "./search";
 
 export type DocEvent = { type: "DOC_TURN"; said?: string; media?: "photo" | "video"; frames?: number; result: DocResult };
@@ -140,7 +141,7 @@ export async function handleDocConversation(
   progress: (p: AskProgress) => void = () => {},
   signal?: AbortSignal,
   // Live view of the answer while it is written, and the renderer of manual pages.
-  live: { onPartial?: (p: PartialAnswer) => void; pageImage?: AskInput["pageImage"] } = {},
+  live: { onPartial?: (p: PartialAnswer) => void; pageImage?: AskInput["pageImage"]; embedder?: Embedder | null } = {},
 ): Promise<DocResponse> {
   if (!validateRequest(body)) throw new BadRequest(new Ajv().errorsText(validateRequest.errors));
   const { events, input } = body;
@@ -166,6 +167,7 @@ export async function handleDocConversation(
       history: events.map((e) => ({ said: e.said, result: e.result })),
       pageImage: live.pageImage,
       ideas: allowIdeas,
+      embedder: live.embedder,
     },
     progress,
     signal,

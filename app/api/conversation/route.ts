@@ -1,6 +1,7 @@
 import { loadKnowledgeBase, type KnowledgeBase } from "@/lib/kb";
 import { BadRequest, handleConversation } from "@/lib/conversation";
 import { handleDocConversation } from "@/lib/docs/conversation";
+import { embedder } from "@/lib/docs/embed";
 import { pageImage } from "@/lib/docs/page-image";
 import { AnthropicModelClient } from "@/lib/llm";
 import { needsCode, technicianAllowed } from "@/lib/server/access";
@@ -40,6 +41,7 @@ export async function POST(request: Request) {
           const result = await handleDocConversation(kb, client!, body, (p) => send({ progress: p.stage === "reading" ? "pages" : p.stage, detail: p.detail }), request.signal, {
             // Each verified step goes to the phone as soon as it is written.
             onPartial: (partial) => send({ partial }),
+            embedder: embedder(),
             pageImage: async (hit) => {
               const image = await pageImage(kbId, hit.docId, hit.n);
               return image && { data: image.png.toString("base64"), mediaType: "image/png" as const, width: image.width, height: image.height };

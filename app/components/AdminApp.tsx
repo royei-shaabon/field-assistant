@@ -8,7 +8,9 @@ import { T } from "@/lib/ui-text";
 import { CheckIcon, CloseIcon, DocIcon, PlusIcon, WarningIcon } from "./icons";
 import { Logo } from "./Logo";
 
-type Kb = KbMeta & { docs: DocMeta[]; usage: Usage };
+// `indexed`: how many passages of the document can be searched by meaning.
+type Doc = DocMeta & { indexed?: number };
+type Kb = KbMeta & { docs: Doc[]; usage: Usage };
 type Upload = { id: number; name: string; state: "working" | "done" | "error"; message?: string };
 
 const A = T.admin;
@@ -160,7 +162,7 @@ function UsageTiles({ usage }: { usage: Usage }) {
   );
 }
 
-type DiagnoseCheck = { name: "key_and_model" | "question_answering" | "fast_search"; ok: boolean; ms: number; detail?: string };
+type DiagnoseCheck = { name: "key_and_model" | "question_answering" | "fast_search" | "embeddings"; ok: boolean; ms: number; detail?: string };
 
 // Asks the server to try the model: first the key, then one full question on a sample page.
 // On failure the provider's own message is shown, so the implementer knows what to fix.
@@ -202,11 +204,28 @@ function Diagnose() {
   );
 }
 
-function Documents({ kb, onChanged }: { kb: Kb; onChanged: () => Promise<void> }) {
+function Documents({ kb, embeddings, onChanged }: { kb: Kb; embeddings: string | null; onChanged: () => Promise<void> }) {
   const [origin, setOrigin] = useState<DocOrigin>("manufacturer");
   const [uploads, setUploads] = useState<Upload[]>([]);
   const [over, setOver] = useState(false);
   const counter = useRef(0);
+  // The document whose meaning index is being built, or the provider's message when it failed.
+  const [indexing, setIndexing] = useState<{ docId: string; error?: string } | null>(null);
+
+  // Each call indexes for a bounded time; repeat until the document is done.
+  const buildIndex = async (docs: Doc[]) => {
+    for (const d of docs) {
+      setIndexing({ docId: d.id });
+      for (;;) {
+        const res = await fetch(`/api/admin/kbs/${kb.id}/docs/${d.id}/index`, { method: "POST" }).catch(() => null);
+        const body = (await res?.json().catch(() => null)) as { done?: boolean; detail?: string; error?: string } | null;
+        await onChanged();
+        if (!res?.ok) return setIndexing({ docId: d.id, error: body?.detail ?? body?.error ?? A.errors.generic });
+        if (body?.done) break;
+      }
+    }
+    setIndexing(null);
+  };
 
   const upload = async (files: File[]) => {
     for (const file of files) {
@@ -216,10 +235,11 @@ function Documents({ kb, onChanged }: { kb: Kb; onChanged: () => Promise<void> }
       form.set("file", file);
       form.set("origin", origin);
       const res = await fetch(`/api/admin/kbs/${kb.id}/docs`, { method: "POST", body: form }).catch(() => null);
-      const body = (await res?.json().catch(() => null)) as { error?: keyof typeof A.errors } | null;
+      const body = (await res?.json().catch(() => null)) as { error?: keyof typeof A.errors; doc?: Doc } | null;
       const message = res?.ok ? undefined : (A.errors[body?.error ?? "generic"] ?? A.errors.generic);
       setUploads((u) => u.map((x) => (x.id === id ? { ...x, state: res?.ok ? "done" : "error", message } : x)));
       if (res?.ok) await onChanged();
+      if (res?.ok && embeddings && body?.doc) await buildIndex([body.doc]);
     }
   };
 
@@ -333,6 +353,31 @@ function Documents({ kb, onChanged }: { kb: Kb; onChanged: () => Promise<void> }
                   <span className="font-mono">{size(d.bytes)}</span>
                   <span className="font-mono uppercase">{d.ext.slice(1)}</span>
                 </p>
+                {embeddings && (
+                  <p className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-[13px] text-graphite">
+                    {indexing?.docId === d.id && !indexing.error ? (
+                      <span role="status">
+                        <span>{A.semantic.working}</span> <span className="font-mono">{d.indexed ?? 0}/{d.passages}</span>
+                      </span>
+                    ) : (d.indexed ?? 0) >= d.passages ? (
+                      <span>{A.semantic.ready}</span>
+                    ) : (
+                      <>
+                        <span>
+                          <span>{A.semantic.partial}</span> <span className="font-mono">{d.indexed ?? 0}/{d.passages}</span>
+                        </span>
+                        <button disabled={Boolean(indexing && !indexing.error)} onClick={() => buildIndex([d])} className="rounded-lg border border-edge px-2.5 py-1 text-[13px] font-medium text-primary disabled:opacity-40">
+                          {A.semantic.build}
+                        </button>
+                      </>
+                    )}
+                    {indexing?.docId === d.id && indexing.error && (
+                      <span role="alert" className="text-danger-ink">
+                        <span>{A.semantic.failed}</span> <span dir="auto">{indexing.error}</span>
+                      </span>
+                    )}
+                  </p>
+                )}
                 {d.empty > 0 && (
                   <p className="mt-1 flex items-center gap-1.5 text-[13px] text-danger-ink">
                     <WarningIcon className="h-3.5 w-3.5 shrink-0" />
@@ -363,6 +408,7 @@ export function AdminApp() {
   const [kbs, setKbs] = useState<Kb[]>([]);
   const [ai, setAi] = useState(true);
   const [accessCode, setAccessCode] = useState(true);
+  const [embeddings, setEmbeddings] = useState<string | null>(null);
   const [selected, setSelected] = useState("");
   const [creating, setCreating] = useState(false);
   const [editing, setEditing] = useState(false);
@@ -377,10 +423,11 @@ export function AdminApp() {
       const probe = await fetch("/api/admin/login", { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" }).catch(() => null);
       return setState(probe?.status === 503 ? "closed" : "login");
     }
-    const data = (await res.json()) as { kbs: Kb[]; ai: boolean; accessCode: boolean };
+    const data = (await res.json()) as { kbs: Kb[]; ai: boolean; accessCode: boolean; embeddings: string | null };
     setKbs(data.kbs);
     setAi(data.ai);
     setAccessCode(data.accessCode);
+    setEmbeddings(data.embeddings);
     setSelected((s) => (data.kbs.some((k) => k.id === s) ? s : (data.kbs[0]?.id ?? "")));
     setState("ready");
   }, []);
@@ -538,7 +585,8 @@ export function AdminApp() {
                 </section>
               )}
               {!accessCode && <p className="text-[13px] leading-5 text-stone">{A.openAccess}</p>}
-              <Documents key={kb.id} kb={kb} onChanged={load} />
+              <p className="text-[13px] leading-5 text-stone">{embeddings ? <><span>{A.semantic.on}</span> <span dir="ltr" className="font-mono">{embeddings}</span></> : A.semantic.off}</p>
+              <Documents key={kb.id} kb={kb} embeddings={embeddings} onChanged={load} />
               <UsageTiles usage={kb.usage} />
               <section className="flex flex-col gap-2.5 border-t border-rule pt-6">
                 <h3 className="text-[17px] font-semibold">{A.system}</h3>

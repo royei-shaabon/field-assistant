@@ -1,3 +1,4 @@
+import { embedder } from "@/lib/docs/embed";
 import { forbidden, isAdmin } from "@/lib/server/admin-auth";
 import { aiConfigured, ensureSeed } from "@/lib/server/kbs";
 import { EMPTY_USAGE, Invalid, kbStore } from "@/lib/store";
@@ -6,8 +7,20 @@ export async function GET() {
   if (!(await isAdmin())) return forbidden();
   await ensureSeed();
   const store = kbStore();
-  const kbs = await Promise.all((await store.listKbs()).map(async (kb) => ({ ...kb, docs: await store.listDocs(kb.id), usage: await store.getUsage(kb.id) })));
-  return Response.json({ kbs, ai: aiConfigured(), accessCode: Boolean(process.env.ACCESS_CODE) }, { headers: { "Cache-Control": "no-store" } });
+  const using = embedder();
+  const kbs = await Promise.all(
+    (await store.listKbs()).map(async (kb) => {
+      const docs = await Promise.all(
+        (await store.listDocs(kb.id)).map(async (doc) => {
+          // How many passages of the document can be searched by meaning with the current model.
+          const info = using ? await store.vectorInfo(kb.id, doc.id) : null;
+          return { ...doc, indexed: info?.model === using?.model ? info!.count : 0 };
+        }),
+      );
+      return { ...kb, docs, usage: await store.getUsage(kb.id) };
+    }),
+  );
+  return Response.json({ kbs, ai: aiConfigured(), accessCode: Boolean(process.env.ACCESS_CODE), embeddings: using?.model ?? null }, { headers: { "Cache-Control": "no-store" } });
 }
 
 export async function POST(request: Request) {
