@@ -23,7 +23,7 @@ export function SourceLink({ kbId, source, dark = false }: { kbId: string; sourc
       href={sourceHref(kbId, source)}
       target="_blank"
       rel="noreferrer"
-      className={`flex min-h-12 items-center gap-2.5 rounded-[14px] border px-3.5 py-2 text-[15px] ${dark ? "border-white/40 text-white" : "border-edge text-ink active:bg-mist"}`}
+      className={`flex min-h-12 items-center gap-2.5 rounded-[14px] border px-3.5 py-2 text-[15px] ${dark ? "border-white/40 text-white" : "border-primary text-primary active:bg-primary-soft"}`}
     >
       <DocIcon className="h-5 w-5 shrink-0" />
       <span className="min-w-0 flex-1">
@@ -125,10 +125,10 @@ function Feedback({ kbId }: { kbId: string }) {
   return (
     <div className="flex items-center gap-2">
       <span className="text-[15px] text-graphite">{T.doc.feedbackAsk}</span>
-      <button onClick={() => send(true)} className="h-11 rounded-xl border border-edge px-4 text-[15px] font-medium active:bg-mist">
+      <button onClick={() => send(true)} className="h-11 rounded-xl border border-edge px-4 text-[15px] font-medium text-ink-soft active:bg-mist">
         {T.doc.helped}
       </button>
-      <button onClick={() => send(false)} className="h-11 rounded-xl border border-edge px-4 text-[15px] font-medium active:bg-mist">
+      <button onClick={() => send(false)} className="h-11 rounded-xl border border-edge px-4 text-[15px] font-medium text-ink-soft active:bg-mist">
         {T.doc.notHelped}
       </button>
     </div>
@@ -181,7 +181,7 @@ export function DocAnswer({
     <article className="flex flex-col gap-4">
       {item.caution && <Caution topic={item.caution} />}
       <Marks marks={item.marks} frames={frames} />
-      <h2 className="text-[21px] font-semibold leading-7">
+      <h2 className="text-[22px] font-semibold leading-[30px]">
         <Reveal text={item.title} animate={animate} delay={delay} mixed />
       </h2>
       <ol className="flex flex-col gap-4">
@@ -190,7 +190,7 @@ export function DocAnswer({
           return (
             <li key={i} className="flex gap-3">
               {item.steps.length > 1 && (
-                <span aria-hidden className="mt-0.5 grid h-7 w-7 shrink-0 place-items-center rounded-full bg-ink font-mono text-sm text-white">
+                <span aria-hidden className="mt-0.5 grid h-7 w-7 shrink-0 place-items-center rounded-full bg-primary font-mono text-sm text-white">
                   {i + 1}
                 </span>
               )}
@@ -204,7 +204,7 @@ export function DocAnswer({
                   ))}
                 </p>
                 {quotes && (
-                  <blockquote dir="auto" lang={isHebrew(step.quote) ? "he" : "en"} className="border-s-[3px] border-edge ps-3 text-[15px] leading-[23px] text-graphite">
+                  <blockquote dir="auto" lang={isHebrew(step.quote) ? "he" : "en"} className="rounded-lg bg-mist px-3 py-2 text-[15px] leading-[23px] text-graphite">
                     {step.quote}
                   </blockquote>
                 )}
@@ -216,9 +216,9 @@ export function DocAnswer({
       </ol>
       {!writing && item.figures?.map((f, i) => <Figure key={i} kbId={kbId} figure={f} />)}
       {!writing && (
-        <button onClick={() => setQuotes((q) => !q)} aria-expanded={quotes} className="flex min-h-11 items-center gap-2 self-start text-[15px] text-graphite">
+        <button onClick={() => setQuotes((q) => !q)} aria-expanded={quotes} className="flex min-h-11 items-center gap-2 self-start text-[15px] font-medium text-primary">
           <ArrowIcon className={`h-3.5 w-3.5 transition-transform ${quotes ? "-rotate-90" : "rotate-90"}`} />
-          <span className="underline decoration-stone underline-offset-4">{quotes ? T.doc.hideOriginal : T.doc.original}</span>
+          <span>{quotes ? T.doc.hideOriginal : T.doc.original}</span>
         </button>
       )}
       {!writing && single && <SourceLink kbId={kbId} source={item.steps[0].source} />}
@@ -236,7 +236,7 @@ export function DocAsk({ item, interactive, animate, delay, onOption }: { item: 
       {interactive && item.options.length > 0 && (
         <div className="flex flex-col gap-2">
           {item.options.map((o) => (
-            <button key={o} onClick={() => onOption?.(o)} className="min-h-[52px] rounded-[14px] border border-edge bg-paper px-4 py-2.5 text-start text-[17px] active:bg-mist">
+            <button key={o} onClick={() => onOption?.(o)} className="min-h-[52px] rounded-[14px] border border-primary bg-paper px-4 py-2.5 text-start text-[17px] font-medium text-primary active:bg-primary-soft">
               <Mixed text={o} />
             </button>
           ))}
@@ -275,7 +275,7 @@ export function DocNote({ title, hint, actions = [] }: { title: string; hint?: s
       {actions.length > 0 && (
         <div className="flex flex-wrap gap-2 pt-1">
           {actions.map((a) => (
-            <button key={a.label} onClick={a.run} className="h-12 rounded-[14px] border border-edge px-4 text-base font-medium active:bg-mist">
+            <button key={a.label} onClick={a.run} className="h-12 rounded-[14px] border border-primary px-4 text-base font-medium text-primary active:bg-primary-soft">
               {a.label}
             </button>
           ))}

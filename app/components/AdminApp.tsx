@@ -45,14 +45,14 @@ function Login({ closed, onDone }: { closed: boolean; onDone: () => void }) {
             autoComplete="current-password"
             value={password}
             onChange={(e) => (setPassword(e.target.value), setWrong(false))}
-            className="h-12 rounded-[14px] border border-edge bg-paper px-3.5 text-base focus:border-ink"
+            className="h-12 rounded-[14px] border border-edge bg-paper px-3.5 text-base focus:border-primary"
           />
           {wrong && (
             <p role="alert" className="text-base text-danger-ink">
               {A.login.wrong}
             </p>
           )}
-          <button disabled={busy || !password} className="h-12 rounded-[14px] bg-ink text-base font-medium text-white disabled:opacity-40">
+          <button disabled={busy || !password} className="h-12 rounded-[14px] bg-primary text-base font-medium text-white disabled:opacity-40">
             {A.login.submit}
           </button>
         </form>
@@ -77,14 +77,14 @@ function KbForm({ initial, submit, onSubmit, onCancel }: { initial?: { name: str
     >
       <label className="flex flex-col gap-1.5 text-sm font-medium text-graphite">
         <span>{A.kbName}</span>
-        <input autoFocus value={name} maxLength={80} onChange={(e) => setName(e.target.value)} placeholder={A.kbNamePlaceholder} className="h-11 rounded-xl border border-edge bg-paper px-3 text-base font-normal text-ink focus:border-ink" />
+        <input autoFocus value={name} maxLength={80} onChange={(e) => setName(e.target.value)} placeholder={A.kbNamePlaceholder} className="h-11 rounded-xl border border-edge bg-paper px-3 text-base font-normal text-ink focus:border-primary" />
       </label>
       <label className="flex flex-col gap-1.5 text-sm font-medium text-graphite">
         <span>{A.kbDescription}</span>
-        <input value={description} maxLength={400} onChange={(e) => setDescription(e.target.value)} className="h-11 rounded-xl border border-edge bg-paper px-3 text-base font-normal text-ink focus:border-ink" />
+        <input value={description} maxLength={400} onChange={(e) => setDescription(e.target.value)} className="h-11 rounded-xl border border-edge bg-paper px-3 text-base font-normal text-ink focus:border-primary" />
       </label>
       <div className="flex gap-2">
-        <button disabled={busy || !name.trim()} className="h-11 rounded-xl bg-ink px-5 text-[15px] font-medium text-white disabled:opacity-40">
+        <button disabled={busy || !name.trim()} className="h-11 rounded-xl bg-primary px-5 text-[15px] font-medium text-white disabled:opacity-40">
           {submit}
         </button>
         <button type="button" onClick={onCancel} className="h-11 rounded-xl px-4 text-[15px] text-graphite active:bg-mist">
@@ -226,7 +226,7 @@ function Documents({ kb, onChanged }: { kb: Kb; onChanged: () => Promise<void> }
       type="button"
       onClick={() => setOrigin(value)}
       aria-pressed={origin === value}
-      className={`h-9 rounded-lg px-3.5 text-sm ${origin === value ? "bg-ink font-medium text-white" : "text-graphite active:bg-rule"}`}
+      className={`h-9 rounded-lg px-3.5 text-sm ${origin === value ? "bg-primary font-medium text-white" : "text-graphite active:bg-rule"}`}
     >
       {label}
     </button>
@@ -253,9 +253,9 @@ function Documents({ kb, onChanged }: { kb: Kb; onChanged: () => Promise<void> }
           setOver(false);
           void upload([...e.dataTransfer.files]);
         }}
-        className={`flex cursor-pointer flex-col items-center gap-1.5 rounded-[18px] border-2 border-dashed px-4 py-8 text-center ${over ? "border-ink bg-mist" : "border-rule"}`}
+        className={`flex cursor-pointer flex-col items-center gap-1.5 rounded-[18px] border-2 border-dashed px-4 py-8 text-center ${over ? "border-primary bg-primary-soft" : "border-rule"}`}
       >
-        <span className="grid h-11 w-11 place-items-center rounded-full bg-ink text-white">
+        <span className="grid h-11 w-11 place-items-center rounded-full bg-primary text-white">
           <PlusIcon />
         </span>
         <span className="text-base font-medium">{A.drop}</span>
@@ -433,7 +433,7 @@ export function AdminApp() {
               key={k.id}
               onClick={() => (setSelected(k.id), setCreating(false), setEditing(false))}
               aria-current={k.id === selected}
-              className={`flex flex-col gap-0.5 rounded-[14px] border px-3.5 py-3 text-start ${k.id === selected && !creating ? "border-ink bg-mist" : "border-rule active:bg-mist"}`}
+              className={`flex flex-col gap-0.5 rounded-[14px] border px-3.5 py-3 text-start ${k.id === selected && !creating ? "border-primary border-s-4 bg-mist" : "border-rule active:bg-mist"}`}
             >
               <span className="text-[15px] font-medium">{k.name}</span>
               <span className="text-[13px] text-stone">

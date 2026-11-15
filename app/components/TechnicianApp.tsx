@@ -203,7 +203,7 @@ function Menu({
 
         <div className="flex-1 overflow-y-auto pb-2">
           <div className="px-3">
-            <button onClick={onNew} className="flex h-14 w-full items-center gap-3 rounded-[14px] bg-ink px-4 text-[17px] font-medium text-white active:opacity-90">
+            <button onClick={onNew} className="flex h-14 w-full items-center gap-3 rounded-[14px] bg-primary px-4 text-[17px] font-medium text-white active:opacity-90">
               <PlusIcon />
               <span>{T.header.newCase}</span>
             </button>
@@ -218,7 +218,7 @@ function Menu({
                     <button
                       onClick={() => onKb(k.id)}
                       aria-current={k.id === kbId ? "true" : undefined}
-                      className={`flex min-h-12 w-full items-center rounded-[14px] border px-3.5 py-2 text-start text-base ${k.id === kbId ? "border-ink border-s-4 font-semibold" : "border-edge active:bg-mist"}`}
+                      className={`flex min-h-12 w-full items-center rounded-[14px] border px-3.5 py-2 text-start text-base ${k.id === kbId ? "border-primary border-s-4 font-semibold" : "border-edge active:bg-mist"}`}
                     >
                       <bdi>{k.name}</bdi>
                     </button>
@@ -237,7 +237,7 @@ function Menu({
                   <button
                     onClick={() => onOpen(c)}
                     aria-current={c.id === currentId ? "true" : undefined}
-                    className={`flex min-h-14 min-w-0 flex-1 items-center gap-3 rounded-xl px-2.5 py-2 text-start active:bg-mist ${c.id === currentId ? "border-s-4 border-ink bg-mist" : ""}`}
+                    className={`flex min-h-14 min-w-0 flex-1 items-center gap-3 rounded-xl px-2.5 py-2 text-start active:bg-mist ${c.id === currentId ? "border-s-4 border-primary bg-mist" : ""}`}
                   >
                     {showStatus && <span aria-hidden className={`h-2 w-2 shrink-0 rounded-full ${DOT[c.mode]}`} />}
                     <span className="min-w-0 flex-1">
@@ -343,7 +343,7 @@ function Composer({
         </div>
       )}
 
-      <div className="flex min-h-[60px] items-center gap-1 rounded-[22px] border border-edge bg-paper pe-1.5 ps-1 focus-within:border-ink focus-within:shadow-[0_0_0_1px_var(--color-ink)]">
+      <div className="flex min-h-[60px] items-center gap-1 rounded-[22px] border border-edge bg-paper pe-1.5 ps-1 focus-within:border-primary focus-within:shadow-[0_0_0_1px_var(--color-primary)]">
         {canAttach && (
         <button
           type="button"
@@ -371,11 +371,11 @@ function Composer({
           className={`focus-in-box h-12 min-w-0 flex-1 bg-transparent text-[17px] placeholder:text-stone ${canAttach ? "" : "ps-3"}`}
         />
         {busy ? (
-          <button type="button" onClick={onCancel} aria-label={T.composer.stop} className="grid h-12 w-12 shrink-0 place-items-center rounded-full bg-ink">
+          <button type="button" onClick={onCancel} aria-label={T.composer.stop} className="grid h-12 w-12 shrink-0 place-items-center rounded-full bg-primary">
             <span aria-hidden className="h-3.5 w-3.5 rounded-[3px] bg-white" />
           </button>
         ) : (
-          <button type="submit" disabled={!canSend} aria-label={T.composer.send} className="grid h-12 w-12 shrink-0 place-items-center rounded-full bg-ink text-white disabled:bg-rule disabled:text-stone">
+          <button type="submit" disabled={!canSend} aria-label={T.composer.send} className="grid h-12 w-12 shrink-0 place-items-center rounded-full bg-primary text-white disabled:bg-rule disabled:text-stone">
             <SendIcon className="h-5 w-5" />
           </button>
         )}
@@ -418,14 +418,14 @@ function AccessCode({ onDone }: { onDone: () => void }) {
           aria-invalid={problem ? true : undefined}
           aria-describedby={problem ? "access-problem" : undefined}
           onChange={(e) => (setCode(e.target.value), setProblem(null))}
-          className="h-14 rounded-[16px] border border-edge bg-paper px-4 text-center font-mono text-xl tracking-widest focus:border-ink"
+          className="h-14 rounded-[16px] border border-edge bg-paper px-4 text-center font-mono text-xl tracking-widest focus:border-primary"
         />
         {problem && (
           <p id="access-problem" role="alert" className="text-base text-danger-ink">
             {problem}
           </p>
         )}
-        <button disabled={busy} className="h-14 rounded-[16px] bg-ink text-[17px] font-medium text-white disabled:opacity-60">
+        <button disabled={busy} className="h-14 rounded-[16px] bg-primary text-[17px] font-medium text-white disabled:opacity-60">
           {T.doc.access.submit}
         </button>
       </form>
@@ -450,7 +450,7 @@ function Notice({ text, action, onAction }: { text: string; action?: string; onA
         {text}
       </p>
       {action && (
-        <button onClick={onAction} className="h-14 rounded-[16px] bg-ink text-[17px] font-medium text-white">
+        <button onClick={onAction} className="h-14 rounded-[16px] bg-primary text-[17px] font-medium text-white">
           {action}
         </button>
       )}
@@ -460,9 +460,9 @@ function Notice({ text, action, onAction }: { text: string; action?: string; onA
 
 function HeaderButton({ label, onClick, disabled, children }: { label: string; onClick: () => void; disabled?: boolean; children: React.ReactNode }) {
   return (
-    <button onClick={onClick} disabled={disabled} className="flex h-[52px] min-w-12 flex-col items-center justify-center gap-0.5 rounded-xl px-1.5 active:bg-mist disabled:opacity-40">
+    <button onClick={onClick} disabled={disabled} className="flex h-14 min-w-[52px] flex-col items-center justify-center gap-1 rounded-xl px-1.5 text-ink-soft active:bg-mist disabled:opacity-40">
       {children}
-      <span className="text-xs font-medium leading-none">{label}</span>
+      <span className="text-[13px] font-medium leading-none">{label}</span>
     </button>
   );
 }
@@ -749,9 +749,9 @@ export function TechnicianApp() {
 
   return (
     <div className="mx-auto flex h-dvh max-w-md flex-col bg-paper">
-      <header className="flex h-[64px] shrink-0 items-center gap-0.5 border-b border-rule px-1.5">
+      <header className="flex h-[68px] shrink-0 items-center gap-0.5 border-b border-rule px-1.5">
         <HeaderButton label={T.doc.menu} onClick={() => setMenu(true)}>
-          <MenuIcon className="h-[22px] w-[22px]" />
+          <MenuIcon />
         </HeaderButton>
         <div className="min-w-0 flex-1 px-1.5 leading-tight">
           <h1 className="truncate text-[17px] font-semibold">
@@ -784,17 +784,17 @@ export function TechnicianApp() {
             </p>
           ) : empty ? (
             <div className="flex flex-col gap-3 pb-8">
-              <h2 className="text-[28px] font-semibold leading-9">{isDocs ? T.doc.emptyTitle : T.chat.emptyTitle}</h2>
+              <h2 className="text-[26px] font-semibold leading-[34px]">{isDocs ? T.doc.emptyTitle : T.chat.emptyTitle}</h2>
               <p className="text-[17px] leading-[26px] text-graphite">{noDocuments ? T.doc.empty : isDocs ? T.doc.emptyLead : T.chat.emptyLead}</p>
               {/* Two ways to start that need no typing. */}
               {isDocs && !noDocuments && (
                 <div className="grid grid-cols-2 gap-2.5 pt-3">
-                  <FilePicker accept="image/*" multiple onFiles={stagePhotos} className="flex h-[60px] items-center justify-center gap-2.5 rounded-[16px] border border-edge text-[17px] font-medium active:bg-mist">
-                    <CameraIcon className="h-6 w-6" />
+                  <FilePicker accept="image/*" multiple onFiles={stagePhotos} className="flex h-[60px] items-center justify-center gap-2.5 rounded-[16px] bg-primary text-[17px] font-medium text-white active:bg-primary-strong">
+                    <CameraIcon />
                     <span>{T.doc.startPhoto}</span>
                   </FilePicker>
-                  <button onClick={() => startCall("voice")} className="flex h-[60px] items-center justify-center gap-2.5 rounded-[16px] border border-edge text-[17px] font-medium active:bg-mist">
-                    <PhoneIcon className="h-6 w-6" />
+                  <button onClick={() => startCall("voice")} className="flex h-[60px] items-center justify-center gap-2.5 rounded-[16px] border border-primary text-[17px] font-medium text-primary active:bg-primary-soft">
+                    <PhoneIcon />
                     <span>{T.doc.startVoice}</span>
                   </button>
                 </div>

@@ -1,30 +1,36 @@
 @import "tailwindcss";
 
-/* "Calm senior colleague": ink and paper, one signature colour (tool-yellow) that only ever
-   means "here" (image marks, the current question, the hazard stripe). Red is for danger only,
-   green only for "solved". Tokens match the design board. */
+/* A work tool, not a toy. Three colours, each with one job:
+   - blue (primary) means "you can press this": actions, links, the numbers of the steps;
+   - yellow (signal) means "look here": marks on a picture and safety warnings;
+   - red is danger only, green is "worked" only.
+   Neutrals are cool greys that sit with the blue. Type is IBM Plex Sans Hebrew with Plex Mono
+   for numbers and codes: one family, three weights (400 text, 500 controls, 600 headings). */
 @theme {
-  --font-sans: Rubik, system-ui, -apple-system, "Segoe UI", Arial, sans-serif;
+  --font-sans: "IBM Plex Sans Hebrew", "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", Arial, sans-serif;
   --font-mono: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
 
-  --color-ink: #121212;
-  --color-ink-soft: #3c3c38;
+  --color-ink: #0f1a24;
+  --color-ink-soft: #2c3a47;
   --color-paper: #ffffff;
-  --color-mist: #f4f4f2;
-  --color-rule: #e4e4e0;
-  --color-rule-soft: #ececea;
-  --color-graphite: #5c5c58;
-  --color-stone: #6e6e69;
-  --color-pebble: #9a9a94;
+  --color-mist: #f2f5f8;
+  --color-rule: #dde3e9;
+  --color-rule-soft: #e8edf1;
+  --color-graphite: #47545f;
+  --color-stone: #5d6b77;
+  --color-pebble: #93a0ab;
   /* Borders of controls: 3.5:1 on paper, so a field is visible in sunlight. */
-  --color-edge: #8a8a85;
+  --color-edge: #7c8995;
   /* The technician's own messages. */
-  --color-bubble: #e9e9e5;
+  --color-bubble: #e3ecf4;
+  --color-primary: #0f4c81;
+  --color-primary-strong: #0b3a63;
+  --color-primary-soft: #e3ecf4;
   --color-signal: #ffd43b;
   --color-signal-soft: #fff4c2;
-  --color-danger: #d92d20;
-  --color-danger-ink: #b42318;
-  --color-ok: #157f3c;
+  --color-danger: #c9291c;
+  --color-danger-ink: #a51f14;
+  --color-ok: #12703a;
 }
 
 body {
@@ -39,7 +45,7 @@ select:focus-visible,
 summary:focus-visible,
 a:focus-visible,
 label:focus-within {
-  outline: 2px solid var(--color-ink);
+  outline: 3px solid var(--color-primary);
   outline-offset: 2px;
 }
 
