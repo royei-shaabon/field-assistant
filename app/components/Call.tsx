@@ -36,6 +36,33 @@ function hebrewVoice(): SpeechSynthesisVoice | undefined {
 
 export type Speech = { id: number; lines: string[] };
 
+const LIVE_MARKS_MS = 15_000;
+
+// The marks of the last answer, drawn straight on the live picture. The picture sent to the
+// agent is exactly what the screen shows (see `frame`), so a mark's position on the picture is
+// its position on the screen. Marks sit where the part was when the picture was taken, so they
+// are shown for a short while only; the still picture with the same marks then takes over.
+function LiveMarks({ marks }: { marks: DocMark[] }) {
+  return (
+    <div aria-hidden className="pointer-events-none absolute inset-0">
+      {marks.map((m, i) => (
+        <span key={i}>
+          <span
+            className="absolute rounded-lg border-[3px] border-signal shadow-[0_0_0_1.5px_var(--color-ink),inset_0_0_0_1.5px_var(--color-ink)]"
+            style={{ left: `${m.box.x / 10}%`, top: `${m.box.y / 10}%`, width: `${m.box.w / 10}%`, height: `${m.box.h / 10}%` }}
+          />
+          <span
+            className="absolute grid h-7 w-7 -translate-x-1/2 -translate-y-1/2 place-items-center rounded-full bg-signal font-mono text-sm font-medium text-ink shadow-[0_0_0_1.5px_var(--color-ink)]"
+            style={{ left: `${m.box.x / 10}%`, top: `${m.box.y / 10}%` }}
+          >
+            {i + 1}
+          </span>
+        </span>
+      ))}
+    </div>
+  );
+}
+
 export function CallView({
   kind,
   kbId,
@@ -77,6 +104,16 @@ export function CallView({
   const [muted, setMuted] = useState(false);
   const [problem, setProblem] = useState<string | null>(null);
   const [seconds, setSeconds] = useState(0);
+  // Which answer's marks are on the live picture right now (they are removed after a while).
+  const [liveFor, setLiveFor] = useState(0);
+  useEffect(() => {
+    const show = setTimeout(() => setLiveFor(speech.id), 0);
+    const hide = setTimeout(() => setLiveFor(0), LIVE_MARKS_MS);
+    return () => {
+      clearTimeout(show);
+      clearTimeout(hide);
+    };
+  }, [speech.id]);
 
   const busyRef = useRef(busy);
   const mutedRef = useRef(muted);
@@ -87,15 +124,20 @@ export function CallView({
     utter.current = onUtterance;
   });
 
-  // A still from the live camera, sent with what the technician says.
+  // A still from the live camera, sent with what the technician says. Only the part of the
+  // camera picture that is on screen is sent (the video fills the screen and is cropped to it),
+  // so the agent sees what the technician sees.
   const frame = useCallback((): string | undefined => {
     const v = video.current;
-    if (kind !== "video" || !v || !v.videoWidth) return undefined;
-    const scale = Math.min(1, 1280 / Math.max(v.videoWidth, v.videoHeight));
+    if (kind !== "video" || !v || !v.videoWidth || !v.clientWidth) return undefined;
+    const cover = Math.max(v.clientWidth / v.videoWidth, v.clientHeight / v.videoHeight);
+    const sw = v.clientWidth / cover;
+    const sh = v.clientHeight / cover;
+    const scale = Math.min(1, 1280 / Math.max(sw, sh));
     const canvas = document.createElement("canvas");
-    canvas.width = Math.round(v.videoWidth * scale);
-    canvas.height = Math.round(v.videoHeight * scale);
-    canvas.getContext("2d")!.drawImage(v, 0, 0, canvas.width, canvas.height);
+    canvas.width = Math.round(sw * scale);
+    canvas.height = Math.round(sh * scale);
+    canvas.getContext("2d")!.drawImage(v, (v.videoWidth - sw) / 2, (v.videoHeight - sh) / 2, sw, sh, 0, 0, canvas.width, canvas.height);
     return canvas.toDataURL("image/jpeg", 0.8);
   }, [kind]);
 
@@ -253,6 +295,7 @@ export function CallView({
     <div ref={root} role="dialog" aria-modal="true" aria-label={kind === "video" ? T.call.video : T.call.voice} className="on-dark fixed inset-0 z-50 mx-auto flex max-w-md flex-col bg-ink text-white">
       {kind === "video" && <video ref={video} autoPlay playsInline muted className="absolute inset-0 h-full w-full object-cover" />}
       {kind === "video" && <div aria-hidden className="absolute inset-0 bg-gradient-to-b from-black/55 via-transparent to-black/75" />}
+      {kind === "video" && visual && !busy && liveFor === speech.id && <LiveMarks marks={visual.marks.filter((m) => m.frame === visual.marks[0].frame)} />}
 
       <header className="relative flex items-center justify-between px-5 pb-2 pt-5">
         <div className="min-w-0">
@@ -286,11 +329,15 @@ export function CallView({
         )}
 
         {visual && !busy && (
-          <div className="anim-rise flex flex-col gap-2 rounded-2xl bg-ink/85 p-2.5">
-            <MarkedImage
-              src={visual.frames[visual.marks[0].frame]}
-              marks={visual.marks.filter((m) => m.frame === visual.marks[0].frame).map((m, i) => ({ ...m, n: i + 1, symptomTitle: "" }))}
-            />
+          <div className={`anim-rise flex flex-col gap-2 rounded-2xl bg-ink/85 p-2.5 ${kind === "video" && liveFor === speech.id ? "mb-auto" : ""}`}>
+            {/* While the marks are on the live picture, the still copy waits; then it takes over. */}
+            {!(kind === "video" && liveFor === speech.id) && (
+              <MarkedImage
+                src={visual.frames[visual.marks[0].frame]}
+                marks={visual.marks.filter((m) => m.frame === visual.marks[0].frame).map((m, i) => ({ ...m, n: i + 1, symptomTitle: "" }))}
+              />
+            )}
+            {kind === "video" && liveFor === speech.id && <p className="text-sm text-signal">{T.call.liveNote}</p>}
             <p className="text-sm text-white/75">{T.call.marksLegend}</p>
             <MarksLegend marks={visual.marks.filter((m) => m.frame === visual.marks[0].frame)} />
           </div>
@@ -303,7 +350,7 @@ export function CallView({
           <StopCard danger />
         ) : (
           saying.length > 0 && (
-            <div aria-live="polite" className="flex max-h-[40dvh] flex-col gap-1.5 overflow-y-auto rounded-2xl bg-ink/85 p-3.5 text-[19px] font-medium leading-7">
+            <div aria-live="polite" className={`flex flex-col gap-1.5 overflow-y-auto rounded-2xl bg-ink/85 p-3.5 font-medium ${kind === "video" ? "max-h-[24dvh] text-[17px] leading-[25px]" : "max-h-[40dvh] text-[19px] leading-7"}`}>
               {saying.map((line, i) => (
                 <p key={i}>{line}</p>
               ))}

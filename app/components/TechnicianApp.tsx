@@ -786,6 +786,19 @@ export function TechnicianApp() {
             <div className="flex flex-col gap-3 pb-8">
               <h2 className="text-[28px] font-semibold leading-9">{isDocs ? T.doc.emptyTitle : T.chat.emptyTitle}</h2>
               <p className="text-[17px] leading-[26px] text-graphite">{noDocuments ? T.doc.empty : isDocs ? T.doc.emptyLead : T.chat.emptyLead}</p>
+              {/* Two ways to start that need no typing. */}
+              {isDocs && !noDocuments && (
+                <div className="grid grid-cols-2 gap-2.5 pt-3">
+                  <FilePicker accept="image/*" multiple onFiles={stagePhotos} className="flex h-[60px] items-center justify-center gap-2.5 rounded-[16px] border border-edge text-[17px] font-medium active:bg-mist">
+                    <CameraIcon className="h-6 w-6" />
+                    <span>{T.doc.startPhoto}</span>
+                  </FilePicker>
+                  <button onClick={() => startCall("voice")} className="flex h-[60px] items-center justify-center gap-2.5 rounded-[16px] border border-edge text-[17px] font-medium active:bg-mist">
+                    <PhoneIcon className="h-6 w-6" />
+                    <span>{T.doc.startVoice}</span>
+                  </button>
+                </div>
+              )}
             </div>
           ) : (
             <ChatView

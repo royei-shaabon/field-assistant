@@ -6,7 +6,7 @@ import { useState } from "react";
 import type { DocFigure, DocMark, HazardTopic, SourceView } from "@/lib/docs/ask";
 import type { ChatItem } from "@/lib/screen";
 import { T } from "@/lib/ui-text";
-import { MarkedImage, Reveal, WORD_MS, wordCount } from "./Chat";
+import { MarkedImage, Mixed, Reveal, WORD_MS, wordCount } from "./Chat";
 import { ArrowIcon, DocIcon, WarningIcon } from "./icons";
 
 type Answer = Extract<ChatItem, { kind: "doc_answer" }>;
@@ -174,13 +174,15 @@ export function DocAnswer({
   // One source for the whole answer is shown once, under the steps.
   const single = item.steps.every((s) => sameSource(s.source, item.steps[0].source));
   // When each step starts typing: after the title and the steps before it.
+  // The manual's own wording, for every step at once: one switch, not a link under each step.
+  const [quotes, setQuotes] = useState(false);
   const starts = item.steps.reduce<number[]>((list, s, i) => [...list, (list[i - 1] ?? delay + wordCount(item.title) * WORD_MS) + (i ? wordCount(item.steps[i - 1].text) * WORD_MS : 0)], []);
   return (
     <article className="flex flex-col gap-4">
       {item.caution && <Caution topic={item.caution} />}
       <Marks marks={item.marks} frames={frames} />
       <h2 className="text-[21px] font-semibold leading-7">
-        <Reveal text={item.title} animate={animate} delay={delay} />
+        <Reveal text={item.title} animate={animate} delay={delay} mixed />
       </h2>
       <ol className="flex flex-col gap-4">
         {item.steps.map((step, i) => {
@@ -194,22 +196,18 @@ export function DocAnswer({
               )}
               <div className="flex min-w-0 flex-1 flex-col gap-2">
                 <p className="text-[18px] leading-7">
-                  <Reveal text={step.text} animate={animate} delay={starts[i]} />
+                  <Reveal text={step.text} animate={animate} delay={starts[i]} mixed />
                   {marked.map((n) => (
                     <span key={n} aria-hidden className="ms-1.5 inline-grid h-5 w-5 translate-y-[-1px] place-items-center rounded-full bg-signal font-mono text-xs font-medium text-ink">
                       {n}
                     </span>
                   ))}
                 </p>
-                <details className="group">
-                  <summary className="flex min-h-11 cursor-pointer list-none items-center gap-1.5 text-[15px] text-graphite [&::-webkit-details-marker]:hidden">
-                    <ArrowIcon className="h-3.5 w-3.5 rotate-90 transition-transform group-open:-rotate-90" />
-                    <span className="underline decoration-stone underline-offset-4">{T.doc.original}</span>
-                  </summary>
-                  <blockquote dir="auto" lang={isHebrew(step.quote) ? "he" : "en"} className="mb-1 border-s-[3px] border-edge ps-3 text-[15px] leading-[23px] text-graphite">
+                {quotes && (
+                  <blockquote dir="auto" lang={isHebrew(step.quote) ? "he" : "en"} className="border-s-[3px] border-edge ps-3 text-[15px] leading-[23px] text-graphite">
                     {step.quote}
                   </blockquote>
-                </details>
+                )}
                 {!single && !writing && <SourceLink kbId={kbId} source={step.source} />}
               </div>
             </li>
@@ -217,6 +215,12 @@ export function DocAnswer({
         })}
       </ol>
       {!writing && item.figures?.map((f, i) => <Figure key={i} kbId={kbId} figure={f} />)}
+      {!writing && (
+        <button onClick={() => setQuotes((q) => !q)} aria-expanded={quotes} className="flex min-h-11 items-center gap-2 self-start text-[15px] text-graphite">
+          <ArrowIcon className={`h-3.5 w-3.5 transition-transform ${quotes ? "-rotate-90" : "rotate-90"}`} />
+          <span className="underline decoration-stone underline-offset-4">{quotes ? T.doc.hideOriginal : T.doc.original}</span>
+        </button>
+      )}
       {!writing && single && <SourceLink kbId={kbId} source={item.steps[0].source} />}
       {!writing && feedback && <Feedback kbId={kbId} />}
     </article>
@@ -227,13 +231,13 @@ export function DocAsk({ item, interactive, animate, delay, onOption }: { item: 
   return (
     <div className="flex flex-col gap-3">
       <p className="text-[21px] font-semibold leading-[29px]">
-        <Reveal text={item.question} animate={animate} delay={delay} />
+        <Reveal text={item.question} animate={animate} delay={delay} mixed />
       </p>
       {interactive && item.options.length > 0 && (
         <div className="flex flex-col gap-2">
           {item.options.map((o) => (
             <button key={o} onClick={() => onOption?.(o)} className="min-h-[52px] rounded-[14px] border border-edge bg-paper px-4 py-2.5 text-start text-[17px] active:bg-mist">
-              {o}
+              <Mixed text={o} />
             </button>
           ))}
         </div>

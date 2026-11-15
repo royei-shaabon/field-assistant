@@ -110,17 +110,23 @@ function UsageTiles({ usage }: { usage: Usage }) {
         <p className="text-[15px] text-stone">{A.usage.none}</p>
       ) : (
         <>
-          <div className="grid grid-cols-2 gap-2 sm:grid-cols-5">
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
             {tile(A.usage.questions, usage.questions)}
             {tile(A.usage.answer, usage.answer, "text-ok")}
             {tile(A.usage.ask, usage.ask)}
             {tile(A.usage.not_found, usage.not_found)}
-            {tile(A.usage.hazard, usage.hazard)}
           </div>
-          <div className="grid grid-cols-2 gap-2 sm:grid-cols-5">
-            {tile(A.usage.helpful, usage.helpful, "text-ok")}
-            {tile(A.usage.unhelpful, usage.unhelpful)}
-          </div>
+          <p className="flex flex-wrap gap-x-5 gap-y-1 text-[15px] text-graphite">
+            <span>
+              <span>{A.usage.hazard}:</span> <span className="font-mono text-ink">{usage.hazard}</span>
+            </span>
+            <span>
+              <span>{A.usage.helpful}:</span> <span className="font-mono text-ok">{usage.helpful}</span>
+            </span>
+            <span>
+              <span>{A.usage.unhelpful}:</span> <span className="font-mono text-ink">{usage.unhelpful}</span>
+            </span>
+          </p>
           <p className="flex flex-wrap gap-x-3 text-[13px] text-stone">
             {usage.lastAt && (
               <span>
@@ -154,7 +160,7 @@ function Diagnose() {
     setBusy(false);
   };
   return (
-    <section className="mb-5 flex flex-col gap-2.5">
+    <section className="flex flex-col gap-2.5">
       <button onClick={run} disabled={busy} className="h-10 self-start rounded-xl border border-rule px-4 text-[15px] font-medium active:bg-mist disabled:opacity-50">
         {busy ? A.diagnose.running : A.diagnose.run}
       </button>
@@ -408,7 +414,6 @@ export function AdminApp() {
       </header>
       <p className="max-w-2xl pb-5 text-[15px] leading-6 text-graphite">{A.lead}</p>
 
-      <Diagnose />
       {!ai && (
         <p className="mb-5 flex items-start gap-2.5 rounded-[14px] bg-signal-soft px-3.5 py-3 text-[15px] leading-6">
           <WarningIcon className="mt-0.5 h-5 w-5 shrink-0" />
@@ -520,6 +525,10 @@ export function AdminApp() {
               {!accessCode && <p className="text-[13px] leading-5 text-stone">{A.openAccess}</p>}
               <Documents key={kb.id} kb={kb} onChanged={load} />
               <UsageTiles usage={kb.usage} />
+              <section className="flex flex-col gap-2.5 border-t border-rule pt-6">
+                <h3 className="text-[17px] font-semibold">{A.system}</h3>
+                <Diagnose />
+              </section>
             </>
           ) : null}
         </main>

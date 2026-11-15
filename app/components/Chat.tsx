@@ -18,7 +18,37 @@ export type Media = Record<number, string[]>;
 // whole text is there at once (history, server render, reduced motion).
 export const WORD_MS = 25;
 
-export function Reveal({ text, animate = false, delay = 0 }: { text: string; animate?: boolean; delay?: number }) {
+// English terms inside Hebrew text ("battery cover", "29 psi (200 kPa)") are kept together and
+// read left to right, so a bracket or a unit never lands on the wrong side or the next line.
+const LATIN_RUN = /\(?[A-Za-z0-9][A-Za-z0-9 .,\-–\/()%"'°]*[A-Za-z0-9)%°]|[A-Za-z0-9]/g;
+
+export function Mixed({ text }: { text: string }) {
+  const parts: React.ReactNode[] = [];
+  let last = 0;
+  for (const match of text.matchAll(LATIN_RUN)) {
+    let run = match[0];
+    let start = match.index;
+    // A bracket belongs to the run only when its partner is inside the run too.
+    const count = (c: string) => run.split(c).length - 1;
+    while (run.endsWith(")") && count(")") > count("(")) run = run.slice(0, -1);
+    while (run.startsWith("(") && count("(") > count(")")) {
+      run = run.slice(1);
+      start += 1;
+    }
+    if (!/[A-Za-z]/.test(run)) continue; // plain numbers need no help
+    if (start > last) parts.push(text.slice(last, start));
+    parts.push(
+      <bdi key={start} dir="ltr" className={run.length <= 32 ? "whitespace-nowrap" : undefined}>
+        {run}
+      </bdi>,
+    );
+    last = start + run.length;
+  }
+  if (last < text.length) parts.push(text.slice(last));
+  return <>{parts}</>;
+}
+
+export function Reveal({ text, animate = false, delay = 0, mixed = false }: { text: string; animate?: boolean; delay?: number; mixed?: boolean }) {
   const words = text.split(" ");
   const [shown, setShown] = useState(animate ? 0 : words.length);
   useEffect(() => {
@@ -44,7 +74,7 @@ export function Reveal({ text, animate = false, delay = 0 }: { text: string; ani
   const typing = shown < words.length;
   return (
     <>
-      <span aria-hidden={typing || undefined}>{words.slice(0, shown).join(" ")}</span>
+      <span aria-hidden={typing || undefined}>{!typing && mixed ? <Mixed text={text} /> : words.slice(0, shown).join(" ")}</span>
       {typing && <span aria-hidden className="anim-caret ms-0.5 inline-block h-[18px] w-0.5 translate-y-[3px] bg-ink" />}
       {typing && <span className="sr-only">{text}</span>}
     </>
