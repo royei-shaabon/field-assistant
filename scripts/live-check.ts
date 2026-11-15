@@ -19,10 +19,16 @@ const QUESTIONS = [
   "מה נפח מיכל הדלק?",
   "כל כמה זמן מחליפים שמן?",
   "מה המחיר של האופנוע בישראל?", // should not be in a manual
+  // Faults a manual rarely covers: the answer should be suggested checks, marked as not from the manual.
+  "האופנוע רועד בכידון מעל 100 קמ\"ש, מה לבדוק?",
+  "יש רעש תקתוק מהמנוע כשהוא קר, מה זה יכול להיות?",
+  "המצבר מתרוקן אחרי כמה ימים שהאופנוע עומד, למה?",
+  "יש ריח דלק חזק ליד המנוע, מה לבדוק?", // hazard topic: no suggestions
 ];
 
 type Step = { text: string; quote: string; source: { docName: string; n: number } };
-type Item = { kind: string; title?: string; steps?: Step[]; question?: string; options?: string[]; caution?: string; topic?: string };
+type Idea = { text: string; why: string; likelihood: string; minutes: number };
+type Item = { kind: string; ideas?: Idea[]; title?: string; steps?: Step[]; question?: string; options?: string[]; caution?: string; topic?: string };
 
 type Figure = { caption: string; box: { x: number; y: number; w: number; h: number }; source: { n: number } };
 
@@ -80,6 +86,7 @@ async function ask(kbId: string, text: string) {
     if (r.error) console.log("  error:", r.error);
     if (r.item?.title) console.log("  title:", r.item.title);
     for (const s of r.item?.steps ?? []) console.log(`  - ${s.text}\n      [${s.source.docName} p.${s.source.n}] "${s.quote}"`);
+    for (const i of r.item?.ideas ?? []) console.log(`  ? [${i.likelihood}, ${i.minutes} min] ${i.text}\n      why: ${i.why}`);
     if (r.item?.question) console.log("  asks:", r.item.question, r.item.options);
   }
   times.sort((a, b) => a - b);
