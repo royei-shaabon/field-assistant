@@ -58,6 +58,9 @@ export class LiveCall {
     if (!this.ctx) throw new Error("no audio");
     this.stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true, channelCount: 1 } });
     const ws = new WebSocket(url);
+    // The server sends binary frames. Read them as bytes and decode at once, so the pieces of
+    // sound are handled in the order they came (an async Blob read could reorder them).
+    ws.binaryType = "arraybuffer";
     this.ws = ws;
     await new Promise<void>((resolve, reject) => {
       ws.onopen = () => resolve();
@@ -67,7 +70,7 @@ export class LiveCall {
       if (!this.ended) this.events.onError(e.reason || `closed ${e.code}`);
       this.stop();
     };
-    ws.onmessage = (e) => void this.receive(e.data);
+    ws.onmessage = (e) => void this.receive(typeof e.data === "string" ? e.data : new TextDecoder().decode(e.data as ArrayBuffer));
     // The setup itself is locked into the token; the model name is enough here.
     ws.send(JSON.stringify({ setup: { model: `models/${model}` } }));
     await this.startMicrophone();
@@ -170,8 +173,7 @@ export class LiveCall {
     if (muted) this.pending = [];
   }
 
-  private async receive(data: string | Blob) {
-    const text = typeof data === "string" ? data : await data.text();
+  private async receive(text: string) {
     let msg: {
       setupComplete?: object;
       serverContent?: { modelTurn?: { parts?: { inlineData?: { data: string } }[] }; interrupted?: boolean; turnComplete?: boolean; inputTranscription?: { text?: string }; outputTranscription?: { text?: string } };

@@ -187,7 +187,7 @@ export function CallView({
   // The live call: a token from the server, then the phone talks to the live model directly.
   // Anything that goes wrong before it is connected falls back to the classic call.
   useEffect(() => {
-    if (mode !== "starting") return;
+    if (!onLiveAsk) return;
     let cancelled = false;
     const call = new LiveCall({
       onState: (s) => setState(s === "speaking" ? "speaking" : s === "listening" ? "listening" : "idle"),
@@ -197,8 +197,12 @@ export function CallView({
         setSaying((now) => (fresh || !now.length ? [text] : [now[0] + text]));
       },
       onTool: (question) => liveAsk.current!(question, frame()),
+      // The live connection dropped in the middle: carry on with the classic call.
       onError: () => {
-        if (!cancelled) setProblem(T.call.liveEnded);
+        if (cancelled) return;
+        liveCall.current = null;
+        setProblem(T.call.liveEnded);
+        setMode("classic");
       },
     });
     (async () => {
@@ -216,6 +220,8 @@ export function CallView({
         if (!cancelled) setMode("classic");
       }
     })();
+    // Only when the call screen closes. Not when the mode changes: moving from "starting" to
+    // "live" must not hang up the call it just connected.
     return () => {
       cancelled = true;
       call.stop();
@@ -223,7 +229,7 @@ export function CallView({
     };
     // Runs once per call; `frame` and `kbId` do not change during it.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [mode === "starting"]);
+  }, []);
 
   // Speech recognition (classic call only).
   useEffect(() => {
