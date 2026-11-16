@@ -163,7 +163,7 @@ function UsageTiles({ usage }: { usage: Usage }) {
 }
 
 type VoiceList = { enabled: boolean; current: string; voices: { name: string; gender: string; provider: string }[]; error?: string };
-const PROVIDER: Record<string, string> = { google: "Google", azure: "Microsoft", eleven: "ElevenLabs" };
+const PROVIDER: Record<string, string> = { gemini: "Google Gemini", google: "Google", azure: "Microsoft", eleven: "ElevenLabs" };
 
 // The implementer listens to the Hebrew voices the account offers and picks the one the
 // assistant speaks with in a call.

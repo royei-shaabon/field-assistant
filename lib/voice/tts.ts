@@ -1,6 +1,8 @@
 // The assistant's voice in a call: text to natural Hebrew speech. Up to three providers, each
 // on only when configured, so the implementer can compare them by ear in /admin:
-// - Google Cloud Text-to-Speech (VOICE=google): the service's own identity, no key.
+// - Google Cloud Text-to-Speech (VOICE=google): the service's own identity, no key. Two kinds
+//   of voice: the classic ones ("he-IL-Chirp3-HD-..."), and Gemini voices ("gemini:Kore"), built
+//   on a language model, which read a Hebrew word from the sentence around it.
 // - Microsoft Azure Speech (AZURE_SPEECH_KEY and AZURE_SPEECH_REGION).
 // - ElevenLabs (ELEVENLABS_API_KEY; ELEVENLABS_MODEL picks the model).
 // A voice is named "<provider>:<voice>" ("azure:he-IL-HilaNeural"); a bare name is Google's.
@@ -54,6 +56,31 @@ export class GoogleVoice implements VoiceService {
   async voices(): Promise<VoiceInfo[]> {
     const body = (await call("voices?languageCode=he-IL", { method: "GET" })) as { voices?: { name: string; ssmlGender?: string }[] };
     return (body.voices ?? []).map((v) => ({ name: v.name, gender: v.ssmlGender ?? "", provider: "google" })).sort((a, b) => a.name.localeCompare(b.name));
+  }
+}
+
+// Gemini voices, through the same Google Cloud Text-to-Speech service and identity. The voice
+// names are the model's own; any of them speaks any language the model supports.
+export const GEMINI_VOICES = ["Kore", "Charon", "Aoede", "Puck", "Leda", "Orus", "Fenrir", "Zephyr"];
+// How the line is to be said. Delivery only: what is said is the text.
+const GEMINI_STYLE = "Read this aloud in clear, natural modern Israeli Hebrew, at a calm working pace, like a colleague explaining a step.";
+
+export class GeminiVoice implements VoiceService {
+  constructor(private model = process.env.GEMINI_TTS_MODEL || "gemini-2.5-flash-tts") {}
+  async synthesize(text: string, voice: string): Promise<Buffer> {
+    const body = (await call("text:synthesize", {
+      method: "POST",
+      body: JSON.stringify({
+        input: { text: text.slice(0, MAX_SPOKEN_CHARS), prompt: GEMINI_STYLE },
+        voice: { languageCode: "he-IL", name: voice, modelName: this.model },
+        audioConfig: { audioEncoding: "MP3" },
+      }),
+    })) as { audioContent?: string };
+    if (!body.audioContent) throw new Error("speech: unexpected response");
+    return Buffer.from(body.audioContent, "base64");
+  }
+  async voices(): Promise<VoiceInfo[]> {
+    return GEMINI_VOICES.map((name) => ({ name, gender: this.model, provider: "gemini" }));
   }
 }
 
@@ -150,7 +177,10 @@ let shared: VoiceProviders | null | undefined;
 export function voiceService(): VoiceProviders | null {
   if (shared === undefined) {
     const providers: Record<string, VoiceService> = {};
-    if (process.env.VOICE === "google") providers.google = new GoogleVoice();
+    if (process.env.VOICE === "google") {
+      providers.gemini = new GeminiVoice();
+      providers.google = new GoogleVoice();
+    }
     if (process.env.AZURE_SPEECH_KEY && process.env.AZURE_SPEECH_REGION) providers.azure = new AzureVoice(process.env.AZURE_SPEECH_KEY, process.env.AZURE_SPEECH_REGION);
     if (process.env.ELEVENLABS_API_KEY) providers.eleven = new ElevenVoice(process.env.ELEVENLABS_API_KEY, process.env.ELEVENLABS_MODEL || "eleven_v3");
     shared = Object.keys(providers).length ? new VoiceProviders(providers) : null;
@@ -162,6 +192,7 @@ export function voiceService(): VoiceProviders | null {
 // is on, then each other provider's default.
 export function defaultVoices(service: VoiceProviders): string[] {
   return [
+    ...(service.names.includes("gemini") ? [`gemini:${process.env.GEMINI_TTS_VOICE || "Kore"}`] : []),
     ...(service.names.includes("google") ? DEFAULT_VOICES : []),
     ...(service.names.includes("azure") ? [`azure:${process.env.AZURE_VOICE || "he-IL-HilaNeural"}`] : []),
     ...(process.env.ELEVENLABS_VOICE && service.names.includes("eleven") ? [`eleven:${process.env.ELEVENLABS_VOICE}`] : []),

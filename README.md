@@ -43,6 +43,8 @@ gcloud run services update field-assistant --region me-west1 --update-env-vars V
 ```
 אחר כך, ב-`/admin`, תחת "מצב המערכת": "הצגת הקולות", האזנה לכל קול, ו"בחירה". בלי `VOICE` מדבר הקול המובנה של הטלפון.
 `TTS_VOICE` קובע קול ברירת מחדל לפני שנבחר אחד במסך.
+אותו שירות מציע גם קולות Gemini (מופיעים כ-"Google Gemini"), שבנויים על מודל שפה וקוראים מילה לפי ההקשר. `GEMINI_TTS_MODEL`
+(ברירת מחדל `gemini-2.5-flash-tts`) ו-`GEMINI_TTS_VOICE` (ברירת מחדל `Kore`).
 
 אפשר להוסיף עוד ספקי קול כדי להשוות ביניהם באותה רשימה. כל ספק דורש חשבון ומפתח משלו. את המפתח שמים
 במשתני הסביבה של Cloud Run (עדיף ב-Secret Manager), אף פעם לא בקוד:

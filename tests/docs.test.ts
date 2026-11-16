@@ -10,7 +10,7 @@ import { agentSkills, loadAgentSkills, runSearch } from "../lib/docs/agent-skill
 import { normalize, VertexEmbedder, type Embedder } from "../lib/docs/embed";
 import { indexDoc } from "../lib/docs/semantic";
 import { forVoice, partialSpeech } from "../lib/speech";
-import { AzureVoice, ElevenVoice, GoogleVoice, speak, VoiceProviders, type VoiceService } from "../lib/voice/tts";
+import { AzureVoice, ElevenVoice, GeminiVoice, GoogleVoice, speak, VoiceProviders, type VoiceService } from "../lib/voice/tts";
 import { askDocuments, hazardTopic, partialAnswer, quoteInPassage, rankIdeas, toThousandths, type DocResult, type PartialAnswer } from "../lib/docs/ask";
 import { imageSize } from "../lib/docs/image-size";
 import { docScreen, handleDocConversation, type DocEvent } from "../lib/docs/conversation";
@@ -840,5 +840,30 @@ test("Azure and ElevenLabs requests: shape, key in a header, text escaped, Hebre
     await assert.rejects(eleven.synthesize("x", "bad"), (err: Error) => /elevenlabs HTTP 429: SAMPLE quota exceeded/.test(err.message) && !err.message.includes("sample-key"));
   } finally {
     globalThis.fetch = saved;
+  }
+});
+
+test("Gemini voices: the same Google service, with the model named and a delivery-only style prompt", async () => {
+  const saved = { fetch: globalThis.fetch, env: { ...process.env } };
+  process.env.GOOGLE_ACCESS_TOKEN = "sample-token";
+  let sent: { input: { text: string; prompt: string }; voice: { languageCode: string; name: string; modelName: string } } | undefined;
+  let url = "";
+  globalThis.fetch = (async (u: string, init: RequestInit) => {
+    url = String(u);
+    sent = JSON.parse(String(init.body));
+    return Response.json({ audioContent: Buffer.from("SAMPLE").toString("base64") });
+  }) as typeof fetch;
+  try {
+    const gemini = new GeminiVoice("sample-tts-model");
+    assert.equal((await gemini.synthesize("SAMPLE שלום", "Kore")).toString(), "SAMPLE");
+    assert.equal(url, "https://texttospeech.googleapis.com/v1/text:synthesize");
+    assert.deepEqual(sent!.voice, { languageCode: "he-IL", name: "Kore", modelName: "sample-tts-model" });
+    assert.equal(sent!.input.text, "SAMPLE שלום");
+    assert.match(sent!.input.prompt, /Hebrew/);
+    assert.ok((await gemini.voices()).every((v) => v.provider === "gemini"));
+  } finally {
+    globalThis.fetch = saved.fetch;
+    for (const k of Object.keys(process.env)) if (!(k in saved.env)) delete process.env[k];
+    Object.assign(process.env, saved.env);
   }
 });
