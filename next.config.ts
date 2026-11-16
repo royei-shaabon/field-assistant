@@ -29,6 +29,7 @@ const nextConfig: NextConfig = {
   // The KB and skill prompts are read from disk at runtime by the API route.
   outputFileTracingIncludes: {
     "/api/conversation": ["./knowledge/**/*", "./skills/*/prompt.md", "./skills/*/schema.json", "./skills/*/examples.yaml"],
+    "/api/voice/look": ["./skills/look/prompt.md", "./skills/look/schema.json"],
     "/api/admin/kbs/[kbId]/docs": ["./node_modules/unpdf/dist/**/*", "./node_modules/mammoth/**/*"],
   },
   partialPrefetching: true,

@@ -25,6 +25,7 @@ import {
   subscribeConversations,
   type SavedConversation,
 } from "@/lib/client/conversations";
+import { SURVEY, type SurveyAnswers } from "@/lib/survey";
 import { T } from "@/lib/ui-text";
 import { CallView, type Speech } from "./Call";
 import { Logo } from "./Logo";
@@ -524,6 +525,63 @@ function Machines({ kbs, kbId, onPick, onClose }: { kbs: KbSummary[]; kbId: stri
   );
 }
 
+type SurveyAbout = { kbId: string; conversationId: string; channel: "voice" | "video" };
+
+// After a call: was the problem solved, what to improve, would they call again. One tap each,
+// all optional, and "skip" is always there. Only the chosen answers are sent.
+function Survey({ about, onClose }: { about: SurveyAbout; onClose: () => void }) {
+  const ref = useDialog(onClose);
+  const [answers, setAnswers] = useState<SurveyAnswers>({});
+  const question = <K extends keyof SurveyAnswers>(key: K, labels: Record<string, string>) => (
+    <fieldset className="flex flex-col gap-2">
+      <legend className="pb-2 text-[16px] font-medium">{labels.ask}</legend>
+      <div className="flex flex-wrap gap-2">
+        {SURVEY[key].map((option) => (
+          <button
+            key={option}
+            type="button"
+            aria-pressed={answers[key] === option}
+            onClick={() => setAnswers((now) => ({ ...now, [key]: now[key] === option ? undefined : option }))}
+            className={`min-h-12 rounded-[10px] border px-4 text-[15px] ${answers[key] === option ? "border-primary bg-primary-soft font-medium text-ink" : "border-edge bg-paper text-ink active:bg-mist"}`}
+          >
+            {labels[option]}
+          </button>
+        ))}
+      </div>
+    </fieldset>
+  );
+  const answered = Object.values(answers).some(Boolean);
+  return (
+    <div className="fixed inset-0 z-50 mx-auto flex max-w-md items-end">
+      <div aria-hidden onClick={onClose} className="absolute inset-0 bg-night/50" />
+      <div ref={ref} role="dialog" aria-modal="true" aria-label={T.survey.title} className="anim-rise relative flex max-h-[88dvh] w-full flex-col gap-5 overflow-y-auto rounded-t-[18px] bg-paper px-4 pb-[max(16px,env(safe-area-inset-bottom))] pt-5">
+        <div>
+          <h2 className="text-[20px] font-bold tracking-[-0.02em]">{T.survey.title}</h2>
+          <p className="text-[14px] text-stone">{T.survey.lead}</p>
+        </div>
+        {question("solved", T.survey.solved)}
+        {question("improve", T.survey.improve)}
+        {question("again", T.survey.again)}
+        <div className="flex gap-2">
+          <button
+            disabled={!answered}
+            onClick={() => {
+              void fetch("/api/survey", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...about, answers }) }).catch(() => {});
+              onClose();
+            }}
+            className="h-12 flex-1 rounded-[10px] bg-action text-[16px] font-medium text-white disabled:bg-rule-soft disabled:text-pebble"
+          >
+            {T.survey.send}
+          </button>
+          <button onClick={onClose} className="h-12 rounded-[10px] px-5 text-[16px] text-graphite active:bg-mist">
+            {T.survey.skip}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function HeaderButton({ label, onClick, disabled, children }: { label: string; onClick: () => void; disabled?: boolean; children: React.ReactNode }) {
   return (
     <button onClick={onClick} disabled={disabled} aria-label={label} className="grid h-12 w-11 shrink-0 place-items-center rounded-full text-ink active:bg-mist disabled:opacity-40">
@@ -615,6 +673,7 @@ export function TechnicianApp() {
   // The list of machines under the bar (only when there is more than one).
   const [machines, setMachines] = useState(false);
   const [call, setCall] = useState<"voice" | "video" | null>(null);
+  const [survey, setSurvey] = useState<SurveyAbout | null>(null);
   const callRef = useRef(call);
   useEffect(() => {
     callRef.current = call;
@@ -1006,6 +1065,8 @@ export function TechnicianApp() {
         />
       )}
 
+      {survey && <Survey about={survey} onClose={() => setSurvey(null)} />}
+
       {call && (
         <CallView
           kind={call}
@@ -1031,8 +1092,10 @@ export function TechnicianApp() {
               : undefined
           }
           onAck={(symptomId) => send(activeRef.current, { kind: "acknowledge", symptomId }, { said: T.stop.acknowledged }, true)}
-          onHangUp={() => {
+          onHangUp={(asked) => {
             voicePlayer().stop();
+            // Something was asked in the call: three short optional questions about how it went.
+            if (asked && isDocs) setSurvey({ kbId: conversation.kbId || kbId, conversationId: conversation.id, channel: call });
             setCall(null);
           }}
         />

@@ -1,0 +1,17 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["visible", "quality", "name", "box", "seen"],
+  "properties": {
+    "visible": { "type": "boolean" },
+    "quality": { "type": "string", "enum": ["ok", "dark", "blurry", "far"] },
+    "name": { "type": "string" },
+    "box": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["x", "y", "w", "h"],
+      "properties": { "x": { "type": "integer" }, "y": { "type": "integer" }, "w": { "type": "integer" }, "h": { "type": "integer" } }
+    },
+    "seen": { "type": "string" }
+  }
+}

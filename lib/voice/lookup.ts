@@ -30,7 +30,7 @@ export async function liveLookup(index: SearchIndex, question: string, embedder:
     text: h.text.length > PASSAGE_CHARS ? `${h.text.slice(0, PASSAGE_CHARS)}…` : h.text,
   }));
   // The same hazard gate as the chat: the question, and the passages that answer it best.
-  const topic = hazardTopic(question, { hazard: "none", steps: hits.slice(0, 2).map((h) => ({ text: "", ref: h.ref, quote: h.text })) });
+  const topic = hazardTopic(question, { hazard: "none", steps: hits.slice(0, 3).map((h) => ({ text: "", ref: h.ref, quote: h.text })) });
   return {
     kind: passages.length ? "passages" : "not_found",
     passages,

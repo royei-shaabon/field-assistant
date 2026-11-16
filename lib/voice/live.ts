@@ -15,6 +15,7 @@ export const LIVE_MODEL = () => process.env.GEMINI_LIVE_MODEL || "gemini-3.8-liv
 export const LIVE_TOOL = "answer_from_manual";
 // Video calls only: the model points at a part it sees in the camera picture.
 export const LIVE_MARK_TOOL = "mark_on_picture";
+export const LIVE_LOOK_TOOL = "look_at_picture";
 
 // The voices the implementer can choose for the live call, each with a Hebrew name to pick it
 // by. The style words are Google's own descriptions of its voices.
@@ -60,8 +61,13 @@ export function liveInstructions(machine: string, video = false): string {
     "Without the tool: greetings, repeating what you said, saying it slower, confirming the technician understood.",
     ...(video
       ? [
-          `This is a video call: you see the technician's camera, about one picture a second. Whenever you mention a part and you can see it in the current picture, call ${LIVE_MARK_TOOL} right then, with its short Hebrew name and its box, so it is circled on the technician's screen while you talk. Mark only what you actually see; never guess a place. Marking is pointing, not instructing: instructions still come only from ${LIVE_TOOL}.`,
-          `When you receive a line starting with TAP, the technician touched the picture at that point (x and y in thousandths of the picture's width and height, from the top left; the picture sent with it has a ring there). Look at that spot, say in a few words what part it is, mark it with ${LIVE_MARK_TOOL}, and ask what they want to know about it. If you cannot tell what it is, say so.`,
+          "This is a video call: you see the technician's camera, but only a small, blurry copy of it. You can tell roughly what is in front of you; you cannot read small details, and you cannot tell exactly where a part is. So you never rely on your own eyes for those:",
+          `- Before you say anything about a detail in the picture (which lamp is lit and its colour, what a display reads, the position of a switch, whether something is connected, loose or damaged), call ${LIVE_LOOK_TOOL} with the question, and say only what it returns. If it could not see, say so; never guess.`,
+          `- To show the technician where a part is, call ${LIVE_MARK_TOOL} with the part's Hebrew name; a careful look finds it and circles it on their screen. Do this whenever you mention a part that should be in front of the camera. Give its state: "current" for the part you are talking about now, "checked" once the technician confirmed it is fine, "caution" for a part to keep away from or be careful with.`,
+          `- When the technician points with a finger and says "this" or "here", call ${LIVE_MARK_TOOL} with pointing true: the result tells you what the finger points at.`,
+          "- When a result says the picture is dark, ask the technician to turn on the flash (the flash button on the screen). When it says blurry or far, ask them to hold still, come closer, or use the zoom button.",
+          `- When you receive a line starting with TAP, the technician touched the picture at that point (thousandths of its width and height; the picture sent with it has a ring there). Call ${LIVE_LOOK_TOOL} asking what is at the ring, say what it is, and ask what they want to know about it.`,
+          `Pointing and describing are not instructing: what to do still comes only from ${LIVE_TOOL}.`,
         ]
       : []),
     "When you receive the text START, greet in one short sentence and ask what the problem is.",
@@ -95,16 +101,23 @@ export function liveSetup(machine: string, chosenVoice?: string, video = false):
             ? [
                 {
                   name: LIVE_MARK_TOOL,
-                  description: "Circles a part on the technician's live camera picture. Call it when you mention a part that is visible in the current picture.",
+                  description: "Circles a part on the technician's camera picture. You give the part's name; a careful look at the full picture finds it. Returns whether it was found.",
                   behavior: "NON_BLOCKING",
                   parameters: {
                     type: "OBJECT",
                     properties: {
-                      label: { type: "STRING", description: "The part's name in Hebrew, two or three words." },
-                      box_2d: { type: "ARRAY", items: { type: "INTEGER" }, description: "The part's box in the current picture as [ymin, xmin, ymax, xmax], each 0 to 1000." },
+                      label: { type: "STRING", description: "The part's name in Hebrew, two or three words. With pointing true: leave empty." },
+                      state: { type: "STRING", enum: ["current", "checked", "caution"], description: "current: being discussed now. checked: confirmed fine. caution: keep away or take care." },
+                      pointing: { type: "BOOLEAN", description: "True when the technician points at something with a finger." },
                     },
-                    required: ["label", "box_2d"],
+                    required: ["state"],
                   },
+                },
+                {
+                  name: LIVE_LOOK_TOOL,
+                  description: "Looks carefully at the current camera picture and answers a question about what is visible in it (lamps, displays, switch positions, condition of a part).",
+                  behavior: "NON_BLOCKING",
+                  parameters: { type: "OBJECT", properties: { question: { type: "STRING", description: "What to look for, in Hebrew or English." } }, required: ["question"] },
                 },
               ]
             : []),

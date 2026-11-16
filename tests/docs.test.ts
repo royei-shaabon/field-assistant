@@ -10,8 +10,9 @@ import { agentSkills, loadAgentSkills, runSearch } from "../lib/docs/agent-skill
 import { normalize, VertexEmbedder, type Embedder } from "../lib/docs/embed";
 import { indexDoc } from "../lib/docs/semantic";
 import { forVoice, liveToolResult, partialSpeech } from "../lib/speech";
-import { createLiveToken, isLiveVoice, LIVE_VOICE, LIVE_VOICES, liveSample, liveSetup, liveSocketUrl, liveVoice, LIVE_MARK_TOOL, LIVE_TOOL } from "../lib/voice/live";
-import { markFromTool } from "../lib/client/live";
+import { createLiveToken, isLiveVoice, LIVE_VOICE, LIVE_VOICES, liveSample, liveSetup, liveSocketUrl, liveVoice, LIVE_LOOK_TOOL, LIVE_MARK_TOOL, LIVE_TOOL } from "../lib/voice/live";
+import { checkedLook } from "../lib/voice/look";
+import { cleanSurvey } from "../lib/survey";
 import { Activity, lastDays } from "../lib/store/activity";
 import { EnvRegistry, PrefixDriver, secretMatches, MAIN_ENV } from "../lib/store/envs";
 import { envIdFrom, envIdFromPath } from "../lib/server/env";
@@ -1036,25 +1037,37 @@ test("conversations: removing one hides it and keeps it on the phone (soft delet
   }
 });
 
-test("video call: the model can circle a part, only in a video call, and a bad box is dropped", () => {
+test("video call: the live model names what to mark and a careful look finds it; a doubtful box is dropped", () => {
   const names = (setup: Record<string, unknown>) => (setup.tools as { functionDeclarations: { name: string }[] }[]).flatMap((t) => t.functionDeclarations.map((f) => f.name));
   const text = (setup: Record<string, unknown>) => (setup.systemInstruction as { parts: { text: string }[] }).parts[0].text;
   const voice = liveSetup("SAMPLE", undefined, false);
   const video = liveSetup("SAMPLE", undefined, true);
   assert.deepEqual(names(voice), [LIVE_TOOL]);
-  assert.deepEqual(names(video), [LIVE_TOOL, LIVE_MARK_TOOL]);
+  assert.deepEqual(names(video), [LIVE_TOOL, LIVE_MARK_TOOL, LIVE_LOOK_TOOL]);
   assert.doesNotMatch(text(voice), /TAP/);
-  assert.match(text(video), /Mark only what you actually see/);
-  assert.match(text(video), /instructions still come only from answer_from_manual/, "pointing is not instructing");
-  assert.match(text(video), /TAP/);
+  assert.match(text(video), /never rely on your own eyes/);
+  assert.match(text(video), /never guess/);
+  assert.match(text(video), /turn on the flash/);
+  assert.match(text(video), /what to do still comes only from answer_from_manual/, "pointing is not instructing");
+  // The mark tool takes a name and a state, never a position: the live model does not place marks.
+  const mark = (video.tools as { functionDeclarations: { name: string; parameters: { properties: Record<string, unknown> } }[] }[])[0].functionDeclarations.find((f) => f.name === LIVE_MARK_TOOL)!;
+  assert.deepEqual(Object.keys(mark.parameters.properties).sort(), ["label", "pointing", "state"]);
 
-  // [ymin, xmin, ymax, xmax] in thousandths becomes x, y, width, height.
-  assert.deepEqual(markFromTool({ label: " SAMPLE מכסה ", box_2d: [100, 200, 400, 600] }), { label: "SAMPLE מכסה", box: { x: 200, y: 100, w: 400, h: 300 } });
-  assert.equal(markFromTool({ label: "SAMPLE", box_2d: [100, 200, 400] }), null);
-  assert.equal(markFromTool({ label: "SAMPLE", box_2d: [100, 200, 400, 1600] }), null, "outside the picture");
-  assert.equal(markFromTool({ label: "SAMPLE", box_2d: [400, 600, 100, 200] }), null, "upside down");
-  assert.equal(markFromTool({ label: "", box_2d: [100, 200, 400, 600] }), null);
-  assert.equal(markFromTool(null), null);
+  // The careful look answers in pixels of the picture; the app keeps thousandths.
+  const size = { width: 800, height: 1600 };
+  assert.deepEqual(checkedLook({ visible: true, quality: "ok", name: " SAMPLE מכסה ", box: { x: 200, y: 400, w: 100, h: 160 }, seen: "" }, size), { visible: true, quality: "ok", name: "SAMPLE מכסה", seen: "", box: { x: 250, y: 250, w: 125, h: 100 } });
+  assert.equal(checkedLook({ visible: false, quality: "dark", name: "", box: { x: 0, y: 0, w: 0, h: 0 }, seen: "SAMPLE חשוך" }, size).visible, false);
+  assert.equal(checkedLook({ visible: true, quality: "ok", name: "x", box: { x: 10, y: 10, w: 2, h: 2 }, seen: "" }, size).visible, false, "a dot is not a mark");
+  assert.equal(checkedLook({ visible: true, quality: "ok", name: "x", box: { x: 10, y: 10, w: 100, h: 100 }, seen: "" }, null).visible, false, "no size, no place");
+  assert.equal(checkedLook({ visible: true, quality: "??", name: "x", box: {}, seen: 7 }, size).visible, false);
+  assert.equal(checkedLook("nonsense", size).visible, false);
+});
+
+test("survey after a call: only the fixed answers are kept", () => {
+  assert.deepEqual(cleanSurvey({ solved: "yes", improve: "speed", again: "no", extra: "x" }), { solved: "yes", improve: "speed", again: "no" });
+  assert.deepEqual(cleanSurvey({ solved: "maybe", improve: "<script>" , again: "yes" }), { solved: undefined, improve: undefined, again: "yes" });
+  assert.equal(cleanSurvey({ solved: "maybe" }), null);
+  assert.equal(cleanSurvey(null), null);
 });
 
 test("environments: each has its own data, passwords are kept as hashes, and main cannot be replaced", async () => {

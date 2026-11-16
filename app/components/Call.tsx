@@ -8,7 +8,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { Progress } from "@/lib/conversation";
 import type { Screen } from "@/lib/screen";
-import { LiveCall, type LiveMark } from "@/lib/client/live";
+import { LiveCall, type VideoTool, type VideoToolResult } from "@/lib/client/live";
 import { listenForSpeech, voicePlayer } from "@/lib/client/voice";
 import { forVoice } from "@/lib/speech";
 import { T } from "@/lib/ui-text";
@@ -16,7 +16,7 @@ import type { DocMark } from "@/lib/docs/ask";
 import { MarkedImage, StopCard } from "./Chat";
 import { DocHazard, MarksLegend } from "./DocChat";
 import { LogoMark } from "./Logo";
-import { ApertureIcon, CloseIcon, HangUpIcon, MicIcon, MicOffIcon } from "./icons";
+import { ApertureIcon, CloseIcon, FlashIcon, HangUpIcon, MicIcon, MicOffIcon, WarningIcon } from "./icons";
 
 type Recognition = {
   lang: string;
@@ -42,7 +42,20 @@ export type Speech = { id: number; part: number; lines: string[]; answer: number
 
 const LIVE_MARKS_MS = 15_000;
 // A mark the live model drew: long enough to look, short enough that a moved camera does not lie.
-const QUICK_MARK_MS = 8_000;
+const QUICK_MARK_MS = 12_000;
+// The notice at the bottom of a video call is shown when the call opens, then makes room.
+const NOTICE_MS = 8_000;
+const ZOOMS = [1, 2, 3] as const;
+
+// A part circled on the live picture. `state` picks its colour and its word in the legend:
+// the part being discussed, a part already checked, or a part to be careful with.
+type MarkState = "current" | "checked" | "caution";
+type QuickMark = { id: number; n: number; label: string; state: MarkState; box: { x: number; y: number; w: number; h: number } };
+const MARK_TONE: Record<MarkState, { border: string; fill: string; ink: string }> = {
+  current: { border: "border-signal", fill: "bg-signal", ink: "text-night" },
+  checked: { border: "border-[#5fc393]", fill: "bg-[#5fc393]", ink: "text-night" },
+  caution: { border: "border-[#ff6b5e]", fill: "bg-[#ff6b5e]", ink: "text-night" },
+};
 
 // The marks of the last answer, drawn straight on the live picture. The picture sent to the
 // agent is exactly what the screen shows (see `frame`), so a mark's position on the picture is
@@ -101,7 +114,8 @@ export function CallView({
   visual?: { frames: string[]; marks: DocMark[] };
   onUtterance: (text: string, frame?: string) => void;
   onAck: (symptomId: string) => void;
-  onHangUp: () => void;
+  // `asked`: something was asked in the call, so the short survey may follow.
+  onHangUp: (asked?: boolean) => void;
   // Asks the verified answer engine on behalf of the live model, and returns what it answered.
   // Present: the call tries the live model first, and falls back to the classic call.
   onLiveAsk?: (question: string, frame?: string) => Promise<unknown>;
@@ -135,14 +149,29 @@ export function CallView({
 
   // Parts the live model circled on the picture, and the spot the technician touched. Both sit
   // where things were a moment ago, so they fade after a few seconds.
-  const [quick, setQuick] = useState<(LiveMark & { id: number })[]>([]);
+  const [quick, setQuick] = useState<QuickMark[]>([]);
   const [touched, setTouched] = useState<{ x: number; y: number; id: number } | null>(null);
+  const touchedRef = useRef<{ x: number; y: number } | null>(null);
   const markId = useRef(0);
-  const addMark = useCallback((mark: LiveMark) => {
+  const addMark = useCallback((mark: Omit<QuickMark, "id" | "n">) => {
     const id = ++markId.current;
-    setQuick((now) => [...now.slice(-2), { ...mark, id }]);
-    setTimeout(() => setQuick((now) => now.filter((m) => m.id !== id)), QUICK_MARK_MS);
+    // The same part marked again replaces its earlier mark (its state may have changed).
+    setQuick((now) => [...now.filter((m) => m.label !== mark.label).slice(-2), { ...mark, id, n: 0 }].map((m, i) => ({ ...m, n: i + 1 })));
+    setTimeout(() => setQuick((now) => now.filter((m) => m.id !== id).map((m, i) => ({ ...m, n: i + 1 }))), QUICK_MARK_MS);
   }, []);
+  // The safety warning of the last answer: shown by the app, whatever the model says aloud.
+  const [caution, setCaution] = useState<string | null>(null);
+  // The camera's light, where the phone lets a page switch it; and how far the picture is zoomed.
+  const [torch, setTorch] = useState<"none" | "off" | "on">("none");
+  const [zoom, setZoom] = useState<(typeof ZOOMS)[number]>(1);
+  const zoomRef = useRef(1);
+  const [notice, setNotice] = useState(true);
+  useEffect(() => {
+    const t = setTimeout(() => setNotice(false), NOTICE_MS);
+    return () => clearTimeout(t);
+  }, []);
+  // Whether anything was asked in this call: only then is the short survey worth showing.
+  const asked = useRef(0);
   // The still picture of the last checked answer can be closed.
   const [closedFor, setClosedFor] = useState(0);
 
@@ -163,8 +192,9 @@ export function CallView({
     const v = video.current;
     if (kind !== "video" || !v || !v.videoWidth || !v.clientWidth) return undefined;
     const cover = Math.max(v.clientWidth / v.videoWidth, v.clientHeight / v.videoHeight);
-    const sw = v.clientWidth / cover;
-    const sh = v.clientHeight / cover;
+    // Zoomed in, only the middle of the picture is on screen, and only that is sent.
+    const sw = v.clientWidth / cover / zoomRef.current;
+    const sh = v.clientHeight / cover / zoomRef.current;
     const scale = Math.min(1, 1280 / Math.max(sw, sh));
     const canvas = document.createElement("canvas");
     canvas.width = Math.round(sw * scale);
@@ -181,6 +211,37 @@ export function CallView({
     }
     return canvas.toDataURL("image/jpeg", 0.8);
   }, [kind]);
+
+  // The live model asked to mark a part or to look at the picture. It does not point by
+  // itself (it sees a small, blurry copy): the full picture goes to a careful look on the
+  // server, and the mark is drawn only where that look found the part.
+  const videoTool = useRef<(tool: VideoTool) => Promise<VideoToolResult>>(async () => ({ result: { ok: false }, quiet: true }));
+  useEffect(() => {
+    videoTool.current = async ({ name, args }) => {
+      const image = frame(touchedRef.current ?? undefined);
+      if (!image) return { result: { ok: false, note: "no picture" }, quiet: true };
+      const marking = name === "mark_on_picture";
+      const pointing = marking && args.pointing === true;
+      const label = typeof args.label === "string" ? args.label.trim() : "";
+      const question = typeof args.question === "string" ? args.question : "";
+      const state: MarkState = args.state === "checked" || args.state === "caution" ? args.state : "current";
+      const res = await fetch("/api/voice/look", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ kbId, image, ...(marking ? (pointing || !label ? { pointing: true } : { find: label }) : { question }) }),
+      }).catch(() => null);
+      const look = res?.ok ? ((await res.json()) as { visible: boolean; quality: string; name: string; seen: string; box?: QuickMark["box"] }) : null;
+      if (!look) return { result: { ok: false, note: "could not look at the picture" }, quiet: false };
+      const shown = look.visible && look.box ? look.name || label : "";
+      if (shown && look.box) addMark({ label: pointing ? look.name || label : label || look.name, state, box: look.box });
+      if (marking) {
+        // Found and marked: nothing to say about it, unless the model asked what the finger points at.
+        return { result: { marked: Boolean(shown), name: look.name, quality: look.quality, ...(look.seen ? { seen: look.seen } : {}) }, quiet: Boolean(shown) && !pointing };
+      }
+      return { result: { seen: look.seen || (look.visible ? look.name : ""), visible: look.visible, quality: look.quality }, quiet: false };
+    };
+  });
+
 
   const listen = useCallback(() => {
     const r = recognition.current;
@@ -203,6 +264,8 @@ export function CallView({
         if (cancelled) return s.getTracks().forEach((t) => t.stop());
         stream.current = s;
         if (video.current) video.current.srcObject = s;
+        const caps = s.getVideoTracks()[0]?.getCapabilities?.() as { torch?: boolean } | undefined;
+        if (caps?.torch) setTorch("off");
       })
       .catch(() => setProblem(T.call.noCamera));
     return () => {
@@ -225,12 +288,19 @@ export function CallView({
       },
       // Two things at once: the fast search the model speaks from (a second or two), and the
       // full checked answer, which lands in the chat with its pages.
-      onMark: addMark,
+      onVideoTool: (tool) => videoTool.current(tool),
       onTool: async (question) => {
+        asked.current++;
         const picture = frame();
-        void liveAsk.current?.(question, picture);
+        // The checked answer carries the safety warning too: shown when it arrives.
+        void liveAsk.current?.(question, picture)?.then((r) => {
+          const warning = (r as { warning?: string } | null)?.warning;
+          if (warning) setCaution(warning);
+        });
         const res = await fetch("/api/voice/lookup", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ kbId, question, conversationId, video: kind === "video" }) }).catch(() => null);
-        return res?.ok ? await res.json() : { kind: "error", note: T.doc.error };
+        const found = res?.ok ? ((await res.json()) as { caution?: string }) : null;
+        setCaution(found?.caution ?? null);
+        return found ?? { kind: "error", note: T.doc.error };
       },
       // The live connection dropped in the middle: carry on with the classic call.
       onError: () => {
@@ -371,7 +441,7 @@ export function CallView({
   useEffect(() => {
     const opener = document.activeElement as HTMLElement | null;
     root.current?.querySelector<HTMLElement>("button")?.focus();
-    const onKey = (e: KeyboardEvent) => e.key === "Escape" && hangUp.current();
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && hangUp.current(asked.current > 0);
     document.addEventListener("keydown", onKey);
     return () => {
       document.removeEventListener("keydown", onKey);
@@ -407,8 +477,8 @@ export function CallView({
   const clock = `${String(Math.floor(seconds / 60)).padStart(2, "0")}:${String(seconds % 60).padStart(2, "0")}`;
 
   return (
-    <div ref={root} role="dialog" aria-modal="true" aria-label={kind === "video" ? T.call.video : T.call.voice} className="on-dark fixed inset-0 z-50 mx-auto flex max-w-md flex-col bg-night text-white">
-      {kind === "video" && <video ref={video} autoPlay playsInline muted className="absolute inset-0 h-full w-full object-cover" />}
+    <div ref={root} role="dialog" aria-modal="true" aria-label={kind === "video" ? T.call.video : T.call.voice} className="on-dark fixed inset-0 z-50 mx-auto flex max-w-md flex-col overflow-hidden bg-night text-white">
+      {kind === "video" && <video ref={video} autoPlay playsInline muted className="absolute inset-0 h-full w-full object-cover transition-transform" style={{ transform: `scale(${zoom})` }} />}
       {kind === "video" && (
         // A touch on the picture points at a part: it is ringed at once, and the live model is told where.
         <div
@@ -420,7 +490,14 @@ export function CallView({
             const y = ((e.clientY - box.top) / box.height) * 1000;
             const id = ++markId.current;
             setTouched({ x, y, id });
-            setTimeout(() => setTouched((now) => (now?.id === id ? null : now)), 2500);
+            // The ring stays in the pictures sent for a careful look while it is on screen.
+            touchedRef.current = { x, y };
+            setTimeout(() => {
+              setTouched((now) => {
+                if (now?.id === id) touchedRef.current = null;
+                return now?.id === id ? null : now;
+              });
+            }, 6000);
             liveCall.current.hush();
             liveCall.current.point(x, y, frame({ x, y }));
           }}
@@ -428,18 +505,19 @@ export function CallView({
         />
       )}
       {kind === "video" && (
-        <div aria-hidden className="pointer-events-none absolute inset-0">
+        // Above the cards: a mark is never hidden behind the legend that explains it.
+        <div aria-hidden className="pointer-events-none absolute inset-0 z-20">
           {quick.map((m) => (
             <span key={m.id}>
               <span
-                className="anim-rise absolute rounded-lg border-[3px] border-signal shadow-[0_0_0_1.5px_var(--color-night),inset_0_0_0_1.5px_var(--color-night)]"
+                className={`anim-rise absolute rounded-lg border-[3px] shadow-[0_0_0_1.5px_var(--color-night),inset_0_0_0_1.5px_var(--color-night)] ${MARK_TONE[m.state].border}`}
                 style={{ left: `${m.box.x / 10}%`, top: `${m.box.y / 10}%`, width: `${m.box.w / 10}%`, height: `${m.box.h / 10}%` }}
               />
               <span
-                className="absolute max-w-[60%] -translate-y-full truncate rounded-md bg-signal px-2 py-0.5 text-[14px] font-medium text-night shadow-[0_0_0_1.5px_var(--color-night)]"
-                style={{ left: `${m.box.x / 10}%`, top: `calc(${m.box.y / 10}% - 4px)` }}
+                className={`absolute grid h-7 w-7 -translate-x-1/2 -translate-y-1/2 place-items-center rounded-full font-mono text-sm font-medium shadow-[0_0_0_1.5px_var(--color-night)] ${MARK_TONE[m.state].fill} ${MARK_TONE[m.state].ink}`}
+                style={{ left: `${m.box.x / 10}%`, top: `${m.box.y / 10}%` }}
               >
-                {m.label}
+                {m.n}
               </span>
             </span>
           ))}
@@ -477,16 +555,39 @@ export function CallView({
         {problem && (
           <div role="alert" className="flex flex-col gap-2.5 rounded-2xl bg-night/90 p-3.5">
             <p className="text-[17px] leading-[25px]">{problem}</p>
-            <button onClick={onHangUp} className="h-12 rounded-[14px] bg-white text-base font-medium text-night">
+            <button onClick={() => onHangUp(false)} className="h-12 rounded-[14px] bg-white text-base font-medium text-night">
               {T.call.backToChat}
             </button>
           </div>
         )}
 
-        {quick.length > 0 && (
-          <p role="status" className="sr-only">
-            {T.call.marksLegend} {quick.map((m) => m.label).join(", ")}
-          </p>
+        {(caution || quick.length > 0) && (
+          <div className="mb-auto flex flex-col gap-2">
+            {caution && (
+              <div role="alert" className="flex items-start gap-2.5 rounded-2xl border-2 border-[#ff6b5e] bg-night/90 p-3">
+                <WarningIcon className="mt-0.5 h-6 w-6 shrink-0 text-[#ff6b5e]" />
+                <p className="text-[15px] leading-[22px]">{caution}</p>
+              </div>
+            )}
+            {quick.length > 0 && (
+              // What each number on the picture is, in words: the colour is never the only sign.
+              <div role="status" className="anim-rise flex flex-col gap-1.5 rounded-2xl bg-night/85 p-3">
+                <p className="text-sm text-signal">{T.call.liveNote}</p>
+                <p className="text-sm text-white/75">{T.call.marksLegend}</p>
+                <ol className="flex flex-col gap-1.5">
+                  {quick.map((m) => (
+                    <li key={m.id} className="flex items-center gap-2.5 text-[16px]">
+                      <span aria-hidden className={`grid h-7 w-7 shrink-0 place-items-center rounded-full font-mono text-sm font-medium ${MARK_TONE[m.state].fill} ${MARK_TONE[m.state].ink}`}>
+                        {m.n}
+                      </span>
+                      <span className="min-w-0 flex-1">{m.label}</span>
+                      {m.state !== "current" && <span className="shrink-0 text-[13px] text-white/75">{T.call.markState[m.state]}</span>}
+                    </li>
+                  ))}
+                </ol>
+              </div>
+            )}
+          </div>
         )}
         {visual && !busy && closedFor !== speech.answer && (
           // Never taller than half the screen: it scrolls inside, and the X closes it.
@@ -533,11 +634,11 @@ export function CallView({
           </button>
         )}
         <p role="status" className="min-h-6 text-base text-white/80">
-          {state === "speaking" && !busy ? T.call.tapToInterrupt : kind === "video" && mode === "live" && state === "listening" ? T.call.tapToPoint : status}
+          {state === "speaking" && !busy ? (kind === "video" ? T.call.talkToInterrupt : T.call.tapToInterrupt) : kind === "video" && mode === "live" && state === "listening" ? T.call.tapToPoint : status}
         </p>
       </div>
 
-      <div className="relative flex items-start justify-center gap-7 px-5 pb-6 pt-2">
+      <div className="relative flex items-start justify-center gap-4 px-3 pb-[max(16px,env(safe-area-inset-bottom))] pt-2">
         <div className="flex w-20 flex-col items-center gap-1.5">
           <button
             onClick={toggleMute}
@@ -571,8 +672,51 @@ export function CallView({
             </span>
           </div>
         )}
+        {kind === "video" && torch !== "none" && (
+          <div className="flex w-20 flex-col items-center gap-1.5">
+            <button
+              onClick={() => {
+                const next = torch === "on" ? "off" : "on";
+                void stream.current
+                  ?.getVideoTracks()[0]
+                  ?.applyConstraints({ advanced: [{ torch: next === "on" } as MediaTrackConstraintSet] })
+                  .then(() => setTorch(next))
+                  .catch(() => setTorch("none"));
+              }}
+              aria-label={T.call.flash}
+              aria-pressed={torch === "on"}
+              className={`grid h-16 w-16 place-items-center rounded-full ${torch === "on" ? "bg-white text-night" : "bg-white/20"}`}
+            >
+              <FlashIcon className="h-7 w-7" />
+            </button>
+            <span aria-hidden className="text-center text-sm">
+              {T.call.flash}
+            </span>
+          </div>
+        )}
+        {kind === "video" && (
+          <div className="flex w-20 flex-col items-center gap-1.5">
+            <button
+              onClick={() => {
+                const next = ZOOMS[(ZOOMS.indexOf(zoom) + 1) % ZOOMS.length];
+                zoomRef.current = next;
+                setZoom(next);
+                // Marks were placed on the picture as it was before the zoom changed.
+                setQuick([]);
+              }}
+              aria-label={`${T.call.zoom} ${zoom}×`}
+              dir="ltr"
+              className={`grid h-16 w-16 place-items-center rounded-full font-mono text-[17px] font-medium ${zoom > 1 ? "bg-white text-night" : "bg-white/20"}`}
+            >
+              {zoom}×
+            </button>
+            <span aria-hidden className="text-center text-sm">
+              {T.call.zoom}
+            </span>
+          </div>
+        )}
         <div className="flex w-20 flex-col items-center gap-1.5">
-          <button onClick={onHangUp} aria-label={T.call.hangUp} className="grid h-16 w-16 place-items-center rounded-full bg-danger">
+          <button onClick={() => onHangUp(asked.current > 0)} aria-label={T.call.hangUp} className="grid h-16 w-16 place-items-center rounded-full bg-danger">
             <HangUpIcon className="h-7 w-7" />
           </button>
           <span aria-hidden className="text-center text-sm">
@@ -580,7 +724,8 @@ export function CallView({
           </span>
         </div>
       </div>
-      <p className="relative px-4 pb-4 text-center text-[13px] leading-[18px] text-white/75">{disclaimer}</p>
+      {/* In a video call the notice is shown when the call opens, then leaves the picture clear. */}
+      {(kind === "voice" || notice) && <p className="relative px-4 pb-4 text-center text-[13px] leading-[18px] text-white/75">{disclaimer}</p>}
     </div>
   );
 }

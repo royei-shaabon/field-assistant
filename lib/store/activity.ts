@@ -27,6 +27,8 @@ export type QaRecord = {
   sources?: string[];
   ms?: number;
   firstStepMs?: number;
+  // kind "survey": what the technician answered after a call.
+  survey?: { solved?: string; improve?: string; again?: string };
   // Filled when read: the technician removed the conversation from their list (soft delete).
   removedAt?: string;
 };
@@ -48,6 +50,13 @@ export type DayMetrics = {
   errors: number;
   helpful: number;
   unhelpful: number;
+  // The short survey after a call: was the problem solved, and what should be better.
+  surveys?: number;
+  solved?: Record<string, number>;
+  improve?: Record<string, number>;
+  // Careful looks at a picture in a video call.
+  looks?: number;
+  lookMs?: number;
 };
 
 export const emptyDay = (date: string): DayMetrics => ({ date, questions: 0, byKind: {}, byChannel: {}, timed: 0, totalMs: 0, firstStepMs: 0, slow: 0, lookups: 0, lookupMs: 0, calls: 0, errors: 0, helpful: 0, unhelpful: 0 });

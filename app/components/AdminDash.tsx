@@ -32,6 +32,9 @@ function totals(days: DayMetrics[]) {
     calls: sum(days, (d) => d.calls),
     lookup: lookups ? Math.round(sum(days, (d) => d.lookupMs) / lookups) : null,
     slow: sum(days, (d) => d.slow),
+    // Of the surveys answered after a call: how many said the problem was solved.
+    surveys: sum(days, (d) => Object.values(d.solved ?? {}).reduce((n, v) => n + v, 0)),
+    solved: sum(days, (d) => d.solved?.yes ?? 0),
     errors: sum(days, (d) => d.errors),
   };
 }
@@ -43,7 +46,9 @@ function merged(envs: EnvSummary[], dates: string[]): DayMetrics[] {
     const byKind: Record<string, number> = {};
     for (const d of days) for (const [k, v] of Object.entries(d.byKind)) byKind[k] = (byKind[k] ?? 0) + v;
     const add = (pick: (d: DayMetrics) => number) => sum(days, pick);
-    return { date, questions: add((d) => d.questions), byKind, byChannel: {}, timed: add((d) => d.timed), totalMs: add((d) => d.totalMs), firstStepMs: add((d) => d.firstStepMs), slow: add((d) => d.slow), lookups: add((d) => d.lookups), lookupMs: add((d) => d.lookupMs), calls: add((d) => d.calls), errors: add((d) => d.errors), helpful: add((d) => d.helpful), unhelpful: add((d) => d.unhelpful) };
+    const solved: Record<string, number> = {};
+    for (const d of days) for (const [k, v] of Object.entries(d.solved ?? {})) solved[k] = (solved[k] ?? 0) + v;
+    return { date, solved, questions: add((d) => d.questions), byKind, byChannel: {}, timed: add((d) => d.timed), totalMs: add((d) => d.totalMs), firstStepMs: add((d) => d.firstStepMs), slow: add((d) => d.slow), lookups: add((d) => d.lookups), lookupMs: add((d) => d.lookupMs), calls: add((d) => d.calls), errors: add((d) => d.errors), helpful: add((d) => d.helpful), unhelpful: add((d) => d.unhelpful) };
   });
 }
 
@@ -135,7 +140,7 @@ export function Dashboard() {
         <Tile label={D.firstStep} value={t.first === null ? "–" : seconds(t.first)} unit={t.first === null ? undefined : D.seconds} />
         <Tile label={D.calls} value={t.calls} />
         <Tile label={D.lookup} value={t.lookup ?? "–"} unit={t.lookup === null ? undefined : D.ms} />
-        <Tile label={D.slow} value={t.slow} tone={t.slow ? "text-warn" : ""} />
+        <Tile label={D.solved} value={t.surveys ? `${t.solved}/${t.surveys}` : "–"} tone={t.surveys ? "text-ok" : ""} />
         <Tile label={D.errors} value={t.errors} tone={t.errors ? "text-danger-ink" : ""} />
       </dl>
       {t.questions === 0 && t.calls === 0 ? <p className="text-[15px] text-stone">{D.none}</p> : <DayBars days={days} />}
@@ -369,7 +374,7 @@ export function Conversations() {
           <details>
             <summary className="flex cursor-pointer flex-wrap items-center gap-x-3 gap-y-1 px-4 py-3">
               <span className="min-w-0 flex-1 text-[15px] font-medium">
-                <bdi>{r.question || A.talks.noWords}</bdi>
+                <bdi>{r.kind === "survey" ? A.survey.title : r.question || A.talks.noWords}</bdi>
               </span>
               <span className={`text-[13px] ${r.kind === "error" ? "text-danger-ink" : r.kind === "answer" || r.kind === "spoken" ? "text-ok" : "text-graphite"}`}>{kinds[r.kind] ?? r.kind}</span>
               <span className="text-[13px] text-stone">{A.talks.channel[r.channel]}</span>
@@ -385,6 +390,11 @@ export function Conversations() {
                 <bdi>{r.kbName ?? r.kbId}</bdi>
                 {r.removedAt && <span className="ps-2 text-warn">· {A.talks.removed}</span>}
               </p>
+              {r.survey && (
+                <p>
+                  {[r.survey.solved && `${T.survey.solved.ask} ${(T.survey.solved as Record<string, string>)[r.survey.solved]}`, r.survey.improve && `${T.survey.improve.ask} ${(T.survey.improve as Record<string, string>)[r.survey.improve]}`, r.survey.again && `${T.survey.again.ask} ${(T.survey.again as Record<string, string>)[r.survey.again]}`].filter(Boolean).join(" · ")}
+                </p>
+              )}
               {r.title && <p className="font-semibold">{r.title}</p>}
               {r.steps && (
                 <ol className="list-decimal ps-5">

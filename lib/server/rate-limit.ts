@@ -24,6 +24,8 @@ export const LIMITS = {
   live: { max: 20, windowMs: 10 * 60_000 },
   // The live call's tool: a search per question (an embedding call, no language model).
   lookup: { max: 120, windowMs: 10 * 60_000 },
+  // A careful look at one picture in a video call: a call to the main model each time.
+  look: { max: 90, windowMs: 10 * 60_000 },
 } satisfies Record<string, Limit>;
 
 // True when the call is allowed; counts it.
