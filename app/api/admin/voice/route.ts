@@ -1,4 +1,4 @@
-import { DEFAULT_VOICES, voiceService } from "@/lib/voice/tts";
+import { defaultVoices, VOICE_NAME, voiceService } from "@/lib/voice/tts";
 import { forbidden, isAdmin } from "@/lib/server/admin-auth";
 import { allow, clientKey, LIMITS, tooLarge, tooMany } from "@/lib/server/rate-limit";
 import { kbStore } from "@/lib/store";
@@ -7,7 +7,7 @@ import { kbStore } from "@/lib/store";
 export async function GET() {
   if (!(await isAdmin())) return forbidden();
   const service = voiceService();
-  const current = (await kbStore().getSettings()).voice ?? DEFAULT_VOICES[0];
+  const current = (await kbStore().getSettings()).voice ?? (service ? defaultVoices(service)[0] : "");
   if (!service) return Response.json({ enabled: false, current, voices: [] }, { headers: { "Cache-Control": "no-store" } });
   try {
     return Response.json({ enabled: true, current, voices: await service.voices() }, { headers: { "Cache-Control": "no-store" } });
@@ -22,7 +22,7 @@ export async function PUT(request: Request) {
   if (!allow(`voice:${clientKey(request)}`, LIMITS.upload)) return tooMany();
   if (tooLarge(request, 1000)) return Response.json({ error: "too large" }, { status: 413 });
   const body = (await request.json().catch(() => null)) as { voice?: unknown } | null;
-  if (typeof body?.voice !== "string" || !/^[A-Za-z0-9-]{1,80}$/.test(body.voice)) return Response.json({ error: "voice" }, { status: 400 });
+  if (typeof body?.voice !== "string" || !VOICE_NAME.test(body.voice)) return Response.json({ error: "voice" }, { status: 400 });
   const store = kbStore();
   await store.putSettings({ ...(await store.getSettings()), voice: body.voice });
   return Response.json({ current: body.voice });

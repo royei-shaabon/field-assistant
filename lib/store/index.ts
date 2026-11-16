@@ -224,14 +224,15 @@ export class KbStore {
   }
 
   // Spoken lines are kept, so the same sentence is synthesised once per voice.
+  // A voice name is "<provider>:<voice>"; the colon becomes "__" in the folder name.
   async getAudio(voice: string, hash: string): Promise<Buffer | null> {
-    if (!/^[A-Za-z0-9-]{1,80}$/.test(voice) || !/^[a-f0-9]{64}$/.test(hash)) return null;
-    return this.driver.read(`tts/${voice}/${hash}.mp3`);
+    if (!/^[A-Za-z0-9:_-]{1,100}$/.test(voice) || !/^[a-f0-9]{64}$/.test(hash)) return null;
+    return this.driver.read(`tts/${voice.replace(/:/g, "__")}/${hash}.mp3`);
   }
 
   async putAudio(voice: string, hash: string, audio: Buffer): Promise<void> {
-    if (!/^[A-Za-z0-9-]{1,80}$/.test(voice) || !/^[a-f0-9]{64}$/.test(hash)) throw new Invalid("audio key");
-    await this.driver.write(`tts/${voice}/${hash}.mp3`, audio);
+    if (!/^[A-Za-z0-9:_-]{1,100}$/.test(voice) || !/^[a-f0-9]{64}$/.test(hash)) throw new Invalid("audio key");
+    await this.driver.write(`tts/${voice.replace(/:/g, "__")}/${hash}.mp3`, audio);
   }
 
   // Every document with its passages and its meaning index: what the search index is built from.

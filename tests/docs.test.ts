@@ -10,7 +10,7 @@ import { agentSkills, loadAgentSkills, runSearch } from "../lib/docs/agent-skill
 import { normalize, VertexEmbedder, type Embedder } from "../lib/docs/embed";
 import { indexDoc } from "../lib/docs/semantic";
 import { forVoice, partialSpeech } from "../lib/speech";
-import { GoogleVoice, speak, type VoiceService } from "../lib/voice/tts";
+import { AzureVoice, ElevenVoice, GoogleVoice, speak, VoiceProviders, type VoiceService } from "../lib/voice/tts";
 import { askDocuments, hazardTopic, partialAnswer, quoteInPassage, rankIdeas, toThousandths, type DocResult, type PartialAnswer } from "../lib/docs/ask";
 import { imageSize } from "../lib/docs/image-size";
 import { docScreen, handleDocConversation, type DocEvent } from "../lib/docs/conversation";
@@ -750,6 +750,7 @@ test("natural voice: request shape, the list of Hebrew voices, the next voice wh
     assert.equal(requests[0].url, "https://texttospeech.googleapis.com/v1/text:synthesize");
     assert.deepEqual([requests[0].auth, requests[0].body!.voice.languageCode, requests[0].body!.audioConfig.audioEncoding, requests[0].body!.input.text], ["Bearer sample-token", "he-IL", "MP3", "SAMPLE שלום"]);
     assert.deepEqual((await service.voices()).map((v) => v.name), ["he-IL-Chirp3-HD-Kore", "he-IL-Wavenet-B"]);
+    assert.ok((await service.voices()).every((v) => v.provider === "google"));
     // The chosen voice is not available to this account: the default is used instead.
     refuse = new Set(["he-IL-Sample-Gone"]);
     assert.notEqual((await speak(service, "SAMPLE שלום", "he-IL-Sample-Gone")).voice, "he-IL-Sample-Gone");
@@ -778,5 +779,66 @@ test("spoken lines and the chosen voice are kept in the store; bad keys are refu
   await store.putAudio("he-IL-Wavenet-B", hash, Buffer.from("SAMPLE"));
   assert.equal((await store.getAudio("he-IL-Wavenet-B", hash))!.toString(), "SAMPLE");
   assert.equal(await store.getAudio("../x", hash), null);
+  await store.putAudio("azure:he-IL-HilaNeural", hash, Buffer.from("AZ"));
+  assert.equal((await store.getAudio("azure:he-IL-HilaNeural", hash))!.toString(), "AZ");
   await assert.rejects(store.putAudio("he-IL-Wavenet-B", "../../x", Buffer.from("x")));
+});
+
+test("several voice providers: each voice goes to its provider, the list shows all, and a missing provider moves on to the next voice", async () => {
+  const fake = (label: string, ids: string[]): VoiceService & { said: string[] } => ({
+    said: [],
+    async synthesize(text, voice) {
+      if (!ids.includes(voice)) throw Object.assign(new Error(`${label}: no ${voice}`), { status: 400 });
+      this.said.push(voice);
+      return Buffer.from(`${label}:${voice}:${text}`);
+    },
+    async voices() {
+      return ids.map((name) => ({ name, gender: "", provider: label }));
+    },
+  });
+  const google = fake("google", ["he-IL-Chirp3-HD-Kore"]);
+  const azure = fake("azure", ["he-IL-HilaNeural"]);
+  const broken: VoiceService = { synthesize: async () => Buffer.from(""), voices: async () => { throw new Error("SAMPLE 401 bad key"); } };
+  const all = new VoiceProviders({ google, azure, eleven: broken });
+  assert.equal((await all.synthesize("SAMPLE", "azure:he-IL-HilaNeural")).toString(), "azure:he-IL-HilaNeural:SAMPLE");
+  assert.equal((await all.synthesize("SAMPLE", "he-IL-Chirp3-HD-Kore")).toString(), "google:he-IL-Chirp3-HD-Kore:SAMPLE", "a bare name is Google's");
+  const list = await all.voices();
+  assert.deepEqual(list.filter((v) => v.name).map((v) => v.name), ["he-IL-Chirp3-HD-Kore", "azure:he-IL-HilaNeural"]);
+  assert.match(list.find((v) => v.provider === "eleven-error")!.gender, /401/, "a failing provider shows its error and hides nothing else");
+  // The chosen voice is from a provider that is not configured: the defaults take over.
+  const onlyAzure = new VoiceProviders({ azure });
+  const r = await speak(onlyAzure, "SAMPLE", "eleven:abc", ["he-IL-Chirp3-HD-Kore", "azure:he-IL-HilaNeural"]);
+  assert.equal(r.voice, "azure:he-IL-HilaNeural");
+});
+
+test("Azure and ElevenLabs requests: shape, key in a header, text escaped, Hebrew voices only", async () => {
+  const saved = globalThis.fetch;
+  const requests: { url: string; headers: Record<string, string>; body?: string }[] = [];
+  globalThis.fetch = (async (url: string, init: RequestInit = {}) => {
+    requests.push({ url: String(url), headers: (init.headers ?? {}) as Record<string, string>, body: init.body ? String(init.body) : undefined });
+    if (String(url).endsWith("/voices/list")) return Response.json([{ ShortName: "he-IL-HilaNeural", Locale: "he-IL", Gender: "Female" }, { ShortName: "en-US-JennyNeural", Locale: "en-US" }]);
+    if (String(url).endsWith("/v1/voices")) return Response.json({ voices: [{ voice_id: "v1", name: "SAMPLE", labels: { gender: "female" } }] });
+    if (String(url).includes("bad")) return new Response("SAMPLE quota exceeded", { status: 429 });
+    return new Response(new Uint8Array([1, 2, 3]));
+  }) as typeof fetch;
+  try {
+    const azure = new AzureVoice("sample-key", "westeurope");
+    assert.deepEqual([...(await azure.synthesize("SAMPLE <b> & 'x'", "he-IL-HilaNeural"))], [1, 2, 3]);
+    const a = requests.at(-1)!;
+    assert.equal(a.url, "https://westeurope.tts.speech.microsoft.com/cognitiveservices/v1");
+    assert.equal(a.headers["Ocp-Apim-Subscription-Key"], "sample-key");
+    assert.match(a.body!, /<voice name="he-IL-HilaNeural">SAMPLE &lt;b&gt; &amp; &apos;x&apos;<\/voice>/);
+    assert.deepEqual((await azure.voices()).map((v) => v.name), ["he-IL-HilaNeural"]);
+
+    const eleven = new ElevenVoice("sample-key", "sample-model");
+    await eleven.synthesize("SAMPLE שלום", "v1");
+    const e = requests.at(-1)!;
+    assert.match(e.url, /^https:\/\/api\.elevenlabs\.io\/v1\/text-to-speech\/v1\?/);
+    assert.equal(e.headers["xi-api-key"], "sample-key");
+    assert.deepEqual(JSON.parse(e.body!), { text: "SAMPLE שלום", model_id: "sample-model", language_code: "he" });
+    assert.deepEqual((await eleven.voices()).map((v) => v.name), ["v1"]);
+    await assert.rejects(eleven.synthesize("x", "bad"), (err: Error) => /elevenlabs HTTP 429: SAMPLE quota exceeded/.test(err.message) && !err.message.includes("sample-key"));
+  } finally {
+    globalThis.fetch = saved;
+  }
 });

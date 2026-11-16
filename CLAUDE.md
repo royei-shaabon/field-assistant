@@ -116,7 +116,8 @@
 - `npm run dev` / `npm run build` / `npm run lint`.
 - משתני סביבה: `ANTHROPIC_API_KEY`, `ADMIN_PASSWORD`, `ACCESS_CODE`, `SESSION_SECRET`, `DAILY_QUESTION_LIMIT`, `DATA_DIR`, `HIDE_SAMPLE_KB`,
   `EMBEDDINGS` (`vertex` מפעיל חיפוש לפי משמעות), `EMBED_MODEL`, `EMBED_LOCATION`, `EMBED_BATCH`, `FIRST_SEARCH`,
-  `VOICE` (`google` מפעיל קול טבעי בשיחה), `TTS_VOICE`. פריסה: ראו `README.md`.
+  `VOICE` (`google` מפעיל קול טבעי בשיחה), `TTS_VOICE`,
+  `AZURE_SPEECH_KEY`, `AZURE_SPEECH_REGION`, `AZURE_VOICE`, `ELEVENLABS_API_KEY`, `ELEVENLABS_MODEL`, `ELEVENLABS_VOICE`. פריסה: ראו `README.md`.
 
 ## סקילי המוצר (`skills/`, `lib/skills/`)
 - כל קריאה למודל עוברת דרך `lib/llm.ts`. מודל: `claude-sonnet-5-5`, פלט JSON דרך structured outputs.
@@ -176,7 +177,9 @@
 - הציטוטים מהמדריך נפתחים בכפתור אחד לכל התשובה ("מה כתוב במקור"), לא בקישור מתחת לכל שלב.
 - בשיחת וידאו התמונה שנשלחת לאייג'נט היא בדיוק החלק של המצלמה שמוצג על המסך. לכן הסימון מצויר ישר על הווידאו החי (`LiveMarks`)
   למשך 15 שניות, עם הערה שהוא נכון כל עוד המצלמה לא זזה, ואחר כך מוצגת התמונה הקפואה עם אותם סימונים.
-- **הקול בשיחה (`VOICE=google`, באישור המשתמש):** `lib/voice/tts.ts` פונה ל-Google Cloud Text-to-Speech בזהות של השירות. `POST /api/voice/speak`
+- **הקול בשיחה (באישור המשתמש):** `lib/voice/tts.ts` מחבר עד שלושה ספקים, כל אחד רק כשהוגדר: Google (`VOICE=google`, בזהות של השירות),
+  Microsoft Azure (`AZURE_SPEECH_KEY`, `AZURE_SPEECH_REGION`), ElevenLabs (`ELEVENLABS_API_KEY`). שם קול הוא `<ספק>:<קול>`, ושם בלי ספק הוא של Google.
+  המפתחות רק במשתני הסביבה של Cloud Run, אף פעם לא בקוד או בצ'אט. `POST /api/voice/speak`
   מחזיר MP3 לשורה אחת, ושומר אותו ב-store לפי קול וטקסט (`tts/`). את הקול בוחר המטמיע ב-`/admin` ("הקול של העוזר בשיחה", `settings.json`).
   בטלפון, `lib/client/voice.ts` מנגן שורה אחרי שורה ומביא את הבאה בזמן שהנוכחית מתנגנת. השיחה אומרת מיד "רגע, בודק במדריך",
   ואז כל שלב מאומת ברגע שהוא מגיע (`partialSpeech`), ורק מה שעוד לא נאמר. `forVoice` מתאים שורה לדיבור (בלי מונח אנגלי בסוגריים, יחידות בעברית).

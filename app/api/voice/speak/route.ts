@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { MAX_SPOKEN_CHARS, speak, voiceService } from "@/lib/voice/tts";
+import { defaultVoices, MAX_SPOKEN_CHARS, speak, VOICE_NAME, voiceService } from "@/lib/voice/tts";
 import { needsCode, technicianAllowed } from "@/lib/server/access";
 import { isAdmin } from "@/lib/server/admin-auth";
 import { allow, clientKey, LIMITS, tooLarge, tooMany } from "@/lib/server/rate-limit";
@@ -19,14 +19,14 @@ export async function POST(request: Request) {
   if (!text) return Response.json({ error: "text" }, { status: 400 });
   const store = kbStore();
   // Trying another voice is for the implementer's voice picker only.
-  const override = typeof body?.voice === "string" && /^[A-Za-z0-9-]{1,80}$/.test(body.voice) && (await isAdmin()) ? body.voice : undefined;
+  const override = typeof body?.voice === "string" && VOICE_NAME.test(body.voice) && (await isAdmin()) ? body.voice : undefined;
   const chosen = override ?? (await store.getSettings()).voice;
   const hash = createHash("sha256").update(text).digest("hex");
   const headers = { "Content-Type": "audio/mpeg", "Cache-Control": "private, max-age=86400" };
   try {
     const cached = chosen ? await store.getAudio(chosen, hash) : null;
     if (cached) return new Response(new Uint8Array(cached), { headers });
-    const { audio, voice } = await speak(service, text, chosen);
+    const { audio, voice } = await speak(service, text, chosen, defaultVoices(service));
     await store.putAudio(voice, hash, audio).catch(() => {});
     return new Response(new Uint8Array(audio), { headers });
   } catch (e) {

@@ -44,6 +44,11 @@ gcloud run services update field-assistant --region me-west1 --update-env-vars V
 אחר כך, ב-`/admin`, תחת "מצב המערכת": "הצגת הקולות", האזנה לכל קול, ו"בחירה". בלי `VOICE` מדבר הקול המובנה של הטלפון.
 `TTS_VOICE` קובע קול ברירת מחדל לפני שנבחר אחד במסך.
 
+אפשר להוסיף עוד ספקי קול כדי להשוות ביניהם באותה רשימה. כל ספק דורש חשבון ומפתח משלו. את המפתח שמים
+במשתני הסביבה של Cloud Run (עדיף ב-Secret Manager), אף פעם לא בקוד:
+- Microsoft Azure Speech: `AZURE_SPEECH_KEY` ו-`AZURE_SPEECH_REGION` (למשל `westeurope`). `AZURE_VOICE` לקול ברירת מחדל.
+- ElevenLabs: `ELEVENLABS_API_KEY`. `ELEVENLABS_MODEL` (ברירת מחדל `eleven_v3`) ו-`ELEVENLABS_VOICE` לקול ברירת מחדל.
+
 ### חיפוש לפי משמעות (Vertex AI)
 ב-Cloud Run אין צורך במפתח: השירות מזדהה בזהות שלו. פעם אחת, ב-Cloud Shell:
 ```bash

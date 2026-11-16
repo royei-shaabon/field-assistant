@@ -162,7 +162,8 @@ function UsageTiles({ usage }: { usage: Usage }) {
   );
 }
 
-type VoiceList = { enabled: boolean; current: string; voices: { name: string; gender: string }[]; error?: string };
+type VoiceList = { enabled: boolean; current: string; voices: { name: string; gender: string; provider: string }[]; error?: string };
+const PROVIDER: Record<string, string> = { google: "Google", azure: "Microsoft", eleven: "ElevenLabs" };
 
 // The implementer listens to the Hebrew voices the account offers and picks the one the
 // assistant speaks with in a call.
@@ -227,10 +228,19 @@ function VoicePicker() {
           )}
           {list.voices.length === 0 && !list.error && <p className="text-[15px] text-stone">{A.voice.none}</p>}
           <ul className="flex flex-col divide-y divide-rule-soft rounded-[14px] border border-rule">
-            {list.voices.map((v) => (
+            {list.voices.map((v) =>
+              v.provider.endsWith("-error") ? (
+                <li key={v.provider} role="alert" className="px-3 py-2 text-sm text-danger-ink">
+                  <span className="font-medium">{PROVIDER[v.provider.replace("-error", "")] ?? v.provider}:</span>{" "}
+                  <span dir="ltr" className="break-words font-mono text-xs">
+                    {v.gender}
+                  </span>
+                </li>
+              ) : (
               <li key={v.name} className="flex items-center gap-2 px-3 py-2">
-                <span dir="ltr" className="min-w-0 flex-1 truncate text-start font-mono text-sm">
-                  {v.name}
+                <span className="w-24 shrink-0 text-sm text-graphite">{PROVIDER[v.provider] ?? v.provider}</span>
+                <span dir="ltr" className="min-w-0 flex-1 truncate text-start font-mono text-sm" title={v.gender}>
+                  {v.provider === "eleven" ? v.gender : v.name.replace(/^[a-z]+:/, "")}
                 </span>
                 {list.current === v.name && <span className="text-sm font-medium text-ok">{A.voice.chosen}</span>}
                 <button onClick={() => play(v.name)} disabled={busy !== null || !text.trim()} className="h-9 rounded-lg border border-edge px-3 text-sm font-medium disabled:opacity-50">
@@ -242,7 +252,8 @@ function VoicePicker() {
                   </button>
                 )}
               </li>
-            ))}
+              ),
+            )}
           </ul>
           {problem && (
             <p role="alert" className="text-sm text-danger-ink">
