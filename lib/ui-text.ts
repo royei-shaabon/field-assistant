@@ -112,7 +112,6 @@ export const T = {
     voiceShort: "קול",
     videoShort: "וידאו",
     greeting: "אני מקשיב. ספרו מה הבעיה.",
-    checking: "רגע, בודק במדריך.",
     interrupt: "עצרו והקשיבו לי",
     tapToInterrupt: "אפשר לקטוע: התחילו לדבר, או געו בעיגול.",
     backToChat: "חזרה לכתיבה",

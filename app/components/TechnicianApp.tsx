@@ -634,15 +634,15 @@ export function TechnicianApp() {
     setLive(null);
     let streamed = false;
     const sentAt = Date.now();
-    // In a call the answer is spoken as it is written: a short "checking" at once, then each
-    // verified step when it arrives, then whatever the finished answer adds.
+    // In a call the answer is spoken as it is written: each verified step when it arrives, then
+    // whatever the finished answer adds. No filler line while it is being looked up.
     const said = new Set<string>();
     const sayMore = (lines: string[], finished = false) => {
       const fresh = lines.filter((l) => !said.has(l));
       fresh.forEach((l) => said.add(l));
       if (fresh.length || finished) setSpeech((s) => ({ ...s, part: s.part + 1, lines: fresh, answer: s.answer + (finished ? 1 : 0) }));
     };
-    if (speak && input.kind !== "view") setSpeech((s) => ({ id: s.id + 1, part: 0, lines: [T.call.checking], answer: s.answer }));
+    if (speak && input.kind !== "view") setSpeech((s) => ({ id: s.id + 1, part: 0, lines: [], answer: s.answer }));
     const controller = new AbortController();
     abort.current = controller;
     try {

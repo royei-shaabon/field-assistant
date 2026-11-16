@@ -240,8 +240,13 @@ export function CallView({
 
   // Say the new lines. A new `id` replaces what was being said; a new `part` adds to it.
   useEffect(() => {
-    if (!speech.lines.length) return;
     const fresh = speech.part === 0;
+    // A new turn with nothing to say yet: clear the old captions, and wait for the answer.
+    if (!speech.lines.length) {
+      if (!fresh) return;
+      const clear = setTimeout(() => setSaying([]), 0);
+      return () => clearTimeout(clear);
+    }
     const show = setTimeout(() => setSaying((now) => (fresh ? speech.lines : [...now, ...speech.lines])), 0);
     voicePlayer().say(speech.lines.map(forVoice), fresh);
     return () => clearTimeout(show);
