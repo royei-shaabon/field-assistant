@@ -53,6 +53,12 @@ export type DocResult =
   | { kind: "hazard"; topic: HazardTopic; sources: SourceView[] }
   | { kind: "error" };
 
+// "sequential": the small model writes queries, then everything is embedded and searched.
+// "parallel": the technician's question is embedded while the small model writes its queries;
+//   the queries are then searched by keywords only. Same sources, less waiting.
+// "meaning": no small model at all; the question is searched by meaning alone.
+export type FirstSearchMode = "sequential" | "parallel" | "meaning";
+
 export type AskProgress = { stage: "looking" | "searching" | "reading" | "writing" | "checking"; detail?: string };
 
 // The answer while it is still being written: only steps that already passed verification.
@@ -74,6 +80,8 @@ export type AskInput = {
   ideas?: boolean;
   // Search by meaning next to keywords, when configured and the documents have a meaning index.
   embedder?: Embedder | null;
+  // How the first search is run when search by meaning is available (see `firstSearch`).
+  firstSearch?: FirstSearchMode;
 };
 
 type Draft = {
@@ -341,6 +349,17 @@ const PLAN_SCHEMA = {
 // A small fast model writes the first queries, so the main model starts with the passages in
 // hand and usually answers in one call. Any failure here just means no head start.
 async function firstSearch(client: ModelClient, index: SearchIndex, context: string, input: AskInput, timing: AskTiming): Promise<{ queries: string[]; hits: Hit[] } | null> {
+  const embedder = input.embedder;
+  const byMeaning = Boolean(embedder && input.question && index.hasVectors(embedder.model));
+  const mode: FirstSearchMode = byMeaning ? (input.firstSearch ?? "parallel") : "sequential";
+  if (mode === "meaning") {
+    const searchStarted = Date.now();
+    const hits = await runSearch(index, [], { embedder, also: input.question });
+    timing.search = Date.now() - searchStarted;
+    return hits.length ? { queries: [input.question!], hits } : null;
+  }
+  // Asked for now, used after the small model answers. A failure here just means keywords only.
+  const alsoVector = mode === "parallel" ? embedder!.embed([input.question!], "query").then((v) => v[0] ?? null, () => null) : undefined;
   let queries: string[];
   const planStarted = Date.now();
   try {
@@ -357,7 +376,7 @@ async function firstSearch(client: ModelClient, index: SearchIndex, context: str
   }
   // The technician's own words are searched by meaning as well, whatever language they are in.
   const searchStarted = Date.now();
-  const hits = await runSearch(index, queries, { embedder: input.embedder, also: input.question });
+  const hits = await runSearch(index, queries, { embedder, also: input.question, ...(alsoVector ? { alsoVector, embedQueries: false } : {}) });
   timing.search = Date.now() - searchStarted;
   return hits.length || queries.length ? { queries: queries.length ? queries : [input.question ?? ""], hits } : null;
 }

@@ -5,6 +5,8 @@
 const base = process.argv[2]?.replace(/\/$/, "");
 if (!base) throw new Error("usage: tsx scripts/live-check.ts https://<service-url> [kbId]");
 const headers: Record<string, string> = { "Content-Type": "application/json", "x-access-token": process.env.ACCESS_TOKEN ?? "placeholder" };
+// FIRST_SEARCH=sequential|parallel|meaning asks the service to run its first search that way.
+if (process.env.FIRST_SEARCH) headers["x-first-search"] = process.env.FIRST_SEARCH;
 
 const QUESTIONS = [
   "מה לחץ האוויר בצמיגים?",
@@ -96,6 +98,8 @@ async function ask(kbId: string, text: string) {
       console.log(`  timing: plan ${row.plan} | search ${row.search} | images ${row.images} | model first text ${row.firstText} | writing ${row.writing} | model calls ${row.turns} | server total ${row.server} | outside the server ${row.network} ms`);
     }
     for (const f of r.item?.figures ?? []) console.log(`  figure p.${f.source.n} "${f.caption}" box ${JSON.stringify(f.box)}`);
+    // One line to compare runs: what kind of reply, how many steps and suggestions, which pages were cited.
+    console.log(`  cited: ${kind} steps=${r.item?.steps?.length ?? 0} ideas=${r.item?.ideas?.length ?? 0} pages=${[...new Set((r.item?.steps ?? []).map((s) => s.source.n))].sort((a, b) => a - b).join(",")}`);
     if (r.error) console.log("  error:", r.error);
     if (r.item?.title) console.log("  title:", r.item.title);
     for (const s of r.item?.steps ?? []) console.log(`  - ${s.text}\n      [${s.source.docName} p.${s.source.n}] "${s.quote}"`);

@@ -28,14 +28,27 @@ function keywordSearch(index: SearchIndex, queries: string[]): Hit[] {
 // put near the top comes first. With no meaning index, or when the embedding service fails,
 // this is the keyword search alone.
 const RRF = 60;
-export async function runSearch(index: SearchIndex, queries: string[], opts: { embedder?: Embedder | null; also?: string } = {}): Promise<Hit[]> {
+export type SearchOptions = {
+  embedder?: Embedder | null;
+  also?: string;
+  // The vector of `also`, when the caller already asked for it (so it could run alongside other work).
+  alsoVector?: Promise<Float32Array | null>;
+  // False: the queries are searched by keywords only, and only `also` is searched by meaning.
+  embedQueries?: boolean;
+};
+
+export async function runSearch(index: SearchIndex, queries: string[], opts: SearchOptions = {}): Promise<Hit[]> {
   const embedder = opts.embedder;
   if (!embedder || !index.hasVectors(embedder.model)) return keywordSearch(index, queries);
-  const texts = [...queries, ...(opts.also?.trim() ? [opts.also.trim()] : [])];
-  if (!texts.length) return [];
+  const also = opts.also?.trim();
+  const texts = [...(opts.embedQueries === false ? [] : queries), ...(also && !opts.alsoVector ? [also] : [])];
+  if (!texts.length && !opts.alsoVector) return keywordSearch(index, queries);
   let vectors: Float32Array[];
   try {
-    vectors = await embedder.embed(texts, "query");
+    vectors = texts.length ? await embedder.embed(texts, "query") : [];
+    const ready = await opts.alsoVector;
+    if (ready) vectors.push(ready);
+    else if (opts.alsoVector && !vectors.length) return keywordSearch(index, queries);
   } catch (e) {
     console.error("[search] embedding the query failed, keyword search only:", (e as Error).message);
     return keywordSearch(index, queries);

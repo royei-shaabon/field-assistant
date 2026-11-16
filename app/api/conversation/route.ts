@@ -26,6 +26,10 @@ export async function POST(request: Request) {
   const asks = (raw?.input as { kind?: unknown } | undefined)?.kind !== "view";
   if (asks && (!allow(`ask:${clientKey(request)}`, LIMITS.ask) || !allow("ask:all", LIMITS.askDaily))) return tooMany();
   const body = raw && { events: raw.events, input: raw.input };
+  // How the first search runs. FIRST_SEARCH sets it for the service; the header lets
+  // scripts/live-check.ts compare the ways on one deployment. All three only read documents.
+  const wanted = request.headers.get("x-first-search") ?? process.env.FIRST_SEARCH;
+  const firstSearch = wanted === "sequential" || wanted === "parallel" || wanted === "meaning" ? wanted : undefined;
   const encoder = new TextEncoder();
 
   const stream = new ReadableStream({
@@ -42,6 +46,7 @@ export async function POST(request: Request) {
             // Each verified step goes to the phone as soon as it is written.
             onPartial: (partial) => send({ partial }),
             embedder: embedder(),
+            firstSearch,
             // Where the time went: numbers only, for the log and for scripts/live-check.ts.
             onTiming: (timing) => {
               console.log(`[timing ${kbId}]`, JSON.stringify(timing));

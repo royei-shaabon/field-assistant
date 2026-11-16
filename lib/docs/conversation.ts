@@ -5,7 +5,7 @@ import { MAX_EVENTS, MAX_IMAGES, MAX_IMAGE_BASE64, MAX_TEXT, BadRequest, type Cl
 import type { ModelClient } from "../llm";
 import type { ChatItem, Screen } from "../screen";
 import type { DocMeta, KbMeta } from "../store/types";
-import { askDocuments, hazardTopic, rankIdeas, validDocMarks, type AskInput, type AskProgress, type AskTiming, type DocResult, type PartialAnswer } from "./ask";
+import { askDocuments, hazardTopic, rankIdeas, validDocMarks, type AskInput, type AskProgress, type AskTiming, type FirstSearchMode, type DocResult, type PartialAnswer } from "./ask";
 import type { Embedder } from "./embed";
 import type { SearchIndex } from "./search";
 
@@ -141,7 +141,7 @@ export async function handleDocConversation(
   progress: (p: AskProgress) => void = () => {},
   signal?: AbortSignal,
   // Live view of the answer while it is written, and the renderer of manual pages.
-  live: { onPartial?: (p: PartialAnswer) => void; pageImage?: AskInput["pageImage"]; embedder?: Embedder | null; onTiming?: (t: AskTiming) => void } = {},
+  live: { onPartial?: (p: PartialAnswer) => void; pageImage?: AskInput["pageImage"]; embedder?: Embedder | null; firstSearch?: FirstSearchMode; onTiming?: (t: AskTiming) => void } = {},
 ): Promise<DocResponse> {
   if (!validateRequest(body)) throw new BadRequest(new Ajv().errorsText(validateRequest.errors));
   const { events, input } = body;
@@ -168,6 +168,7 @@ export async function handleDocConversation(
       pageImage: live.pageImage,
       ideas: allowIdeas,
       embedder: live.embedder,
+      firstSearch: live.firstSearch,
     },
     progress,
     signal,

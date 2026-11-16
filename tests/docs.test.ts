@@ -664,3 +664,47 @@ test("timing: every stage of an answer is measured, and nothing else changes", a
   await handleDocConversation(kb, new FakeAgent([{ final: draft({ kind: "not_found" }) }]), { events: [], input: { kind: "ask", text: "שאלה" } }, undefined, undefined, { onTiming: (x) => (seen = x) });
   assert.ok(seen && typeof (seen as { total: number }).total === "number");
 });
+
+test("first search: in parallel the question is embedded alongside the small model; by meaning alone the small model is not called", async () => {
+  const hebrew = "כמה אוויר צריך בצמיג?";
+  const step = (docId: string) => ({ text: "SAMPLE קדמי 200", ref: `${docId}:3`, quote: "Front tyre pressure is 200 kPa when cold." });
+  const run = async (firstSearch: "sequential" | "parallel" | "meaning" | undefined, plan: string[] | undefined) => {
+    const embedder = new FakeEmbedder();
+    const { kb, docId } = await indexedKb(embedder);
+    embedder.calls.length = 0;
+    const agent = new FakeAgent([{ final: draft({ steps: [step(docId)] }) }]);
+    agent.plan = plan;
+    const out = await askDocuments(agent, kb.index, { kbName: "x", docs: kb.docs, question: hebrew, images: [], history: [], embedder, ...(firstSearch ? { firstSearch } : {}) });
+    return { out, agent, embedder, first: JSON.stringify(agent.turns[0].messages[0]) };
+  };
+
+  // Parallel (the default): one embedding call, for the question only; the queries go to keywords.
+  const parallel = await run(undefined, ["oil level"]);
+  assert.deepEqual(parallel.embedder.calls.map((c) => c.texts), [[hebrew]]);
+  assert.equal(parallel.agent.plans.length, 1);
+  assert.match(parallel.first, /Front tyre pressure is 200 kPa/, "found by the meaning of the question");
+  assert.match(parallel.first, /Check the oil level/, "found by the small model's keywords");
+  assert.equal(parallel.out.result.kind, "answer");
+
+  // Sequential: the queries and the question are embedded together, after the small model.
+  const sequential = await run("sequential", ["oil level"]);
+  assert.deepEqual(sequential.embedder.calls.map((c) => c.texts), [["oil level", hebrew]]);
+
+  // By meaning alone: no small model, and the page is still found.
+  const meaning = await run("meaning", ["oil level"]);
+  assert.equal(meaning.agent.plans.length, 0);
+  assert.match(meaning.first, /Front tyre pressure is 200 kPa/);
+  assert.doesNotMatch(meaning.first, /first search was already run for you with the queries \["oil level"\]/);
+  assert.equal(meaning.out.timing.plan, 0);
+
+  // Parallel with the small model down: the question's meaning is enough for a head start.
+  const down = await run("parallel", undefined);
+  assert.match(down.first, /Front tyre pressure is 200 kPa/);
+
+  // Without a meaning index the mode changes nothing: the small model and keywords, as before.
+  const { kb, docId } = await sampleKb();
+  const plain = new FakeAgent([{ final: draft({ steps: [step(docId)] }) }]);
+  plain.plan = ["tyre pressure"];
+  const out = await askDocuments(plain, kb.index, { kbName: "x", docs: kb.docs, question: hebrew, images: [], history: [], embedder: new FakeEmbedder(), firstSearch: "meaning" });
+  assert.deepEqual([out.result.kind, plain.plans.length], ["answer", 1]);
+});
