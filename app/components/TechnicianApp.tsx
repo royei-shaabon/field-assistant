@@ -8,7 +8,8 @@ import type { DocInput } from "@/lib/docs/conversation";
 import { LEGAL_LINKS } from "@/lib/legal-text";
 import type { Screen } from "@/lib/screen";
 import type { KbSummary } from "@/lib/server/kbs";
-import { partialSpeech, resumeSpeech, speechFor } from "@/lib/speech";
+import { liveToolResult, partialSpeech, resumeSpeech, speechFor } from "@/lib/speech";
+import { primeLiveAudio } from "@/lib/client/live";
 import { voicePlayer } from "@/lib/client/voice";
 import { dataUrlToImage, photoToDataUrl, thumbnail, videoToDataUrls } from "@/lib/client/image";
 import {
@@ -624,9 +625,9 @@ export function TechnicianApp() {
     setAttachOpen(false);
   };
 
-  // Returns true when the server answered. On failure nothing the technician wrote is lost:
-  // the caller puts it back in the question box.
-  const send = useCallback(async (base: Active, input: Input, sent?: Pending, speak = false): Promise<boolean> => {
+  // Returns the server's reply (and where its new items start), or null. On failure nothing the
+  // technician wrote is lost: the caller puts it back in the question box.
+  const send = useCallback(async (base: Active, input: Input, sent?: Pending, speak = false): Promise<(Reply & { from: number }) | null> => {
     setBusy(true);
     setError(null);
     setPending(sent ?? null);
@@ -682,13 +683,13 @@ export function TechnicianApp() {
       setStreamed(streamed);
       setActive({ conversation, screen: res.screen });
       if (speak) sayMore(speechFor(res.screen, from), true);
-      return true;
+      return { ...res, from };
     } catch (e) {
       if (e instanceof HttpError && e.status === 401) setLocked(true);
-      else if ((e as Error).name === "AbortError") return false;
+      else if ((e as Error).name === "AbortError") return null;
       else if (input.kind === "view") setError(T.doc.openError);
       else setError(e instanceof HttpError && e.status === 429 ? T.doc.rateLimited : e instanceof HttpError || e instanceof TypeError ? T.composer.error : T.doc.error);
-      return false;
+      return null;
     } finally {
       setBusy(false);
       setPending(null);
@@ -702,8 +703,8 @@ export function TechnicianApp() {
 
   // One message: text, attached photos or video frames, or both.
   const sendMessage = useCallback(
-    async (text: string, attachment: Staged | null, speak = false): Promise<boolean> => {
-      if (!text && !attachment) return false;
+    async (text: string, attachment: Staged | null, speak = false) => {
+      if (!text && !attachment) return null;
       const base = target(activeRef.current);
       if (base !== activeRef.current) open(base);
       const media = attachment ? { images: attachment.frames.map(dataUrlToImage), media: attachment.media } : {};
@@ -761,6 +762,7 @@ export function TechnicianApp() {
     const lines = base.screen.items.length ? resumeSpeech(base.screen) : [T.call.greeting];
     // Inside the tap that starts the call, so the phone lets the assistant speak later.
     voicePlayer().unlock();
+    if (isDocs) primeLiveAudio();
     setSpeech((s) => ({ id: s.id + 1, part: 0, lines, answer: s.answer + 1 }));
     setCall(kind);
   };
@@ -957,6 +959,16 @@ export function TechnicianApp() {
           progress={progress.at(-1)?.key}
           visual={callVisual}
           onUtterance={(text, frame) => void sendMessage(text, frame ? { frames: [frame], media: "photo" } : null, true)}
+          // The live model's one tool: the same verified answer engine as the chat. The answer
+          // lands in the chat with its sources; the model gets only what the chat shows.
+          onLiveAsk={
+            isDocs
+              ? async (question, frame) => {
+                  const reply = await sendMessage(question, frame ? { frames: [frame], media: "photo" } : null, false);
+                  return reply ? liveToolResult(reply.screen, reply.from) : { kind: "error", note: T.doc.error };
+                }
+              : undefined
+          }
           onAck={(symptomId) => send(activeRef.current, { kind: "acknowledge", symptomId }, { said: T.stop.acknowledged }, true)}
           onHangUp={() => {
             voicePlayer().stop();

@@ -1,6 +1,7 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { askDocuments } from "@/lib/docs/ask";
 import { embedder } from "@/lib/docs/embed";
+import { createLiveToken, liveSetup, LIVE_MODEL } from "@/lib/voice/live";
 import { SearchIndex } from "@/lib/docs/search";
 import { AnthropicModelClient, MODEL } from "@/lib/llm";
 import { forbidden, isAdmin } from "@/lib/server/admin-auth";
@@ -79,6 +80,13 @@ export async function POST() {
         return `${using.model}, ${doc.length} dims, related ${dot(doc, same).toFixed(2)} vs unrelated ${dot(doc, other).toFixed(2)}`;
       }),
     );
+  }
+  // The live call: only when GEMINI_API_KEY is set. A token is created and not used.
+  if (process.env.GEMINI_API_KEY) {
+    checks.push(await timed("live_call", async () => {
+      await createLiveToken(process.env.GEMINI_API_KEY!, liveSetup("Connection check"));
+      return `${LIVE_MODEL()}: token issued`;
+    }));
   }
   return Response.json({ model: MODEL, checks }, { headers: { "Cache-Control": "no-store" } });
 }

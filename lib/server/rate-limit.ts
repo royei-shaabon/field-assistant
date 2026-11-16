@@ -20,6 +20,8 @@ export const LIMITS = {
   index: { max: 120, windowMs: 10 * 60_000 },
   // Spoken lines in a call: a few per answer. New sentences cost; repeated ones come from the store.
   speak: { max: 240, windowMs: 5 * 60_000 },
+  // Live calls: each one opens a session with the live model.
+  live: { max: 20, windowMs: 10 * 60_000 },
 } satisfies Record<string, Limit>;
 
 // True when the call is allowed; counts it.

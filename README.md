@@ -33,6 +33,14 @@ ANTHROPIC_API_KEY=... ADMIN_PASSWORD=... npm run dev
 | `FIRST_SEARCH` | לא | איך רץ החיפוש הראשון: `parallel` (ברירת מחדל), `sequential`, `meaning`. |
 | `EMBED_BATCH` | לא | כמה קטעים בבקשה אחת. ברירת מחדל: 16. למודל שמקבל קטע אחד בבקשה: `1`. |
 
+### שיחה חיה (Gemini Live)
+הטלפון מדבר ישירות עם מודל קולי בזמן אמת, ומקבל תשובות מקצועיות רק דרך מנוע התשובות המאומת.
+1. ב-[Google AI Studio](https://aistudio.google.com) יוצרים מפתח API (Get API key), בפרויקט Google Cloud של השירות.
+2. ב-Cloud Run מוסיפים משתנה סביבה `GEMINI_API_KEY` עם המפתח (Edit & deploy new revision, Variables & Secrets).
+3. ב-`/admin`, "בדיקת חיבור למודל" מציגה שורה "שיחה חיה".
+
+`GEMINI_LIVE_MODEL` (ברירת מחדל `gemini-3.8-live`), `GEMINI_LIVE_VOICE` (שם קול, לא חובה). בלי `GEMINI_API_KEY` השיחה עובדת כמו קודם.
+
 ### קול טבעי בשיחה (Google Cloud Text-to-Speech)
 גם כאן אין מפתח: השירות מזדהה בזהות שלו. פעם אחת, ב-Cloud Shell:
 ```bash

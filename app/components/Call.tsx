@@ -8,6 +8,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { Progress } from "@/lib/conversation";
 import type { Screen } from "@/lib/screen";
+import { LiveCall } from "@/lib/client/live";
 import { listenForSpeech, voicePlayer } from "@/lib/client/voice";
 import { forVoice } from "@/lib/speech";
 import { T } from "@/lib/ui-text";
@@ -80,6 +81,7 @@ export function CallView({
   onUtterance,
   onAck,
   onHangUp,
+  onLiveAsk,
 }: {
   kind: "voice" | "video";
   kbId: string;
@@ -95,6 +97,9 @@ export function CallView({
   onUtterance: (text: string, frame?: string) => void;
   onAck: (symptomId: string) => void;
   onHangUp: () => void;
+  // Asks the verified answer engine on behalf of the live model, and returns what it answered.
+  // Present: the call tries the live model first, and falls back to the classic call.
+  onLiveAsk?: (question: string, frame?: string) => Promise<unknown>;
 }) {
   const video = useRef<HTMLVideoElement>(null);
   const stream = useRef<MediaStream | null>(null);
@@ -107,6 +112,11 @@ export function CallView({
   const [muted, setMuted] = useState(false);
   const [problem, setProblem] = useState<string | null>(null);
   const [seconds, setSeconds] = useState(0);
+  // "live": the phone talks to the live model. "classic": browser speech recognition and the
+  // voice player. "starting": asking the server for a live call.
+  const [mode, setMode] = useState<"starting" | "live" | "classic">(onLiveAsk ? "starting" : "classic");
+  const liveCall = useRef<LiveCall | null>(null);
+  const liveAsk = useRef(onLiveAsk);
   // Which answer's marks are on the live picture right now (they are removed after a while).
   const [liveFor, setLiveFor] = useState(0);
   useEffect(() => {
@@ -125,6 +135,7 @@ export function CallView({
     busyRef.current = busy;
     mutedRef.current = muted;
     utter.current = onUtterance;
+    liveAsk.current = onLiveAsk;
   });
 
   // A still from the live camera, sent with what the technician says. Only the part of the
@@ -173,8 +184,50 @@ export function CallView({
     };
   }, [kind]);
 
-  // Speech recognition.
+  // The live call: a token from the server, then the phone talks to the live model directly.
+  // Anything that goes wrong before it is connected falls back to the classic call.
   useEffect(() => {
+    if (mode !== "starting") return;
+    let cancelled = false;
+    const call = new LiveCall({
+      onState: (s) => setState(s === "speaking" ? "speaking" : s === "listening" ? "listening" : "idle"),
+      onHeard: (text) => setHeard((now) => (now + text).slice(-200)),
+      onSaid: (text, fresh) => {
+        if (fresh) setHeard("");
+        setSaying((now) => (fresh || !now.length ? [text] : [now[0] + text]));
+      },
+      onTool: (question) => liveAsk.current!(question, frame()),
+      onError: () => {
+        if (!cancelled) setProblem(T.call.liveEnded);
+      },
+    });
+    (async () => {
+      const res = await fetch("/api/voice/live", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ kbId }) }).catch(() => null);
+      const body = res?.ok ? ((await res.json()) as { url: string; model: string }) : null;
+      if (cancelled) return;
+      if (!body) return setMode("classic");
+      try {
+        await call.start(body.url, body.model, kind === "video" ? frame : undefined);
+        if (cancelled) return call.stop();
+        liveCall.current = call;
+        setMode("live");
+      } catch {
+        call.stop();
+        if (!cancelled) setMode("classic");
+      }
+    })();
+    return () => {
+      cancelled = true;
+      call.stop();
+      liveCall.current = null;
+    };
+    // Runs once per call; `frame` and `kbId` do not change during it.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mode === "starting"]);
+
+  // Speech recognition (classic call only).
+  useEffect(() => {
+    if (mode !== "classic") return;
     live.current = true;
     const R = recognitionClass();
     if (!R) {
@@ -210,12 +263,13 @@ export function CallView({
       r.onend = null;
       r.abort();
     };
-  }, [frame, listen]);
+  }, [frame, listen, mode]);
 
   // The player tells the call when it starts and stops talking. While it talks, the microphone
   // listens for the technician talking over it; when it stops, the call listens for a sentence.
-  const interrupt = useCallback(() => voicePlayer().stop(), []);
+  const interrupt = useCallback(() => (liveCall.current ? liveCall.current.interrupt() : voicePlayer().stop()), []);
   useEffect(() => {
+    if (mode !== "classic") return;
     const player = voicePlayer();
     let stopHearing: (() => void) | undefined;
     player.onState = (talking) => {
@@ -236,10 +290,12 @@ export function CallView({
       stopHearing?.();
       player.stop();
     };
-  }, [listen, interrupt]);
+  }, [listen, interrupt, mode]);
 
   // Say the new lines. A new `id` replaces what was being said; a new `part` adds to it.
   useEffect(() => {
+    // In a live call the model speaks for itself.
+    if (mode !== "classic") return;
     const fresh = speech.part === 0;
     // A new turn with nothing to say yet: clear the old captions, and wait for the answer.
     if (!speech.lines.length) {
@@ -250,7 +306,7 @@ export function CallView({
     const show = setTimeout(() => setSaying((now) => (fresh ? speech.lines : [...now, ...speech.lines])), 0);
     voicePlayer().say(speech.lines.map(forVoice), fresh);
     return () => clearTimeout(show);
-  }, [speech.id, speech.part, speech.lines]);
+  }, [speech.id, speech.part, speech.lines, mode]);
 
   // After the server answers, listening resumes once speaking is done (or right away).
   useEffect(() => {
@@ -286,6 +342,7 @@ export function CallView({
     const next = !muted;
     setMuted(next);
     mutedRef.current = next;
+    if (liveCall.current) return liveCall.current.setMuted(next);
     if (next) {
       recognition.current?.abort();
       setState("idle");
@@ -294,7 +351,18 @@ export function CallView({
 
   const last = screen.items.at(-1);
   const lastHazard = last?.kind === "doc_hazard" ? last : undefined;
-  const status = busy ? (progress ? T.progress[progress] : T.call.connecting) : state === "speaking" ? T.call.speaking : state === "listening" ? T.call.listening : "";
+  const status =
+    mode === "starting"
+      ? T.call.connecting
+      : busy && mode === "classic"
+        ? progress
+          ? T.progress[progress]
+          : T.call.connecting
+        : state === "speaking"
+          ? T.call.speaking
+          : state === "listening"
+            ? T.call.listening
+            : "";
   const clock = `${String(Math.floor(seconds / 60)).padStart(2, "0")}:${String(seconds % 60).padStart(2, "0")}`;
 
   return (

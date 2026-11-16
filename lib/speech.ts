@@ -73,6 +73,35 @@ export function partialSpeech(partial: PartialAnswer): string[] {
   return [...(partial.caution ? [T.doc.cautionTitle, T.doc.topics[partial.caution], T.doc.cautionBody] : []), partial.title, ...partial.steps.map((s) => s.text)];
 }
 
+// What the live model's tool returns: the reply the answer engine gave to one question, as
+// data for the model to put into spoken words. Only what the chat shows, nothing more.
+export type LiveToolResult =
+  | { kind: "answer"; warning?: string; title: string; steps: string[]; suggested_checks_not_from_manual?: string[] }
+  | { kind: "suggested_checks_only"; warning?: string; note: string; suggested_checks_not_from_manual: string[] }
+  | { kind: "question"; question: string; options: string[] }
+  | { kind: "stop"; warning: string; note: string }
+  | { kind: "not_found"; note: string }
+  | { kind: "error"; note: string };
+
+export function liveToolResult(screen: Screen, from: number): LiveToolResult {
+  const caution = (topic?: keyof typeof T.doc.topics) => (topic ? `${T.doc.cautionTitle} ${T.doc.topics[topic]}. ${T.doc.cautionBody}` : undefined);
+  for (const item of screen.items.slice(from)) {
+    if (item.kind === "doc_answer") {
+      const warning = caution(item.caution);
+      return { kind: "answer", ...(warning ? { warning } : {}), title: item.title, steps: item.steps.map((s) => forVoice(s.text)), ...(item.ideas?.length ? { suggested_checks_not_from_manual: item.ideas.map((i) => forVoice(i.text)) } : {}) };
+    }
+    if (item.kind === "doc_ideas") {
+      const warning = caution(item.caution);
+      return { kind: "suggested_checks_only", ...(warning ? { warning } : {}), note: T.doc.ideasNotFound, suggested_checks_not_from_manual: item.ideas.map((i) => forVoice(i.text)) };
+    }
+    if (item.kind === "doc_ask") return { kind: "question", question: item.question, options: item.options };
+    if (item.kind === "doc_hazard") return { kind: "stop", warning: `${T.stop.title} ${T.doc.topics[item.topic]}`, note: T.doc.hazardBody };
+    if (item.kind === "doc_not_found") return { kind: "not_found", note: T.doc.notFound };
+    if (item.kind === "doc_error" || item.kind === "doc_empty") return { kind: "error", note: item.kind === "doc_empty" ? T.doc.empty : T.doc.error };
+  }
+  return { kind: "error", note: T.doc.error };
+}
+
 // Lines for the items from `from` on, then the open question (and how to check it).
 export function speechFor(screen: Screen, from: number): string[] {
   const lines = screen.items.slice(from).flatMap((item) => lineFor(item, screen));

@@ -288,7 +288,7 @@ function VoicePicker() {
   );
 }
 
-type DiagnoseCheck = { name: "key_and_model" | "question_answering" | "fast_search" | "embeddings"; ok: boolean; ms: number; detail?: string };
+type DiagnoseCheck = { name: "key_and_model" | "question_answering" | "fast_search" | "embeddings" | "live_call"; ok: boolean; ms: number; detail?: string };
 
 // Asks the server to try the model: first the key, then one full question on a sample page.
 // On failure the provider's own message is shown, so the implementer knows what to fix.

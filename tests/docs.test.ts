@@ -9,7 +9,8 @@ import path from "node:path";
 import { agentSkills, loadAgentSkills, runSearch } from "../lib/docs/agent-skills";
 import { normalize, VertexEmbedder, type Embedder } from "../lib/docs/embed";
 import { indexDoc } from "../lib/docs/semantic";
-import { forVoice, partialSpeech } from "../lib/speech";
+import { forVoice, liveToolResult, partialSpeech } from "../lib/speech";
+import { createLiveToken, liveSetup, liveSocketUrl, LIVE_TOOL } from "../lib/voice/live";
 import { AzureVoice, ElevenVoice, GeminiVoice, GoogleVoice, speak, VoiceProviders, type VoiceService } from "../lib/voice/tts";
 import { askDocuments, hazardTopic, partialAnswer, quoteInPassage, rankIdeas, toThousandths, type DocResult, type PartialAnswer } from "../lib/docs/ask";
 import { imageSize } from "../lib/docs/image-size";
@@ -866,4 +867,62 @@ test("Gemini voices: the same Google service, with the model named and a deliver
     for (const k of Object.keys(process.env)) if (!(k in saved.env)) delete process.env[k];
     Object.assign(process.env, saved.env);
   }
+});
+
+test("live call: the setup has one tool, Hebrew instructions that forbid own knowledge, and transcripts", () => {
+  const setup = liveSetup("SAMPLE מכונה") as { model: string; tools: { functionDeclarations: { name: string; behavior: string }[] }[]; systemInstruction: { parts: { text: string }[] }; generationConfig: { responseModalities: string[] }; inputAudioTranscription: object; outputAudioTranscription: object };
+  assert.match(setup.model, /^models\//);
+  assert.deepEqual(setup.tools.flatMap((t) => t.functionDeclarations.map((f) => f.name)), [LIVE_TOOL], "one tool, nothing else");
+  assert.equal(setup.tools[0].functionDeclarations[0].behavior, "NON_BLOCKING");
+  const text = setup.systemInstruction.parts[0].text;
+  assert.match(text, /SAMPLE מכונה/);
+  assert.match(text, /Hebrew/);
+  assert.match(text, /Never give a technical instruction, a value or a diagnosis from your own knowledge/);
+  assert.match(text, /not from the manual/);
+  assert.deepEqual(setup.generationConfig.responseModalities, ["AUDIO"]);
+  assert.ok(setup.inputAudioTranscription && setup.outputAudioTranscription);
+});
+
+test("live call token: the key goes in a header and never in the address the phone gets; one use, short lifetimes", async () => {
+  const saved = globalThis.fetch;
+  let request: { url: string; headers: Record<string, string>; body: { uses: number; expireTime: string; newSessionExpireTime: string; bidiGenerateContentSetup: object } } | undefined;
+  globalThis.fetch = (async (url: string, init: RequestInit) => {
+    request = { url: String(url), headers: init.headers as Record<string, string>, body: JSON.parse(String(init.body)) };
+    return Response.json({ name: "auth_tokens/SAMPLE-token" });
+  }) as typeof fetch;
+  try {
+    const now = Date.UTC(2026, 10, 16, 12, 0, 0);
+    const token = await createLiveToken("sample-key", { model: "models/x" }, now);
+    assert.equal(request!.url, "https://generativelanguage.googleapis.com/v1beta/auth_tokens");
+    assert.equal(request!.headers["x-goog-api-key"], "sample-key");
+    assert.equal(request!.body.uses, 1);
+    assert.equal(request!.body.newSessionExpireTime, new Date(now + 60_000).toISOString());
+    assert.equal(request!.body.expireTime, new Date(now + 30 * 60_000).toISOString());
+    assert.deepEqual(request!.body.bidiGenerateContentSetup, { model: "models/x" });
+    const url = liveSocketUrl(token);
+    assert.match(url, /^wss:\/\/generativelanguage\.googleapis\.com\/ws\/.*BidiGenerateContentConstrained\?access_token=auth_tokens%2FSAMPLE-token$/);
+    assert.ok(!url.includes("sample-key"));
+    globalThis.fetch = (async () => Response.json({ error: { message: "SAMPLE API key not valid" } }, { status: 400 })) as typeof fetch;
+    await assert.rejects(createLiveToken("sample-key", {}), (e: Error) => /HTTP 400: SAMPLE API key not valid/.test(e.message) && !e.message.includes("sample-key"));
+  } finally {
+    globalThis.fetch = saved;
+  }
+});
+
+test("live call tool result: only what the chat shows, the warning first, suggestions marked, a stop stays a stop", () => {
+  const source = { docId: "d1", docName: "m", origin: "manufacturer" as const, unit: "page" as const, n: 4 };
+  const screen = (item: Record<string, unknown>) => ({ items: [{ by: "tech", kind: "text", said: "q" }, { by: "bot", ...item }], mode: "identify", candidates: [], trees: [], danger: false }) as unknown as Parameters<typeof liveToolResult>[0];
+  const answer = liveToolResult(screen({ kind: "doc_answer", eventIndex: 0, title: "SAMPLE כותרת", steps: [{ text: "SAMPLE פתחו (Fuse box) את המכסה", quote: "q", source }], marks: [], caution: "brakes", ideas: [{ text: "SAMPLE בדקו", why: "", likelihood: "low", minutes: 1 }] }), 1);
+  assert.equal(answer.kind, "answer");
+  if (answer.kind === "answer") {
+    assert.match(answer.warning!, /בלמים/);
+    assert.deepEqual(answer.steps, ["SAMPLE פתחו את המכסה"], "said the spoken way, no English label");
+    assert.deepEqual(answer.suggested_checks_not_from_manual, ["SAMPLE בדקו"]);
+    assert.ok(!JSON.stringify(answer).includes('"q"'), "the manual's own quote is not handed to the model");
+  }
+  assert.equal(liveToolResult(screen({ kind: "doc_hazard", topic: "fuel", sources: [] }), 1).kind, "stop");
+  assert.deepEqual(liveToolResult(screen({ kind: "doc_ask", question: "SAMPLE?", options: ["א"] }), 1), { kind: "question", question: "SAMPLE?", options: ["א"] });
+  assert.equal(liveToolResult(screen({ kind: "doc_not_found" }), 1).kind, "not_found");
+  assert.equal(liveToolResult(screen({ kind: "doc_ideas", ideas: [{ text: "SAMPLE", why: "", likelihood: "low", minutes: 1 }] }), 1).kind, "suggested_checks_only");
+  assert.equal(liveToolResult(screen({ kind: "doc_answer", eventIndex: 0, title: "x", steps: [], marks: [] }), 2).kind, "error", "nothing new: an error, not an old answer");
 });
