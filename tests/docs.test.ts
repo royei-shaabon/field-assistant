@@ -879,6 +879,7 @@ test("live call: the setup has one tool, Hebrew instructions that forbid own kno
   assert.match(text, /Hebrew/);
   assert.match(text, /Never give a technical instruction, a value or a diagnosis from your own knowledge/);
   assert.match(text, /not from the manual/);
+  assert.match(text, /never shorten a step or leave out part of it/, "a spoken step keeps its limits and warnings");
   assert.deepEqual(setup.generationConfig.responseModalities, ["AUDIO"]);
   assert.ok(setup.inputAudioTranscription && setup.outputAudioTranscription);
 });
