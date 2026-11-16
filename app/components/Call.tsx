@@ -196,7 +196,14 @@ export function CallView({
         if (fresh) setHeard("");
         setSaying((now) => (fresh || !now.length ? [text] : [now[0] + text]));
       },
-      onTool: (question) => liveAsk.current!(question, frame()),
+      // Two things at once: the fast search the model speaks from (a second or two), and the
+      // full checked answer, which lands in the chat with its pages.
+      onTool: async (question) => {
+        const picture = frame();
+        void liveAsk.current?.(question, picture);
+        const res = await fetch("/api/voice/lookup", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ kbId, question }) }).catch(() => null);
+        return res?.ok ? await res.json() : { kind: "error", note: T.doc.error };
+      },
       // The live connection dropped in the middle: carry on with the classic call.
       onError: () => {
         if (cancelled) return;

@@ -14,7 +14,7 @@ export async function GET() {
         (await store.listDocs(kb.id)).map(async (doc) => {
           // How many passages of the document can be searched by meaning with the current model.
           const info = using ? await store.vectorInfo(kb.id, doc.id) : null;
-          return { ...doc, indexed: info?.model === using?.model ? info!.count : 0 };
+          return { ...doc, indexed: using && info && info.model === using.model ? info.count : 0 };
         }),
       );
       return { ...kb, docs, usage: await store.getUsage(kb.id) };
