@@ -9,6 +9,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { Progress } from "@/lib/conversation";
 import type { Screen } from "@/lib/screen";
 import { LiveCall, type VideoTool, type VideoToolResult } from "@/lib/client/live";
+import { locate, LOST, templateAt, toGray, type Gray, type Template } from "@/lib/client/track";
 import { listenForSpeech, voicePlayer } from "@/lib/client/voice";
 import { forVoice } from "@/lib/speech";
 import { T } from "@/lib/ui-text";
@@ -43,6 +44,13 @@ export type Speech = { id: number; part: number; lines: string[]; answer: number
 const LIVE_MARKS_MS = 15_000;
 // A mark the live model drew: long enough to look, short enough that a moved camera does not lie.
 const QUICK_MARK_MS = 12_000;
+// A mark that is being followed on the picture stays longer: it moves with its part.
+const TRACKED_MARK_MS = 30_000;
+// The small grey copy of the picture the follower works on, and how often it looks.
+const TRACK_WIDTH = 160;
+const TRACK_MS = 120;
+// This many looks in a row without finding the part, and the mark comes off.
+const TRACK_PATIENCE = 12;
 // The notice at the bottom of a video call is shown when the call opens, then makes room.
 const NOTICE_MS = 8_000;
 const ZOOMS = [1, 2, 3] as const;
@@ -150,17 +158,54 @@ export function CallView({
   // Parts the live model circled on the picture, and the spot the technician touched. Both sit
   // where things were a moment ago, so they fade after a few seconds.
   const [quick, setQuick] = useState<QuickMark[]>([]);
+  // The small grey copy of what is on screen, for following marks (set once the camera is known).
+  const smallRef = useRef<() => Gray | null>(() => null);
   const [touched, setTouched] = useState<{ x: number; y: number; id: number } | null>(null);
   const touchedRef = useRef<{ x: number; y: number } | null>(null);
   const markId = useRef(0);
-  const addMark = useCallback((mark: Omit<QuickMark, "id" | "n">) => {
-    const id = ++markId.current;
-    // The same part marked again replaces its earlier mark (its state may have changed).
-    setQuick((now) => [...now.filter((m) => m.label !== mark.label).slice(-2), { ...mark, id, n: 0 }].map((m, i) => ({ ...m, n: i + 1 })));
-    setTimeout(() => setQuick((now) => now.filter((m) => m.id !== id).map((m, i) => ({ ...m, n: i + 1 }))), QUICK_MARK_MS);
+  // What the follower remembers of each mark: the patch around its part, where the patch
+  // was last found (in the small grey picture), and how many looks in a row missed it.
+  const tracks = useRef(new Map<number, { template: Template; x: number; y: number; missed: number }>());
+  const removeMark = useCallback((id: number) => {
+    tracks.current.delete(id);
+    setQuick((now) => now.filter((m) => m.id !== id).map((m, i) => ({ ...m, n: i + 1 })));
   }, []);
+  // `seen`: the small grey picture taken when the look was asked for. The part is found in it
+  // at the box the look returned, and then caught up with in the picture as it is now.
+  const addMark = useCallback(
+    (mark: Omit<QuickMark, "id" | "n">, seen?: Gray | null) => {
+      const id = ++markId.current;
+      let box = mark.box;
+      const now = smallRef.current();
+      const cx = ((mark.box.x + mark.box.w / 2) / 1000) * (seen?.w ?? 0);
+      const cy = ((mark.box.y + mark.box.h / 2) / 1000) * (seen?.h ?? 0);
+      const template = seen ? templateAt(seen, cx, cy) : null;
+      if (template && now && seen && now.w === seen.w && now.h === seen.h) {
+        // The camera may have moved while the look ran: find the part where it is now.
+        const rough = locate(now, template, cx, cy, 44, 2);
+        const fine = rough.score <= LOST ? locate(now, template, rough.x, rough.y, 2) : rough;
+        if (fine.score <= LOST) {
+          box = { ...mark.box, x: mark.box.x + ((fine.x - cx) / now.w) * 1000, y: mark.box.y + ((fine.y - cy) / now.h) * 1000 };
+          tracks.current.set(id, { template, x: fine.x, y: fine.y, missed: 0 });
+        }
+      }
+      const tracked = tracks.current.has(id);
+      // The same part marked again replaces its earlier mark (its state may have changed).
+      setQuick((list) => {
+        for (const old of list) if (old.label === mark.label) tracks.current.delete(old.id);
+        return [...list.filter((m) => m.label !== mark.label).slice(-2), { ...mark, box, id, n: 0 }].map((m, i) => ({ ...m, n: i + 1 }));
+      });
+      setTimeout(() => removeMark(id), tracked ? TRACKED_MARK_MS : QUICK_MARK_MS);
+    },
+    [removeMark],
+  );
   // The safety warning of the last answer: shown by the app, whatever the model says aloud.
   const [caution, setCaution] = useState<string | null>(null);
+  // Dismissed warnings are not shown again in this call.
+  const dismissed = useRef(new Set<string>());
+  const warn = useCallback((text: string | null | undefined) => {
+    if (text && !dismissed.current.has(text)) setCaution(text);
+  }, []);
   // The camera's light, where the phone lets a page switch it; and how far the picture is zoomed.
   const [torch, setTorch] = useState<"none" | "off" | "on">("none");
   const [zoom, setZoom] = useState<(typeof ZOOMS)[number]>(1);
@@ -218,7 +263,9 @@ export function CallView({
   const videoTool = useRef<(tool: VideoTool) => Promise<VideoToolResult>>(async () => ({ result: { ok: false }, quiet: true }));
   useEffect(() => {
     videoTool.current = async ({ name, args }) => {
-      const image = frame(touchedRef.current ?? undefined);
+      const ring = touchedRef.current;
+      const image = frame(ring ?? undefined);
+      const seen = smallRef.current();
       if (!image) return { result: { ok: false, note: "no picture" }, quiet: true };
       const marking = name === "mark_on_picture";
       const pointing = marking && args.pointing === true;
@@ -228,12 +275,12 @@ export function CallView({
       const res = await fetch("/api/voice/look", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ kbId, image, ...(marking ? (pointing || !label ? { pointing: true } : { find: label }) : { question }) }),
+        body: JSON.stringify({ kbId, image, ring: Boolean(ring), ...(marking ? (pointing || !label ? { pointing: true } : { find: label }) : { question }) }),
       }).catch(() => null);
       const look = res?.ok ? ((await res.json()) as { visible: boolean; quality: string; name: string; seen: string; box?: QuickMark["box"] }) : null;
       if (!look) return { result: { ok: false, note: "could not look at the picture" }, quiet: false };
       const shown = look.visible && look.box ? look.name || label : "";
-      if (shown && look.box) addMark({ label: pointing ? look.name || label : label || look.name, state, box: look.box });
+      if (shown && look.box) addMark({ label: pointing || ring ? look.name || label : label || look.name, state, box: look.box }, seen);
       if (marking) {
         // Found and marked: nothing to say about it, unless the model asked what the finger points at.
         return { result: { marked: Boolean(shown), name: look.name, quality: look.quality, ...(look.seen ? { seen: look.seen } : {}) }, quiet: Boolean(shown) && !pointing };
@@ -241,6 +288,50 @@ export function CallView({
       return { result: { seen: look.seen || (look.visible ? look.name : ""), visible: look.visible, quality: look.quality }, quiet: false };
     };
   });
+
+  // Following the marks: a few times a second each mark's patch is looked for near where it
+  // was, and the mark moves with it. A part that cannot be found any more loses its mark.
+  useEffect(() => {
+    if (kind !== "video") return;
+    const canvas = document.createElement("canvas");
+    const g = canvas.getContext("2d", { willReadFrequently: true });
+    smallRef.current = () => {
+      const v = video.current;
+      if (!g || !v || !v.videoWidth || !v.clientWidth) return null;
+      const cover = Math.max(v.clientWidth / v.videoWidth, v.clientHeight / v.videoHeight);
+      const sw = v.clientWidth / cover / zoomRef.current;
+      const sh = v.clientHeight / cover / zoomRef.current;
+      const w = TRACK_WIDTH;
+      const h = Math.max(1, Math.round((TRACK_WIDTH * sh) / sw));
+      if (canvas.width !== w || canvas.height !== h) {
+        canvas.width = w;
+        canvas.height = h;
+      }
+      g.drawImage(v, (v.videoWidth - sw) / 2, (v.videoHeight - sh) / 2, sw, sh, 0, 0, w, h);
+      return toGray(g.getImageData(0, 0, w, h).data, w, h);
+    };
+    const timer = setInterval(() => {
+      if (!tracks.current.size) return;
+      const now = smallRef.current();
+      if (!now) return;
+      const moved = new Map<number, { dx: number; dy: number }>();
+      const lost: number[] = [];
+      for (const [id, t] of tracks.current) {
+        const found = locate(now, t.template, t.x, t.y, 9);
+        if (found.score > LOST) {
+          if (++t.missed > TRACK_PATIENCE) lost.push(id);
+          continue;
+        }
+        t.missed = 0;
+        if (found.x !== t.x || found.y !== t.y) moved.set(id, { dx: ((found.x - t.x) / now.w) * 1000, dy: ((found.y - t.y) / now.h) * 1000 });
+        t.x = found.x;
+        t.y = found.y;
+      }
+      if (moved.size) setQuick((list) => list.map((m) => (moved.has(m.id) ? { ...m, box: { ...m.box, x: m.box.x + moved.get(m.id)!.dx, y: m.box.y + moved.get(m.id)!.dy } } : m)));
+      lost.forEach(removeMark);
+    }, TRACK_MS);
+    return () => clearInterval(timer);
+  }, [kind, removeMark]);
 
 
   const listen = useCallback(() => {
@@ -295,11 +386,11 @@ export function CallView({
         // The checked answer carries the safety warning too: shown when it arrives.
         void liveAsk.current?.(question, picture)?.then((r) => {
           const warning = (r as { warning?: string } | null)?.warning;
-          if (warning) setCaution(warning);
+          warn(warning);
         });
         const res = await fetch("/api/voice/lookup", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ kbId, question, conversationId, video: kind === "video" }) }).catch(() => null);
         const found = res?.ok ? ((await res.json()) as { caution?: string }) : null;
-        setCaution(found?.caution ?? null);
+        warn(found?.caution);
         return found ?? { kind: "error", note: T.doc.error };
       },
       // The live connection dropped in the middle: carry on with the classic call.
@@ -510,12 +601,13 @@ export function CallView({
           {quick.map((m) => (
             <span key={m.id}>
               <span
-                className={`anim-rise absolute rounded-lg border-[3px] shadow-[0_0_0_1.5px_var(--color-night),inset_0_0_0_1.5px_var(--color-night)] ${MARK_TONE[m.state].border}`}
+                className={`absolute rounded-md border-2 shadow-[0_0_0_1px_var(--color-night),inset_0_0_0_1px_var(--color-night)] ${MARK_TONE[m.state].border}`}
                 style={{ left: `${m.box.x / 10}%`, top: `${m.box.y / 10}%`, width: `${m.box.w / 10}%`, height: `${m.box.h / 10}%` }}
               />
+              {/* The number sits outside the corner, so it never covers the part itself. */}
               <span
-                className={`absolute grid h-7 w-7 -translate-x-1/2 -translate-y-1/2 place-items-center rounded-full font-mono text-sm font-medium shadow-[0_0_0_1.5px_var(--color-night)] ${MARK_TONE[m.state].fill} ${MARK_TONE[m.state].ink}`}
-                style={{ left: `${m.box.x / 10}%`, top: `${m.box.y / 10}%` }}
+                className={`absolute grid h-[22px] min-w-[22px] -translate-x-full -translate-y-full place-items-center rounded-full px-1 font-mono text-[13px] font-medium leading-none shadow-[0_0_0_1px_var(--color-night)] ${MARK_TONE[m.state].fill} ${MARK_TONE[m.state].ink}`}
+                style={{ left: `max(22px, ${m.box.x / 10}%)`, top: `max(22px, ${m.box.y / 10}%)` }}
               >
                 {m.n}
               </span>
@@ -564,15 +656,25 @@ export function CallView({
         {(caution || quick.length > 0) && (
           <div className="mb-auto flex flex-col gap-2">
             {caution && (
-              <div role="alert" className="flex items-start gap-2.5 rounded-2xl border-2 border-[#ff6b5e] bg-night/90 p-3">
-                <WarningIcon className="mt-0.5 h-6 w-6 shrink-0 text-[#ff6b5e]" />
-                <p className="text-[15px] leading-[22px]">{caution}</p>
+              <div role="alert" className="flex items-start gap-2.5 rounded-2xl border-2 border-[#ff6b5e] bg-night/90 py-1.5 pe-1 ps-3">
+                <WarningIcon className="mt-2.5 h-6 w-6 shrink-0 text-[#ff6b5e]" />
+                <p className="min-w-0 flex-1 py-2 text-[15px] leading-[22px]">{caution}</p>
+                {/* Read and closed: the same warning does not come back in this call. */}
+                <button
+                  onClick={() => {
+                    dismissed.current.add(caution);
+                    setCaution(null);
+                  }}
+                  aria-label={T.header.close}
+                  className="grid h-12 w-12 shrink-0 place-items-center rounded-full active:bg-white/10"
+                >
+                  <CloseIcon />
+                </button>
               </div>
             )}
             {quick.length > 0 && (
               // What each number on the picture is, in words: the colour is never the only sign.
               <div role="status" className="anim-rise flex flex-col gap-1.5 rounded-2xl bg-night/85 p-3">
-                <p className="text-sm text-signal">{T.call.liveNote}</p>
                 <p className="text-sm text-white/75">{T.call.marksLegend}</p>
                 <ol className="flex flex-col gap-1.5">
                   {quick.map((m) => (
@@ -702,6 +804,7 @@ export function CallView({
                 zoomRef.current = next;
                 setZoom(next);
                 // Marks were placed on the picture as it was before the zoom changed.
+                tracks.current.clear();
                 setQuick([]);
               }}
               aria-label={`${T.call.zoom} ${zoom}×`}

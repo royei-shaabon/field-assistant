@@ -38,7 +38,8 @@ export function slug(name: string): string {
   return ascii.length >= 2 ? ascii : `kb-${Date.now().toString(36)}`;
 }
 
-export type Settings = { voice?: string; liveVoice?: string };
+// `language`: the language of this environment's calls (he, en, ru, ar).
+export type Settings = { voice?: string; liveVoice?: string; language?: string };
 
 export class KbStore {
   constructor(private driver: BlobDriver) {}

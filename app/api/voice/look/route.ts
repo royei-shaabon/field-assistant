@@ -1,7 +1,7 @@
-import { embedder } from "@/lib/docs/embed";
 import { AnthropicModelClient } from "@/lib/llm";
 import { needsCode, technicianAllowed } from "@/lib/server/access";
-import { currentEnvId } from "@/lib/server/env";
+import { currentEnvId, envStore } from "@/lib/server/env";
+import { LIVE_LANGUAGES, liveLanguage } from "@/lib/voice/live";
 import { loadDocKb } from "@/lib/server/kbs";
 import { log } from "@/lib/server/log";
 import { allow, clientKey, LIMITS, tooLarge, tooMany } from "@/lib/server/rate-limit";
@@ -17,7 +17,7 @@ export async function POST(request: Request) {
   if (!(await technicianAllowed())) return needsCode();
   if (!allow(`look:${clientKey(request)}`, LIMITS.look)) return tooMany();
   if (tooLarge(request, 2_500_000)) return Response.json({ error: "too large" }, { status: 413 });
-  const body = (await request.json().catch(() => null)) as { kbId?: unknown; image?: unknown; find?: unknown; pointing?: unknown; question?: unknown } | null;
+  const body = (await request.json().catch(() => null)) as { kbId?: unknown; image?: unknown; find?: unknown; pointing?: unknown; question?: unknown; ring?: unknown } | null;
   const image = typeof body?.image === "string" ? /^data:(image\/(?:jpeg|png|webp));base64,([A-Za-z0-9+/=]+)$/.exec(body.image) : null;
   const find = typeof body?.find === "string" ? body.find.trim().slice(0, 80) : "";
   const question = typeof body?.question === "string" ? body.question.trim().slice(0, 300) : "";
@@ -31,9 +31,10 @@ export async function POST(request: Request) {
   try {
     client ??= new AnthropicModelClient();
     // A question about the picture gets the manual's own words for what may be in it (which
-    // indicator is which), so the answer names things the way the manual does.
-    const passages = question ? (await liveLookup(kb.index, question, embedder())).passages.slice(0, 3) : undefined;
-    const look = await lookAtPicture(client, { image: { mediaType: image[1] as "image/jpeg", data: image[2] }, find: find || undefined, pointing, question: question || undefined, passages });
+    // indicator is which). By keywords only: no waiting for the meaning search here.
+    const passages = question ? (await liveLookup(kb.index, question, null)).passages.slice(0, 3) : undefined;
+    const language = LIVE_LANGUAGES[liveLanguage((await (await envStore()).getSettings()).language)].name;
+    const look = await lookAtPicture(client, { image: { mediaType: image[1] as "image/jpeg", data: image[2] }, find: find || undefined, pointing, question: question || undefined, ring: body?.ring === true, language, passages });
     const ms = Date.now() - started;
     log.info("live.look", { env: envId, kb: kb.meta.id, mode, ms, visible: look.visible, quality: look.quality });
     if (ms > 6000) log.warn("live.look_slow", { env: envId, kb: kb.meta.id, ms });

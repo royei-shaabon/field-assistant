@@ -14,6 +14,10 @@ export type LookRequest = {
   find?: string;
   pointing?: boolean;
   question?: string;
+  // The technician touched the picture: a ring is drawn there, and the part asked about is in it.
+  ring?: boolean;
+  // The language `name` and `seen` are written in (English name, e.g. "Hebrew").
+  language?: string;
   // Passages of the manual that may name what is in the picture (reference, not instructions).
   passages?: { source: string; text: string }[];
 };
@@ -61,8 +65,9 @@ export async function lookAtPicture(client: ModelClient, request: LookRequest): 
     schema,
     content: [
       { type: "image", mediaType: request.image.mediaType, data: request.image.data },
-      { type: "text", text: `${size ? `The picture is ${size.width} by ${size.height} pixels.\n` : ""}${ask}${reference}` },
+      { type: "text", text: `${size ? `The picture is ${size.width} by ${size.height} pixels.\n` : ""}${request.language ? `Write name and seen in ${request.language}.\n` : ""}${request.ring ? "ring: the technician touched the picture and an orange ring is drawn at that spot.\n" : ""}${ask}${reference}` },
     ],
+    direct: true,
   });
   try {
     return checkedLook(JSON.parse(response.text ?? ""), size);

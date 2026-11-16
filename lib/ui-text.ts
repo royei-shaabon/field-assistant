@@ -347,6 +347,8 @@ export const T = {
       preparing: "מכין את הדוגמה…",
       failed: "ההשמעה נכשלה.",
       off: "השיחה החיה כבויה בשרת (חסר GEMINI_API_KEY).",
+      language: "שפת השיחה",
+      languageHint: "השפה שהטכנאים מדברים. העוזר מצפה רק לה ועונה רק בה.",
     },
     voice: {
       title: "קול גיבוי",

@@ -3,24 +3,29 @@ import { envStore } from "@/lib/server/env";
 import { createHash } from "node:crypto";
 import { forbidden, isAdmin } from "@/lib/server/admin-auth";
 import { allow, clientKey, LIMITS, tooLarge, tooMany } from "@/lib/server/rate-limit";
-import { isLiveVoice, LIVE_VOICES, liveSample, liveVoice } from "@/lib/voice/live";
+import { isLiveLanguage, isLiveVoice, LIVE_LANGUAGES, LIVE_VOICES, liveLanguage, liveSample, liveVoice } from "@/lib/voice/live";
 
 // The live call's voices: the list, the one in use, and a spoken sample of each.
 export async function GET() {
   if (!(await isAdmin())) return forbidden();
-  const current = liveVoice((await (await envStore()).getSettings()).liveVoice);
-  return Response.json({ enabled: Boolean(process.env.GEMINI_API_KEY), current, voices: LIVE_VOICES }, { headers: { "Cache-Control": "no-store" } });
+  const settings = await (await envStore()).getSettings();
+  const languages = Object.entries(LIVE_LANGUAGES).map(([code, l]) => ({ code, name: l.native }));
+  return Response.json({ enabled: Boolean(process.env.GEMINI_API_KEY), current: liveVoice(settings.liveVoice), voices: LIVE_VOICES, language: liveLanguage(settings.language), languages }, { headers: { "Cache-Control": "no-store" } });
 }
 
+// Chooses the voice, or the language of this environment's calls.
 export async function PUT(request: Request) {
   if (!(await isAdmin())) return forbidden();
   if (!allow(`voice:${clientKey(request)}`, LIMITS.upload)) return tooMany();
   if (tooLarge(request, 1000)) return Response.json({ error: "too large" }, { status: 413 });
-  const body = (await request.json().catch(() => null)) as { voice?: unknown } | null;
-  if (!isLiveVoice(body?.voice)) return Response.json({ error: "voice" }, { status: 400 });
+  const body = (await request.json().catch(() => null)) as { voice?: unknown; language?: unknown } | null;
+  const voice = isLiveVoice(body?.voice) ? body.voice : undefined;
+  const language = isLiveLanguage(body?.language) ? body.language : undefined;
+  if (!voice && !language) return Response.json({ error: "voice" }, { status: 400 });
   const store = await envStore();
-  await store.putSettings({ ...(await store.getSettings()), liveVoice: body.voice });
-  return Response.json({ current: body.voice });
+  const settings = await store.getSettings();
+  await store.putSettings({ ...settings, ...(voice ? { liveVoice: voice } : {}), ...(language ? { language } : {}) });
+  return Response.json({ current: voice ?? liveVoice(settings.liveVoice), language: language ?? liveLanguage(settings.language) });
 }
 
 // A sample: the live model says the sentence in that voice. Kept, so each voice and sentence is made once.

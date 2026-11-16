@@ -1,7 +1,7 @@
 import { currentEnvId, envStore } from "@/lib/server/env";
 import { log } from "@/lib/server/log";
 import { activity } from "@/lib/store";
-import { createLiveToken, liveSetup, liveSocketUrl, LIVE_MODEL } from "@/lib/voice/live";
+import { createLiveToken, liveLanguage, liveSetup, liveSocketUrl, LIVE_MODEL } from "@/lib/voice/live";
 import { needsCode, technicianAllowed } from "@/lib/server/access";
 import { isAdmin } from "@/lib/server/admin-auth";
 import { loadDocKb } from "@/lib/server/kbs";
@@ -21,11 +21,18 @@ export async function POST(request: Request) {
   const envId = await currentEnvId();
   const started = Date.now();
   try {
-    // The voice the implementer chose in /admin.
-    const token = await createLiveToken(key, liveSetup(kb.meta.name, (await (await envStore()).getSettings()).liveVoice, body?.video === true));
-    log.info("live.token", { env: envId, kb: kb.meta.id, video: body?.video === true, ms: Date.now() - started });
+    // The voice and the language the implementer chose in /admin.
+    const settings = await (await envStore()).getSettings();
+    const language = liveLanguage(settings.language);
+    const setup = (hints: boolean) => liveSetup(kb.meta.name, settings.liveVoice, body?.video === true, language, hints);
+    // If the model refuses the speech recognition hints, the call still starts, without them.
+    const token = await createLiveToken(key, setup(true)).catch((e) => {
+      log.warn("live.hints_refused", { env: envId, error: (e as Error).message.slice(0, 200) });
+      return createLiveToken(key, setup(false));
+    });
+    log.info("live.token", { env: envId, kb: kb.meta.id, language, video: body?.video === true, ms: Date.now() - started });
     await activity(envId).measure((day) => void day.calls++).catch(() => {});
-    return Response.json({ url: liveSocketUrl(token), model: LIVE_MODEL() }, { headers: { "Cache-Control": "no-store" } });
+    return Response.json({ url: liveSocketUrl(token), model: LIVE_MODEL(), language }, { headers: { "Cache-Control": "no-store" } });
   } catch (e) {
     log.error("live.token_failed", e, { env: envId, kb: kb.meta.id, ms: Date.now() - started });
     // The provider's message (never the key) for the implementer; technicians get the fallback.

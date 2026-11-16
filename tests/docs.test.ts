@@ -10,9 +10,10 @@ import { agentSkills, loadAgentSkills, runSearch } from "../lib/docs/agent-skill
 import { normalize, VertexEmbedder, type Embedder } from "../lib/docs/embed";
 import { indexDoc } from "../lib/docs/semantic";
 import { forVoice, liveToolResult, partialSpeech } from "../lib/speech";
-import { createLiveToken, isLiveVoice, LIVE_VOICE, LIVE_VOICES, liveSample, liveSetup, liveSocketUrl, liveVoice, LIVE_LOOK_TOOL, LIVE_MARK_TOOL, LIVE_TOOL } from "../lib/voice/live";
+import { createLiveToken, isLiveVoice, LIVE_VOICE, LIVE_VOICES, liveSample, liveSetup, liveSocketUrl, liveVoice, liveLanguage, LIVE_LANGUAGES, LIVE_LOOK_TOOL, LIVE_MARK_TOOL, LIVE_TOOL } from "../lib/voice/live";
 import { checkedLook } from "../lib/voice/look";
 import { cleanSurvey } from "../lib/survey";
+import { locate, LOST, templateAt, type Gray } from "../lib/client/track";
 import { Activity, lastDays } from "../lib/store/activity";
 import { EnvRegistry, PrefixDriver, secretMatches, MAIN_ENV } from "../lib/store/envs";
 import { envIdFrom, envIdFromPath } from "../lib/server/env";
@@ -1129,4 +1130,51 @@ test("activity: questions are written down, counted by day, and a removed conver
   assert.ok(records[1].removedAt, "still in the log, marked as removed");
   assert.deepEqual(records[1].steps, ["SAMPLE שלב"]);
   assert.deepEqual(lastDays(3, now), ["2026-11-14", "2026-11-15", "2026-11-16"]);
+});
+
+test("call language: the setup names one language, tells the recogniser to expect it, and an unknown code falls back to Hebrew", () => {
+  const text = (setup: Record<string, unknown>) => (setup.systemInstruction as { parts: { text: string }[] }).parts[0].text;
+  const he = liveSetup("SAMPLE מכונה");
+  assert.match(text(he), /this call is in Hebrew only/);
+  assert.match(text(he), /never answer in another language/);
+  assert.deepEqual(he.inputAudioTranscription, { languageCodes: ["he"], customVocabulary: ["SAMPLE מכונה"] });
+  const ru = liveSetup("SAMPLE", undefined, false, "ru");
+  assert.match(text(ru), /this call is in Russian only/);
+  assert.doesNotMatch(text(ru), /Hebrew/);
+  assert.deepEqual((ru.inputAudioTranscription as { languageCodes: string[] }).languageCodes, ["ru"]);
+  assert.deepEqual(liveSetup("SAMPLE", undefined, false, "he", false).inputAudioTranscription, {}, "without the hints, for a model that refuses them");
+  assert.equal(liveLanguage("de"), "he");
+  assert.equal(liveLanguage("ar"), "ar");
+  assert.deepEqual(Object.keys(LIVE_LANGUAGES), ["he", "en", "ru", "ar"]);
+});
+
+test("mark following: a patch is found again after the picture moves, and is lost when the part is gone", () => {
+  // A picture with texture: every pixel differs from its neighbours in a fixed, non-repeating way.
+  const picture = (shiftX: number, shiftY: number): Gray => {
+    const w = 120;
+    const h = 160;
+    const data = new Uint8Array(w * h);
+    for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) data[y * w + x] = (Math.sin((x - shiftX) * 0.9) * Math.cos((y - shiftY) * 0.7) * 60 + ((x - shiftX) * 7 + (y - shiftY) * 13) % 61) + 100;
+    return { data, w, h };
+  };
+  const before = picture(0, 0);
+  const template = templateAt(before, 60, 80)!;
+  assert.ok(template);
+  const same = locate(before, template, 60, 80, 9);
+  assert.deepEqual([same.x, same.y], [60, 80]);
+  assert.ok(same.score < 1);
+  // The camera moved: everything is 5 pixels right and 3 down.
+  const moved = locate(picture(5, 3), template, 60, 80, 9);
+  assert.deepEqual([moved.x, moved.y], [65, 83]);
+  assert.ok(moved.score <= LOST);
+  // A change of light does not lose it.
+  const brighter = picture(5, 3);
+  brighter.data.forEach((v, i) => (brighter.data[i] = Math.min(255, v + 30)));
+  assert.deepEqual([locate(brighter, template, 60, 80, 9).x, locate(brighter, template, 60, 80, 9).y], [65, 83]);
+  // Something else is there now: not found.
+  const other: Gray = { data: new Uint8Array(120 * 160).map((_, i) => (i * 37) % 251), w: 120, h: 160 };
+  assert.ok(locate(other, template, 60, 80, 9).score > LOST);
+  // Nothing to hold on to on a blank surface, and nothing outside the picture.
+  assert.equal(templateAt({ data: new Uint8Array(120 * 160).fill(90), w: 120, h: 160 }, 60, 80), null);
+  assert.equal(templateAt(before, 3, 3), null);
 });

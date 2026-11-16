@@ -16,6 +16,9 @@ export type ModelRequest = {
   schema: Record<string, unknown>;
   // Run on FAST_MODEL.
   fast?: boolean;
+  // On the main model, answer at once without thinking first: for a look at one picture
+  // during a call, where every second is heard as silence.
+  direct?: boolean;
 };
 
 // text is null when the model produced no usable text (refusal, max_tokens, empty).
@@ -96,7 +99,7 @@ type Params = Anthropic.Beta.Messages.MessageCreateParamsNonStreaming;
 const withQuick = (params: Params, kind: keyof typeof QUICK): Params => ({ ...params, ...(QUICK[kind] as unknown as Partial<Params>) });
 
 export class AnthropicModelClient implements ModelClient {
-  private quick = { turn: true, fast: true };
+  private quick = { turn: true, fast: true, direct: true };
 
   private client: Anthropic;
 
@@ -106,12 +109,14 @@ export class AnthropicModelClient implements ModelClient {
 
   async complete(request: ModelRequest): Promise<ModelResponse> {
     const base = buildMessageParams(request);
+    // Which "answer at once" setting applies; each is dropped by itself if the API refuses it.
+    const kind = request.fast ? "fast" : request.direct ? "direct" : null;
     let response;
     try {
-      response = await this.client.beta.messages.create(request.fast && this.quick.fast ? withQuick(base, "fast") : base);
+      response = await this.client.beta.messages.create(kind && this.quick[kind] ? withQuick(base, "fast") : base);
     } catch (e) {
-      if (!(request.fast && this.quick.fast && e instanceof Anthropic.BadRequestError)) throw e;
-      this.quick.fast = false;
+      if (!(kind && this.quick[kind] && e instanceof Anthropic.BadRequestError)) throw e;
+      this.quick[kind] = false;
       response = await this.client.beta.messages.create(base);
     }
     if (response.stop_reason !== "end_turn") return { text: null, stopReason: response.stop_reason };

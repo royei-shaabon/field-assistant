@@ -170,7 +170,7 @@ function UsageTiles({ usage }: { usage: Usage }) {
   );
 }
 
-type LiveVoices = { enabled: boolean; current: string; voices: { name: string; label: string; gender: "male" | "female"; style: string }[] };
+type LiveVoices = { enabled: boolean; current: string; language: string; languages: { code: string; name: string }[]; voices: { name: string; label: string; gender: "male" | "female"; style: string }[] };
 
 // The live call's voice: every voice has a Hebrew name, a play button and a choose button.
 // The sample is the live model itself, so what is heard here is what a technician hears.
@@ -211,9 +211,25 @@ function LiveVoicePicker() {
     if (res?.ok) setList((l) => l && { ...l, current: voice });
     else setProblem(A.errors.generic);
   };
+  const setLanguage = async (language: string) => {
+    const res = await fetch("/api/admin/voice/live", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ language }) }).catch(() => null);
+    if (res?.ok) setList((l) => l && { ...l, language });
+    else setProblem(A.errors.generic);
+  };
   if (!list) return null;
   return (
     <section className="flex flex-col gap-3">
+      <label className="flex flex-col gap-1.5 rounded-[10px] border border-rule bg-paper px-4 py-3">
+        <span className="text-[15px] font-bold">{A.liveVoice.language}</span>
+        <span className="text-[13px] text-stone">{A.liveVoice.languageHint}</span>
+        <select value={list.language} onChange={(e) => void setLanguage(e.target.value)} className="mt-1 h-11 w-56 rounded-[8px] border border-edge bg-paper px-2.5 text-[15px]">
+          {list.languages.map((l) => (
+            <option key={l.code} value={l.code}>
+              {l.name}
+            </option>
+          ))}
+        </select>
+      </label>
       <div>
         <h2 className="text-[17px] font-bold">{A.liveVoice.title}</h2>
         <p className="text-[14px] text-stone">{list.enabled ? A.liveVoice.lead : A.liveVoice.off}</p>
