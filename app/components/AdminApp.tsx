@@ -5,7 +5,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { DocMeta, DocOrigin, KbMeta, Usage } from "@/lib/store/types";
 import { T } from "@/lib/ui-text";
-import { CheckIcon, CloseIcon, DocIcon, PlusIcon, WarningIcon } from "./icons";
+import { BRAND } from "@/lib/brand";
+import { CheckIcon, CloseIcon, DocIcon, LockIcon, PlusIcon, WarningIcon } from "./icons";
 import { Logo } from "./Logo";
 import { SILENCE } from "@/lib/client/voice";
 
@@ -15,6 +16,8 @@ type Kb = KbMeta & { docs: Doc[]; usage: Usage };
 type Upload = { id: number; name: string; state: "working" | "done" | "error"; message?: string };
 
 const A = T.admin;
+const PAGES = ["overview", "kbs", "quality", "system"] as const;
+type Page = (typeof PAGES)[number];
 const ACCEPT = ".pdf,.docx,.txt,.md,.csv,.json,.html,.htm";
 
 function size(bytes: number): string {
@@ -540,6 +543,7 @@ export function AdminApp() {
   const [editing, setEditing] = useState(false);
   const [copied, setCopied] = useState(false);
   const [error, setError] = useState(false);
+  const [page, setPage] = useState<Page>("overview");
 
   const load = useCallback(async () => {
     const res = await fetch("/api/admin/kbs").catch(() => null);
@@ -569,6 +573,11 @@ export function AdminApp() {
   const kb = kbs.find((k) => k.id === selected);
   const link = kb && typeof window !== "undefined" ? `${window.location.origin}/?kb=${kb.id}` : "";
 
+  const signOut = async () => {
+    await fetch("/api/admin/login", { method: "DELETE" }).catch(() => {});
+    window.location.reload();
+  };
+
   const call = async (url: string, method: string, body?: object) => {
     setError(false);
     const res = await fetch(url, { method, headers: { "Content-Type": "application/json" }, body: body ? JSON.stringify(body) : undefined }).catch(() => null);
@@ -576,72 +585,130 @@ export function AdminApp() {
     return res?.ok ? ((await res.json()) as { kb?: Kb }) : null;
   };
 
+  const totals = kbs.reduce(
+    (t, k) => ({ questions: t.questions + k.usage.questions, answer: t.answer + k.usage.answer, none: t.none + k.usage.not_found + k.usage.ideas, ask: t.ask + k.usage.ask }),
+    { questions: 0, answer: 0, none: 0, ask: 0 },
+  );
+  const go = (to: Page) => (setPage(to), setCreating(false), setEditing(false));
+
+  const kbPicker = kbs.length > 1 && (
+    <label className="flex items-center gap-2 text-[14px] text-graphite">
+      <span>{A.switchKb}</span>
+      <select value={selected} onChange={(e) => (setSelected(e.target.value), setCreating(false), setEditing(false))} className="h-10 rounded-[8px] border border-edge bg-paper px-2.5 text-[15px] text-ink">
+        {kbs.map((k) => (
+          <option key={k.id} value={k.id}>
+            {k.name}
+          </option>
+        ))}
+      </select>
+    </label>
+  );
+
   return (
-    <div className="mx-auto flex min-h-dvh max-w-5xl flex-col px-4 pb-10 sm:px-6">
-      <header className="flex h-16 items-center justify-between">
-        <div className="flex items-center gap-2.5">
-          <Logo size={32} />
-          <span aria-hidden className="h-6 w-px bg-rule" />
-          <h1 className="text-lg font-semibold">{A.title}</h1>
+    <div className="flex min-h-dvh flex-col bg-side md:flex-row">
+      <aside className="flex shrink-0 flex-col border-b border-rule bg-side md:sticky md:top-0 md:h-dvh md:w-[248px] md:border-b-0 md:border-e">
+        <div className="flex items-center justify-between gap-3 px-5 pb-3 pt-5">
+          <div className="flex flex-col gap-1.5">
+            <Logo size={30} />
+            <span className="font-mono text-[13px] text-stone">{A.workspace}</span>
+          </div>
         </div>
-        <div className="flex items-center gap-1">
-          <a href={kb ? `/?kb=${kb.id}` : "/"} className="rounded-xl px-3 py-2 text-[15px] text-graphite active:bg-mist">
+        <nav aria-label={A.workspace} className="flex gap-1 overflow-x-auto px-3 pb-3 md:flex-col md:pb-0">
+          {PAGES.map((p) => (
+            <button
+              key={p}
+              onClick={() => go(p)}
+              aria-current={page === p ? "page" : undefined}
+              className={`h-11 shrink-0 rounded-[8px] px-3 text-start text-[15px] md:rounded-s-none md:border-s-[3px] ${page === p ? "bg-side-on font-semibold text-ink md:border-primary" : "text-graphite hover:bg-side-on/60 md:border-transparent"}`}
+            >
+              {A.nav[p]}
+            </button>
+          ))}
+        </nav>
+        <div className="mt-auto hidden flex-col gap-1 border-t border-rule p-4 md:flex">
+          <p dir="ltr" className="text-end font-mono text-[13px] text-stone">
+            {BRAND.name} Workspace
+          </p>
+          <a href={kb ? `/?kb=${kb.id}` : "/"} className="rounded-[8px] px-2 py-2 text-[14px] text-graphite hover:bg-side-on">
             {A.toChat}
           </a>
-          <button
-            onClick={async () => {
-              await fetch("/api/admin/login", { method: "DELETE" }).catch(() => {});
-              window.location.reload();
-            }}
-            className="rounded-xl px-3 py-2 text-[15px] text-graphite active:bg-mist"
-          >
+          <button onClick={signOut} className="rounded-[8px] px-2 py-2 text-start text-[14px] text-graphite hover:bg-side-on">
             {A.signOut}
           </button>
         </div>
-      </header>
-      <p className="max-w-2xl pb-5 text-[15px] leading-6 text-graphite">{A.lead}</p>
+      </aside>
 
-      {!ai && (
-        <p className="mb-5 flex items-start gap-2.5 rounded-[14px] bg-signal-soft px-3.5 py-3 text-[15px] leading-6">
-          <WarningIcon className="mt-0.5 h-5 w-5 shrink-0" />
-          <span>{A.noAi}</span>
-        </p>
-      )}
-      {error && (
-        <p role="alert" className="mb-5 rounded-[14px] border border-danger px-3.5 py-3 text-[15px] text-danger-ink">
-          {A.errors.generic}
-        </p>
-      )}
-
-      <div className="grid gap-6 md:grid-cols-[280px_1fr]">
-        <nav aria-label={T.doc.kb} className="flex flex-col gap-2">
-          {kbs.map((k) => (
-            <button
-              key={k.id}
-              onClick={() => (setSelected(k.id), setCreating(false), setEditing(false))}
-              aria-current={k.id === selected}
-              className={`flex flex-col gap-0.5 rounded-[14px] border px-3.5 py-3 text-start ${k.id === selected && !creating ? "border-primary border-s-4 bg-mist" : "border-rule active:bg-mist"}`}
-            >
-              <span className="text-[15px] font-medium">{k.name}</span>
-              <span className="text-[13px] text-stone">
-                {k.docs.length ? (
-                  <>
-                    <span className="font-mono">{k.docs.length}</span> <span>{T.doc.documents}</span>
-                  </>
-                ) : (
-                  T.doc.noDocuments
-                )}
-              </span>
+      <main className="flex min-w-0 flex-1 flex-col gap-6 bg-canvas px-5 pb-12 pt-7 md:px-10">
+        <div className="flex flex-wrap items-end justify-between gap-3 border-b border-rule pb-5">
+          <div>
+            <h1 className="text-[28px] font-extrabold leading-[34px] tracking-[-0.035em]">{A.nav[page]}</h1>
+            <p className="pt-1 text-[15px] text-stone">{A.sub[page]}</p>
+          </div>
+          {page === "kbs" && !creating && (
+            <button onClick={() => setCreating(true)} className="flex h-11 items-center gap-2 rounded-[9px] bg-primary px-4 text-[15px] font-medium text-white hover:bg-primary-strong">
+              <PlusIcon className="h-5 w-5" />
+              <span>{A.newKb}</span>
             </button>
-          ))}
-          <button onClick={() => setCreating(true)} className="flex h-12 items-center gap-2.5 rounded-[14px] px-3.5 text-[15px] font-medium active:bg-mist">
-            <PlusIcon />
-            <span>{A.newKb}</span>
-          </button>
-        </nav>
+          )}
+          <div className="flex gap-1 md:hidden">
+            <a href={kb ? `/?kb=${kb.id}` : "/"} className="rounded-[8px] px-3 py-2 text-[14px] text-graphite">
+              {A.toChat}
+            </a>
+            <button onClick={signOut} className="rounded-[8px] px-3 py-2 text-[14px] text-graphite">
+              {A.signOut}
+            </button>
+          </div>
+        </div>
 
-        <main className="flex min-w-0 flex-col gap-6">
-          {creating ? (
+        {!ai && (
+          <p className="flex items-start gap-2.5 rounded-[10px] border border-signal bg-signal-soft px-3.5 py-3 text-[15px] leading-6">
+            <WarningIcon className="mt-0.5 h-5 w-5 shrink-0 text-warn" />
+            <span>{A.noAi}</span>
+          </p>
+        )}
+        {error && (
+          <p role="alert" className="rounded-[10px] border border-danger px-3.5 py-3 text-[15px] text-danger-ink">
+            {A.errors.generic}
+          </p>
+        )}
+
+        {page === "overview" && (
+          <>
+            <dl className="grid grid-cols-2 overflow-hidden rounded-[12px] border border-rule bg-paper lg:grid-cols-4">
+              {(Object.keys(totals) as (keyof typeof totals)[]).map((key, i) => (
+                <div key={key} className={`flex flex-col gap-1 px-5 py-5 ${i % 2 ? "border-s border-rule" : ""} ${i >= 2 ? "border-t border-rule lg:border-t-0" : ""} ${i === 2 ? "lg:border-s" : ""}`}>
+                  <dt className="text-[13px] text-stone">{A.totals[key]}</dt>
+                  <dd className={`font-mono text-[30px] font-medium leading-9 ${key === "answer" ? "text-ok" : ""}`}>{totals[key]}</dd>
+                </div>
+              ))}
+            </dl>
+            <section className="flex flex-col gap-2">
+              <h2 className="text-[17px] font-bold">{A.activeKbs}</h2>
+              <ul className="overflow-hidden rounded-[12px] border border-rule bg-paper">
+                {kbs.map((k) => (
+                  <li key={k.id} className="flex items-center gap-3 border-b border-rule-soft px-4 py-3 last:border-b-0">
+                    <span className="grid h-9 w-9 shrink-0 place-items-center rounded-[8px] bg-primary-soft text-primary">
+                      <DocIcon className="h-5 w-5" />
+                    </span>
+                    <span className="min-w-0 flex-1">
+                      <bdi className="block truncate text-[15px] font-semibold">{k.name}</bdi>
+                      <span className="block text-[13px] text-stone">
+                        <span className="font-mono">{k.docs.length}</span> <span>{T.doc.documents}</span> · <span className="font-mono">{k.usage.questions}</span> <span>{A.totals.questions}</span>
+                      </span>
+                    </span>
+                    <button onClick={() => (setSelected(k.id), go("kbs"))} className="h-10 rounded-[8px] border border-edge px-3.5 text-[14px] font-medium hover:bg-mist">
+                      {A.openKb}
+                    </button>
+                  </li>
+                ))}
+                {kbs.length === 0 && <li className="px-4 py-4 text-[15px] text-stone">{A.noDocs}</li>}
+              </ul>
+            </section>
+          </>
+        )}
+
+        {page === "kbs" &&
+          (creating ? (
             <KbForm
               submit={A.create}
               onCancel={() => setCreating(false)}
@@ -669,30 +736,19 @@ export function AdminApp() {
                   }}
                 />
               ) : (
-                <section className="flex flex-col gap-3">
+                <section className="flex flex-col gap-4 rounded-[12px] border border-rule bg-paper p-5">
                   <div className="flex flex-wrap items-start justify-between gap-3">
                     <div className="min-w-0">
-                      <h2 className="text-2xl font-semibold leading-8">{kb.name}</h2>
+                      <p className="text-[13px] text-stone">{T.doc.kb}</p>
+                      <h2 className="text-[22px] font-bold leading-8 tracking-[-0.02em]">
+                        <bdi>{kb.name}</bdi>
+                      </h2>
                       {kb.description && <p className="text-[15px] text-graphite">{kb.description}</p>}
                       {kb.ideas === false && <p className="text-sm text-graphite">{A.ideasOff}</p>}
                     </div>
-                    <div className="flex gap-1">
-                      <button onClick={() => setEditing(true)} className="rounded-lg px-3 py-2 text-sm text-graphite active:bg-mist">
-                        {A.rename}
-                      </button>
-                      <button
-                        onClick={async () => {
-                          if (!window.confirm(A.confirmDeleteKb)) return;
-                          if (await call(`/api/admin/kbs/${kb.id}`, "DELETE")) await load();
-                        }}
-                        className="flex items-center gap-1 rounded-lg px-3 py-2 text-sm text-danger-ink active:bg-mist"
-                      >
-                        <CloseIcon className="h-4 w-4" />
-                        <span>{A.deleteKb}</span>
-                      </button>
-                    </div>
+                    {kbPicker}
                   </div>
-                  <div className="flex items-center gap-2 rounded-[14px] bg-mist py-1.5 pe-1.5 ps-3.5">
+                  <div className="flex items-center gap-2 rounded-[10px] border border-rule bg-mist py-1.5 pe-1.5 ps-3.5">
                     <span className="shrink-0 text-[13px] font-medium text-graphite">{A.technicianLink}</span>
                     <span dir="ltr" className="min-w-0 flex-1 truncate text-start font-mono text-[13px]">
                       {link}
@@ -703,9 +759,24 @@ export function AdminApp() {
                         setCopied(true);
                         setTimeout(() => setCopied(false), 1500);
                       }}
-                      className="h-9 shrink-0 rounded-[10px] bg-paper px-3.5 text-sm font-medium"
+                      className="h-9 shrink-0 rounded-[8px] border border-edge bg-paper px-3.5 text-sm font-medium"
                     >
                       {copied ? A.copied : A.copy}
+                    </button>
+                  </div>
+                  <div className="flex flex-wrap gap-1">
+                    <button onClick={() => setEditing(true)} className="h-10 rounded-[8px] border border-edge px-3.5 text-sm font-medium hover:bg-mist">
+                      {A.rename}
+                    </button>
+                    <button
+                      onClick={async () => {
+                        if (!window.confirm(A.confirmDeleteKb)) return;
+                        if (await call(`/api/admin/kbs/${kb.id}`, "DELETE")) await load();
+                      }}
+                      className="flex h-10 items-center gap-1 rounded-[8px] px-3 text-sm text-danger-ink hover:bg-mist"
+                    >
+                      <CloseIcon className="h-4 w-4" />
+                      <span>{A.deleteKb}</span>
                     </button>
                   </div>
                 </section>
@@ -713,16 +784,29 @@ export function AdminApp() {
               {!accessCode && <p className="text-[13px] leading-5 text-stone">{A.openAccess}</p>}
               <p className="text-[13px] leading-5 text-stone">{embeddings ? <><span>{A.semantic.on}</span> <span dir="ltr" className="font-mono">{embeddings}</span></> : A.semantic.off}</p>
               <Documents key={kb.id} kb={kb} embeddings={embeddings} onChanged={load} />
-              <UsageTiles usage={kb.usage} />
-              <section className="flex flex-col gap-2.5 border-t border-rule pt-6">
-                <h3 className="text-[17px] font-semibold">{A.system}</h3>
-                <Diagnose />
-                <VoicePicker />
-              </section>
             </>
-          ) : null}
-        </main>
-      </div>
+          ) : (
+            <p className="text-[15px] text-stone">{A.noDocs}</p>
+          ))}
+
+        {page === "quality" && (
+          <>
+            {kbPicker}
+            {kb && <UsageTiles usage={kb.usage} />}
+            <p className="flex items-start gap-2.5 rounded-[10px] border border-rule bg-paper px-4 py-3 text-[14px] leading-[21px] text-graphite">
+              <LockIcon className="mt-0.5 h-5 w-5 shrink-0 text-stone" />
+              <span>{A.privacy}</span>
+            </p>
+          </>
+        )}
+
+        {page === "system" && (
+          <section className="flex flex-col gap-6">
+            <Diagnose />
+            <VoicePicker />
+          </section>
+        )}
+      </main>
     </div>
   );
 }

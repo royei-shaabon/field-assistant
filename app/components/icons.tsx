@@ -1,10 +1,10 @@
-// Line icons on a 24px grid: one stroke weight (2) and one default size (24px), so an icon next
+// Line icons on a 24px grid: one stroke weight (1.8) and one default size (24px), so an icon next
 // to a label has the same visual weight as the text.
 type P = { className?: string };
 
 function Svg({ className = "h-6 w-6", children }: P & { children: React.ReactNode }) {
   return (
-    <svg aria-hidden viewBox="0 0 24 24" className={className} fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <svg aria-hidden viewBox="0 0 24 24" className={className} fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
       {children}
     </svg>
   );
