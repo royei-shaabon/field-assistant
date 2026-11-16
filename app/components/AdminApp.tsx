@@ -7,6 +7,7 @@ import type { DocMeta, DocOrigin, KbMeta, Usage } from "@/lib/store/types";
 import { T } from "@/lib/ui-text";
 import { CheckIcon, CloseIcon, DocIcon, PlusIcon, WarningIcon } from "./icons";
 import { Logo } from "./Logo";
+import { SILENCE } from "@/lib/client/voice";
 
 // `indexed`: how many passages of the document can be searched by meaning.
 type Doc = DocMeta & { indexed?: number };
@@ -179,16 +180,27 @@ function VoicePicker() {
     setList(res?.ok ? ((await res.json()) as VoiceList) : { enabled: true, current: "", voices: [], error: A.errors.generic });
     setBusy(null);
   };
+  const [heardIn, setHeardIn] = useState<string | null>(null);
   const play = async (voice: string) => {
+    // Created and started inside the tap: a phone (an iPhone above all) refuses to play a sound
+    // that only starts after the network wait.
+    const audio = new Audio(SILENCE);
+    void audio.play().catch(() => {});
     setBusy(voice);
     setProblem(null);
+    setHeardIn(null);
     const res = await fetch("/api/voice/speak", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ text, voice }) }).catch(() => null);
     if (res?.ok) {
       const url = URL.createObjectURL(await res.blob());
-      const audio = new Audio(url);
+      const ms = Number(res.headers.get("X-Voice-Ms"));
+      setHeardIn(ms > 0 ? `${voice.replace(/^[a-z]+:/, "")} · ${(ms / 1000).toFixed(1)}s` : null);
       audio.onended = () => URL.revokeObjectURL(url);
-      await audio.play().catch(() => setProblem(A.voice.failed));
-    } else setProblem(A.voice.failed);
+      audio.src = url;
+      await audio.play().catch((e: Error) => setProblem(`${A.voice.failed} ${e.name}`));
+    } else {
+      const body = (await res?.json().catch(() => null)) as { detail?: string } | null;
+      setProblem(body?.detail ? `${A.voice.failed} ${body.detail}` : A.voice.failed);
+    }
     setBusy(null);
   };
   const choose = async (voice: string) => {
@@ -255,8 +267,18 @@ function VoicePicker() {
               ),
             )}
           </ul>
+          {busy && busy !== "load" && (
+            <p role="status" className="text-sm text-graphite">
+              {A.voice.preparing}
+            </p>
+          )}
+          {heardIn && !busy && (
+            <p role="status" dir="ltr" className="text-start font-mono text-xs text-stone">
+              {heardIn}
+            </p>
+          )}
           {problem && (
-            <p role="alert" className="text-sm text-danger-ink">
+            <p role="alert" dir="auto" className="break-words text-sm text-danger-ink">
               {problem}
             </p>
           )}

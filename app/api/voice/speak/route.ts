@@ -18,19 +18,23 @@ export async function POST(request: Request) {
   const text = typeof body?.text === "string" ? body.text.trim().slice(0, MAX_SPOKEN_CHARS) : "";
   if (!text) return Response.json({ error: "text" }, { status: 400 });
   const store = kbStore();
+  const admin = await isAdmin();
   // Trying another voice is for the implementer's voice picker only.
-  const override = typeof body?.voice === "string" && VOICE_NAME.test(body.voice) && (await isAdmin()) ? body.voice : undefined;
+  const override = typeof body?.voice === "string" && VOICE_NAME.test(body.voice) && admin ? body.voice : undefined;
   const chosen = override ?? (await store.getSettings()).voice;
   const hash = createHash("sha256").update(text).digest("hex");
   const headers = { "Content-Type": "audio/mpeg", "Cache-Control": "private, max-age=86400" };
+  const started = Date.now();
   try {
     const cached = chosen ? await store.getAudio(chosen, hash) : null;
     if (cached) return new Response(new Uint8Array(cached), { headers });
     const { audio, voice } = await speak(service, text, chosen, defaultVoices(service));
     await store.putAudio(voice, hash, audio).catch(() => {});
-    return new Response(new Uint8Array(audio), { headers });
+    // How long the provider took, and which voice spoke: for the implementer's voice picker.
+    return new Response(new Uint8Array(audio), { headers: { ...headers, "X-Voice": voice, "X-Voice-Ms": String(Date.now() - started) } });
   } catch (e) {
     console.error("[speak]", (e as Error).message);
-    return Response.json({ error: "voice_failed" }, { status: 502 });
+    // The implementer sees the provider's message (it never holds a credential); technicians do not.
+    return Response.json({ error: "voice_failed", ...(admin ? { detail: (e as Error).message.slice(0, 400) } : {}) }, { status: 502 });
   }
 }
