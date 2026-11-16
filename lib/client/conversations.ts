@@ -4,8 +4,11 @@ import type { DocEvent } from "../docs/conversation";
 import type { Event } from "../orchestrator";
 import type { Screen } from "../screen";
 
-const KEY = "kb.conversations.v2";
-const SELECTED = "kb.selected";
+import { envSuffix } from "./env";
+
+// Per environment: a phone used with two customers keeps their conversations apart.
+const key = () => `kb.conversations.v2${envSuffix()}`;
+const selected = () => `kb.selected${envSuffix()}`;
 const KEEP = 20;
 // Removed conversations are kept too, without their pictures, up to what the phone's storage holds.
 const KEEP_HIDDEN = 200;
@@ -33,7 +36,7 @@ const CHANGED = "kb-conversations-changed";
 // For useSyncExternalStore: the raw stored string is the snapshot, so it compares stably.
 export function conversationsSnapshot(): string {
   try {
-    return localStorage.getItem(KEY) ?? "[]";
+    return localStorage.getItem(key()) ?? "[]";
   } catch {
     return "[]";
   }
@@ -70,7 +73,7 @@ function write(list: SavedConversation[]): void {
     .filter((c) => c.deletedAt)
     .slice(0, KEEP_HIDDEN)
     .map((x) => ({ ...x, media: undefined }));
-  const put = (items: SavedConversation[]) => localStorage.setItem(KEY, JSON.stringify(items));
+  const put = (items: SavedConversation[]) => localStorage.setItem(key(), JSON.stringify(items));
   try {
     put([...shown, ...hidden]);
   } catch {
@@ -106,7 +109,7 @@ export function caseNumber(id: string): string {
 // The knowledge base this technician last worked in.
 export function selectedKb(): string | null {
   try {
-    return localStorage.getItem(SELECTED);
+    return localStorage.getItem(selected());
   } catch {
     return null;
   }
@@ -114,7 +117,7 @@ export function selectedKb(): string | null {
 
 export function selectKb(id: string): void {
   try {
-    localStorage.setItem(SELECTED, id);
+    localStorage.setItem(selected(), id);
   } catch {
     // Not remembered; the first knowledge base is used next time.
   }

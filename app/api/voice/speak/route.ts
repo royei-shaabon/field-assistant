@@ -1,9 +1,10 @@
+import { log } from "@/lib/server/log";
+import { envStore } from "@/lib/server/env";
 import { createHash } from "node:crypto";
 import { defaultVoices, MAX_SPOKEN_CHARS, speak, VOICE_NAME, voiceService } from "@/lib/voice/tts";
 import { needsCode, technicianAllowed } from "@/lib/server/access";
 import { isAdmin } from "@/lib/server/admin-auth";
 import { allow, clientKey, LIMITS, tooLarge, tooMany } from "@/lib/server/rate-limit";
-import { kbStore } from "@/lib/store";
 
 // One spoken line of a call: text in, MP3 out. The same line in the same voice is synthesised
 // once and then served from the store.
@@ -17,7 +18,7 @@ export async function POST(request: Request) {
   const body = (await request.json().catch(() => null)) as { text?: unknown; voice?: unknown } | null;
   const text = typeof body?.text === "string" ? body.text.trim().slice(0, MAX_SPOKEN_CHARS) : "";
   if (!text) return Response.json({ error: "text" }, { status: 400 });
-  const store = kbStore();
+  const store = await envStore();
   const admin = await isAdmin();
   // Trying another voice is for the implementer's voice picker only.
   const override = typeof body?.voice === "string" && VOICE_NAME.test(body.voice) && admin ? body.voice : undefined;
@@ -33,7 +34,7 @@ export async function POST(request: Request) {
     // How long the provider took, and which voice spoke: for the implementer's voice picker.
     return new Response(new Uint8Array(audio), { headers: { ...headers, "X-Voice": voice, "X-Voice-Ms": String(Date.now() - started) } });
   } catch (e) {
-    console.error("[speak]", (e as Error).message);
+    log.error("speak.failed", e, { ms: Date.now() - started });
     // The implementer sees the provider's message (it never holds a credential); technicians do not.
     return Response.json({ error: "voice_failed", ...(admin ? { detail: (e as Error).message.slice(0, 400) } : {}) }, { status: 502 });
   }

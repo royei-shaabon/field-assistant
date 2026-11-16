@@ -5,14 +5,14 @@ import { codeMatches } from "../lib/server/access";
 import { passwordMatches } from "../lib/server/admin-auth";
 import { issueSession, validSession } from "../lib/server/session";
 
-test("only the exact code or password matches; nothing matches when none is configured", () => {
+test("only the exact code or password matches; nothing matches when none is configured", async () => {
   process.env.ACCESS_CODE = "4821";
   process.env.ADMIN_PASSWORD = "SAMPLE-secret";
-  assert.deepEqual([codeMatches("0000"), codeMatches(""), codeMatches(" 4821 "), codeMatches("48210")], [false, false, true, false]);
-  assert.deepEqual([passwordMatches("wrong"), passwordMatches("SAMPLE-secret"), passwordMatches("SAMPLE-secret ")], [false, true, false]);
+  assert.deepEqual(await Promise.all([codeMatches("0000"), codeMatches(""), codeMatches(" 4821 "), codeMatches("48210")]), [false, false, true, false]);
+  assert.deepEqual(await Promise.all([passwordMatches("wrong"), passwordMatches("SAMPLE-secret"), passwordMatches("SAMPLE-secret ")]), [false, true, false]);
   delete process.env.ACCESS_CODE;
   delete process.env.ADMIN_PASSWORD;
-  assert.deepEqual([codeMatches("4821"), passwordMatches("")], [false, false]);
+  assert.deepEqual(await Promise.all([codeMatches("4821"), passwordMatches("")]), [false, false]);
 });
 
 test("sessions: unique per sign-in, bound to their kind, expiring, and useless once the secret changes", () => {

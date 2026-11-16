@@ -8,6 +8,7 @@ import type { DocMeta, KbMeta } from "../store/types";
 import { askDocuments, hazardTopic, rankIdeas, validDocMarks, type AskInput, type AskProgress, type AskTiming, type FirstSearchMode, type DocResult, type PartialAnswer } from "./ask";
 import type { Embedder } from "./embed";
 import type { SearchIndex } from "./search";
+import { log } from "../server/log";
 
 export type DocEvent = { type: "DOC_TURN"; said?: string; media?: "photo" | "video"; frames?: number; result: DocResult };
 
@@ -174,7 +175,7 @@ export async function handleDocConversation(
     signal,
     live.onPartial,
   );
-  if (run.errors.length) console.error(`[ask ${kb.meta.id}]`, run.errors.join("; "));
+  if (run.errors.length) log.warn("ask.model_errors", { kb: kb.meta.id, errors: run.errors.join("; ").slice(0, 500) });
   live.onTiming?.(run.timing);
   const event: DocEvent = { type: "DOC_TURN", result: run.result, ...(said ? { said } : {}), ...(media ? { media, frames: images.length } : {}) };
   const next = [...events, event];

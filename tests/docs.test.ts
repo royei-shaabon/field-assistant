@@ -12,6 +12,10 @@ import { indexDoc } from "../lib/docs/semantic";
 import { forVoice, liveToolResult, partialSpeech } from "../lib/speech";
 import { createLiveToken, isLiveVoice, LIVE_VOICE, LIVE_VOICES, liveSample, liveSetup, liveSocketUrl, liveVoice, LIVE_MARK_TOOL, LIVE_TOOL } from "../lib/voice/live";
 import { markFromTool } from "../lib/client/live";
+import { Activity, lastDays } from "../lib/store/activity";
+import { EnvRegistry, PrefixDriver, secretMatches, MAIN_ENV } from "../lib/store/envs";
+import { envIdFrom, envIdFromPath } from "../lib/server/env";
+import { issueSession, validSession } from "../lib/server/session";
 import { deleteConversation, parseConversations, conversationsSnapshot, saveConversation, visibleConversations } from "../lib/client/conversations";
 import { liveLookup, LOOKUP_PASSAGES } from "../lib/voice/lookup";
 import { AzureVoice, ElevenVoice, GeminiVoice, GoogleVoice, speak, VoiceProviders, type VoiceService } from "../lib/voice/tts";
@@ -1051,4 +1055,65 @@ test("video call: the model can circle a part, only in a video call, and a bad b
   assert.equal(markFromTool({ label: "SAMPLE", box_2d: [400, 600, 100, 200] }), null, "upside down");
   assert.equal(markFromTool({ label: "", box_2d: [100, 200, 400, 600] }), null);
   assert.equal(markFromTool(null), null);
+});
+
+test("environments: each has its own data, passwords are kept as hashes, and main cannot be replaced", async () => {
+  const root = new FsDriver(fs.mkdtempSync(path.join(os.tmpdir(), "env-")));
+  const registry = new EnvRegistry(root);
+  assert.deepEqual((await registry.list()).map((e) => e.id), [MAIN_ENV]);
+  const env = await registry.create({ id: "sample-co", name: "SAMPLE לקוח", adminPassword: "sample-password", accessCode: "4321" });
+  assert.ok(secretMatches("sample-password", env.adminHash) && !secretMatches("other-password", env.adminHash));
+  assert.ok(secretMatches("4321", env.accessHash));
+  assert.ok(!(await root.read("envs.json"))!.toString().includes("sample-password"), "the password itself is never stored");
+  await assert.rejects(registry.create({ id: "sample-co", name: "x", adminPassword: "sample-password" }), /exists/);
+  await assert.rejects(registry.create({ id: MAIN_ENV, name: "x", adminPassword: "sample-password" }), /id/);
+  await assert.rejects(registry.create({ id: "../x", name: "x", adminPassword: "sample-password" }), /id/);
+  await assert.rejects(registry.create({ id: "short-pass", name: "x", adminPassword: "1234" }), /password/);
+  const off = await registry.update("sample-co", { accessCode: "", disabled: true });
+  assert.equal(off.accessHash, undefined);
+  assert.equal((await registry.get("sample-co"))?.disabled, true);
+
+  // The same knowledge base name in two environments: two separate stores.
+  const a = new KbStore(new PrefixDriver(root, "envs/sample-co/"));
+  const b = new KbStore(root);
+  await a.createKb({ name: "SAMPLE מכונה" });
+  assert.equal((await a.listKbs()).length, 1);
+  assert.equal((await b.listKbs()).length, 0, "the main environment does not see it");
+  assert.throws(() => new PrefixDriver(root, "envs/x/").read("../../envs.json"), /bad key/);
+});
+
+test("environments: the page's address names the environment, and a session opens one environment only", () => {
+  assert.equal(envIdFromPath("/e/sample-co/admin"), "sample-co");
+  assert.equal(envIdFromPath("/admin"), null);
+  assert.equal(envIdFromPath("/e/Bad_Id"), null);
+  assert.equal(envIdFrom(null, "https://x.example/e/sample-co?kb=1"), "sample-co");
+  assert.equal(envIdFrom(null, "https://x.example/admin"), MAIN_ENV);
+  assert.equal(envIdFrom(null, "not a url"), MAIN_ENV);
+  assert.equal(envIdFrom("other-co", "https://x.example/e/sample-co"), "other-co");
+
+  const now = Date.UTC(2026, 10, 16);
+  const main = issueSession("admin", now).token;
+  const customer = issueSession("admin", now, "sample-co").token;
+  assert.ok(validSession("admin", main, now));
+  assert.ok(validSession("admin", customer, now, "sample-co"));
+  assert.ok(!validSession("admin", customer, now), "a customer's session is not the main administrator's");
+  assert.ok(!validSession("admin", customer, now, "other-co"));
+  assert.ok(!validSession("admin", main, now, "sample-co"));
+  assert.ok(!validSession("admin", customer.replace(".sample-co.", ".other-co."), now, "other-co"), "the environment is signed");
+});
+
+test("activity: questions are written down, counted by day, and a removed conversation is marked, not erased", async () => {
+  const book = new Activity(new FsDriver(fs.mkdtempSync(path.join(os.tmpdir(), "act-"))));
+  const now = new Date(Date.UTC(2026, 10, 16, 10));
+  await book.record({ kbId: "kb", channel: "chat", question: "SAMPLE שאלה ראשונה", kind: "answer", steps: ["SAMPLE שלב"], conversationId: "abc1-xyz" }, now);
+  await book.record({ kbId: "kb", channel: "video", question: "SAMPLE שאלה שנייה", kind: "spoken" }, new Date(now.getTime() + 1000));
+  await Promise.all([1, 2, 3].map(() => book.measure((d) => void d.questions++, now)));
+  assert.equal((await book.day("2026-11-16")).questions, 3, "three answers that finish together are three");
+  await book.markRemoved("abc1-xyz", now);
+  assert.equal(await book.markRemoved("../x"), false);
+  const records = await book.recent(lastDays(2, now));
+  assert.deepEqual(records.map((r) => r.question), ["SAMPLE שאלה שנייה", "SAMPLE שאלה ראשונה"], "newest first");
+  assert.ok(records[1].removedAt, "still in the log, marked as removed");
+  assert.deepEqual(records[1].steps, ["SAMPLE שלב"]);
+  assert.deepEqual(lastDays(3, now), ["2026-11-14", "2026-11-15", "2026-11-16"]);
 });

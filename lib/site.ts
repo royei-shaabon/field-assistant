@@ -5,5 +5,5 @@ export const SITE = {
   contactEmail: "[כתובת דוא\"ל לפניות]",
   // Israeli accessibility regulations require a named accessibility coordinator with contact details.
   accessibilityContact: "[שם רכז/ת הנגישות, טלפון ודוא\"ל]",
-  updated: "15.11.2026",
+  updated: "16.11.2026",
 };

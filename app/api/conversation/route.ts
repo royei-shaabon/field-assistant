@@ -1,3 +1,8 @@
+import { currentEnvId, envStore } from "@/lib/server/env";
+import { log } from "@/lib/server/log";
+import { channelOf, recordTurn } from "@/lib/server/record";
+import { activity } from "@/lib/store";
+import type { AskTiming } from "@/lib/docs/ask";
 import { loadKnowledgeBase, type KnowledgeBase } from "@/lib/kb";
 import { BadRequest, handleConversation } from "@/lib/conversation";
 import { handleDocConversation } from "@/lib/docs/conversation";
@@ -7,7 +12,6 @@ import { AnthropicModelClient } from "@/lib/llm";
 import { needsCode, technicianAllowed } from "@/lib/server/access";
 import { loadDocKb, SAMPLE_KB_ID, sampleKbVisible } from "@/lib/server/kbs";
 import { allow, clientKey, LIMITS, tooLarge, tooMany } from "@/lib/server/rate-limit";
-import { kbStore } from "@/lib/store";
 
 let sample: KnowledgeBase | undefined;
 let client: AnthropicModelClient | undefined;
@@ -20,17 +24,25 @@ export async function POST(request: Request) {
   // Six photos of 1.5MB each plus the event log is the most a real request carries.
   if (tooLarge(request, 12_000_000)) return Response.json({ error: "too large" }, { status: 413 });
   client ??= new AnthropicModelClient();
-  const raw = (await request.json().catch(() => null)) as { kbId?: unknown; events?: unknown; input?: unknown } | null;
+  const raw = (await request.json().catch(() => null)) as { kbId?: unknown; events?: unknown; input?: unknown; conversationId?: unknown; channel?: unknown } | null;
   const kbId = typeof raw?.kbId === "string" ? raw.kbId : "";
   // Looking at a saved conversation is free; anything else may call the model.
   const asks = (raw?.input as { kind?: unknown } | undefined)?.kind !== "view";
-  if (asks && (!allow(`ask:${clientKey(request)}`, LIMITS.ask) || !allow("ask:all", LIMITS.askDaily))) return tooMany();
+  if (asks && (!allow(`ask:${clientKey(request)}`, LIMITS.ask) || !allow("ask:all", LIMITS.askDaily))) {
+    log.warn("ask.rate_limited", { env: await currentEnvId(), kb: kbId });
+    return tooMany();
+  }
   const body = raw && { events: raw.events, input: raw.input };
   // How the first search runs. FIRST_SEARCH sets it for the service; the header lets
   // scripts/live-check.ts compare the ways on one deployment. All three only read documents.
   const wanted = request.headers.get("x-first-search") ?? process.env.FIRST_SEARCH;
   const firstSearch = wanted === "sequential" || wanted === "parallel" || wanted === "meaning" ? wanted : undefined;
   const encoder = new TextEncoder();
+  const envId = await currentEnvId();
+  const store = await envStore();
+  const meta = { conversationId: typeof raw?.conversationId === "string" ? raw.conversationId : undefined, channel: channelOf(raw?.channel) };
+  const started = Date.now();
+  if (asks) log.info("ask.start", { env: envId, kb: kbId, channel: meta.channel });
 
   const stream = new ReadableStream({
     async start(controller) {
@@ -40,6 +52,7 @@ export async function POST(request: Request) {
           sample ??= loadKnowledgeBase();
           send({ result: await handleConversation(sample, client!, body, (p) => send({ progress: p })) });
         } else {
+          let timing: AskTiming | undefined;
           const kb = await loadDocKb(kbId);
           if (!kb) throw new BadRequest("unknown knowledge base");
           const result = await handleDocConversation(kb, client!, body, (p) => send({ progress: p.stage === "reading" ? "pages" : p.stage, detail: p.detail }), request.signal, {
@@ -48,22 +61,35 @@ export async function POST(request: Request) {
             embedder: embedder(),
             firstSearch,
             // Where the time went: numbers only, for the log and for scripts/live-check.ts.
-            onTiming: (timing) => {
-              console.log(`[timing ${kbId}]`, JSON.stringify(timing));
-              send({ timing });
+            onTiming: (t) => {
+              timing = t;
+              // Each stage of the answer, in milliseconds: the small model's plan, the first
+              // search, the page pictures, every turn of the main model, and the skills it ran.
+              log.info("ask.timing", { env: envId, kb: kbId, ms: t.total, firstStepMs: t.firstStep, planMs: t.plan, searchMs: t.search, imagesMs: t.images, skillsMs: t.skills, turns: t.turns.length, turnMs: t.turns.map((x) => x.total), cached: t.turns.reduce((n, x) => n + (x.usage?.cached ?? 0), 0) });
+              if (t.total > 15_000) log.warn("ask.slow", { env: envId, kb: kbId, ms: t.total });
+              send({ timing: t });
             },
             pageImage: async (hit) => {
-              const image = await pageImage(kbId, hit.docId, hit.n);
+              const image = await pageImage(kbId, hit.docId, hit.n, store, envId);
               return image && { data: image.png.toString("base64"), mediaType: "image/png" as const, width: image.width, height: image.height };
             },
           });
-          // A new turn was added: count it for the implementer's usage overview.
+          // A new turn was added: count it, write it down, and log how it ended.
           const before = Array.isArray(body?.events) ? body.events.length : 0;
-          if (result.events.length > before) await kbStore().recordUsage(kbId, result.events.at(-1)!.result.kind).catch(() => {});
+          if (result.events.length > before) {
+            const event = result.events.at(-1)!;
+            await store.recordUsage(kbId, event.result.kind).catch(() => {});
+            await recordTurn(envId, { id: kbId, name: kb.meta.name }, event, meta, timing);
+            log.info("ask.done", { env: envId, kb: kbId, channel: meta.channel, kind: event.result.kind, ms: Date.now() - started, steps: event.result.kind === "answer" ? event.result.steps.length : 0 });
+          }
           send({ result });
         }
       } catch (e) {
-        if (!(e instanceof BadRequest)) console.error("[conversation]", e);
+        if (e instanceof BadRequest) log.warn("ask.rejected", { env: envId, kb: kbId, reason: e.message });
+        else {
+          log.error("ask.failed", e, { env: envId, kb: kbId, ms: Date.now() - started });
+          await activity(envId).measure((day) => void day.errors++).catch(() => {});
+        }
         send({ error: e instanceof BadRequest ? e.message : "server error" });
       } finally {
         controller.close();

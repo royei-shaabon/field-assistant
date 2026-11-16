@@ -1,12 +1,15 @@
+import { envStore } from "@/lib/server/env";
 import { embedder } from "@/lib/docs/embed";
-import { forbidden, isAdmin } from "@/lib/server/admin-auth";
+import { forbidden, isAdmin, isMaster } from "@/lib/server/admin-auth";
+import { currentEnv, currentEnvId, MAIN_ENV } from "@/lib/server/env";
+import { envView } from "@/lib/store/envs";
 import { aiConfigured, ensureSeed } from "@/lib/server/kbs";
-import { EMPTY_USAGE, Invalid, kbStore } from "@/lib/store";
+import { EMPTY_USAGE, Invalid } from "@/lib/store";
 
 export async function GET() {
   if (!(await isAdmin())) return forbidden();
-  await ensureSeed();
-  const store = kbStore();
+  if ((await currentEnvId()) === MAIN_ENV) await ensureSeed();
+  const store = await envStore();
   const using = embedder();
   const kbs = await Promise.all(
     (await store.listKbs()).map(async (kb) => {
@@ -20,7 +23,10 @@ export async function GET() {
       return { ...kb, docs, usage: await store.getUsage(kb.id) };
     }),
   );
-  return Response.json({ kbs, ai: aiConfigured(), accessCode: Boolean(process.env.ACCESS_CODE), embeddings: using?.model ?? null }, { headers: { "Cache-Control": "no-store" } });
+  const env = (await currentEnv())!;
+  // Whether technicians of this environment are asked for a code.
+  const accessCode = env.id === MAIN_ENV ? Boolean(process.env.ACCESS_CODE) : Boolean(env.accessHash);
+  return Response.json({ kbs, ai: aiConfigured(), accessCode, embeddings: using?.model ?? null, env: envView(env), master: env.id === MAIN_ENV && (await isMaster()) }, { headers: { "Cache-Control": "no-store" } });
 }
 
 export async function POST(request: Request) {
@@ -28,7 +34,7 @@ export async function POST(request: Request) {
   const body = (await request.json().catch(() => null)) as { name?: unknown; description?: unknown } | null;
   if (typeof body?.name !== "string") return Response.json({ error: "name" }, { status: 400 });
   try {
-    const kb = await kbStore().createKb({ name: body.name, description: typeof body.description === "string" ? body.description : "" });
+    const kb = await (await envStore()).createKb({ name: body.name, description: typeof body.description === "string" ? body.description : "" });
     return Response.json({ kb: { ...kb, docs: [], usage: EMPTY_USAGE } });
   } catch (e) {
     if (e instanceof Invalid) return Response.json({ error: e.message }, { status: 400 });

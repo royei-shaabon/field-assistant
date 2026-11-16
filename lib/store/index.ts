@@ -4,6 +4,8 @@
 //   docs/<docId>.text.json  its passages (what search and the model read)
 //   docs/<docId>.file       the original upload (what "open the source" serves)
 import path from "node:path";
+import { Activity } from "./activity";
+import { ENV_ID, EnvRegistry, MAIN_ENV, PrefixDriver } from "./envs";
 import { FsDriver } from "./fs-driver";
 import type { BlobDriver, DocMeta, DocVectors, KbMeta, Passage, StoredDoc, Usage } from "./types";
 
@@ -250,10 +252,30 @@ export class KbStore {
   }
 }
 
-let shared: KbStore | undefined;
+const rootDriver = (() => {
+  let driver: BlobDriver | undefined;
+  // DATA_DIR points at a persistent directory in a hosted deployment. Default: ./data.
+  return () => (driver ??= new FsDriver(path.resolve(/*turbopackIgnore: true*/ process.env.DATA_DIR ?? "data")));
+})();
 
-// DATA_DIR points at a persistent directory in a hosted deployment. Default: ./data.
-export function kbStore(): KbStore {
-  shared ??= new KbStore(new FsDriver(path.resolve(/*turbopackIgnore: true*/ process.env.DATA_DIR ?? "data")));
-  return shared;
+// What one environment sees of the storage. "main" is the root itself (where the data lived
+// before there were environments); every other environment lives under envs/<id>/.
+export function envDriver(envId: string = MAIN_ENV): BlobDriver {
+  if (envId === MAIN_ENV) return rootDriver();
+  if (!ENV_ID.test(envId)) throw new Invalid("environment");
+  return new PrefixDriver(rootDriver(), `envs/${envId}/`);
 }
+
+const stores = new Map<string, KbStore>();
+
+// The knowledge bases, settings and usage of one environment.
+export function kbStore(envId: string = MAIN_ENV): KbStore {
+  let store = stores.get(envId);
+  if (!store) stores.set(envId, (store = new KbStore(envDriver(envId))));
+  return store;
+}
+
+// The conversation log and the daily numbers of one environment.
+export const activity = (envId: string = MAIN_ENV) => new Activity(envDriver(envId), envId);
+
+export const envRegistry = () => new EnvRegistry(rootDriver());

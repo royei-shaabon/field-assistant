@@ -1,11 +1,11 @@
+import { envStore } from "@/lib/server/env";
 import { technicianAllowed } from "@/lib/server/access";
-import { kbStore } from "@/lib/store";
 
 // The original document, so a source chip can open the manual at the cited page.
 export async function GET(_request: Request, { params }: { params: Promise<{ kbId: string; docId: string }> }) {
   if (!(await technicianAllowed())) return new Response("access code required", { status: 401 });
   const { kbId, docId } = await params;
-  const found = await kbStore().getDocFile(kbId, docId);
+  const found = await (await envStore()).getDocFile(kbId, docId);
   if (!found) return new Response("not found", { status: 404 });
   const name = encodeURIComponent(`${found.meta.name}${found.meta.ext}`);
   return new Response(new Uint8Array(found.data), {

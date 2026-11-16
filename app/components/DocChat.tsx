@@ -23,7 +23,7 @@ export function SourceLink({ kbId, source, dark = false }: { kbId: string; sourc
     <a
       href={sourceHref(kbId, source)}
       target="_blank"
-      rel="noreferrer"
+      rel="noopener"
       className={`flex min-h-12 items-center gap-3 rounded-[10px] border px-2 py-1.5 text-[15px] ${dark ? "border-white/40 text-white" : "border-rule bg-paper text-ink active:bg-mist"}`}
     >
       <span className={`grid h-9 w-9 shrink-0 place-items-center rounded-[7px] ${dark ? "bg-white/15" : "bg-primary-soft text-primary"}`}>
@@ -89,7 +89,7 @@ function Figure({ kbId, figure }: { kbId: string; figure: DocFigure }) {
   const h = Math.min(1000 - y, box.h + 2 * pad);
   return (
     <figure className="anim-rise m-0 flex flex-col gap-1.5">
-      <a href={page} target="_blank" rel="noreferrer" className="block overflow-hidden rounded-2xl border border-edge bg-white">
+      <a href={page} target="_blank" rel="noopener" className="block overflow-hidden rounded-2xl border border-edge bg-white">
         <span
           role="img"
           aria-label={figure.caption || T.doc.figure}

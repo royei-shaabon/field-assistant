@@ -72,6 +72,7 @@ function LiveMarks({ marks }: { marks: DocMark[] }) {
 export function CallView({
   kind,
   kbId,
+  conversationId,
   kbName,
   disclaimer,
   title,
@@ -87,6 +88,8 @@ export function CallView({
 }: {
   kind: "voice" | "video";
   kbId: string;
+  // The conversation this call belongs to, for the environment's log.
+  conversationId?: string;
   kbName: string;
   disclaimer: string;
   title: string;
@@ -226,7 +229,7 @@ export function CallView({
       onTool: async (question) => {
         const picture = frame();
         void liveAsk.current?.(question, picture);
-        const res = await fetch("/api/voice/lookup", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ kbId, question }) }).catch(() => null);
+        const res = await fetch("/api/voice/lookup", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ kbId, question, conversationId, video: kind === "video" }) }).catch(() => null);
         return res?.ok ? await res.json() : { kind: "error", note: T.doc.error };
       },
       // The live connection dropped in the middle: carry on with the classic call.

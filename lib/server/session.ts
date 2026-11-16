@@ -16,23 +16,27 @@ function key(): Buffer {
 
 const sign = (payload: string) => createHmac("sha256", key()).update(payload).digest("hex");
 
-export function issueSession(kind: SessionKind, now = Date.now()): { token: string; maxAge: number } {
-  const payload = `${kind}.${Math.floor(now / 1000) + TTL[kind]}.${randomBytes(9).toString("hex")}`;
+// A session names its environment: it opens that environment and no other. The main
+// environment's sessions keep the older four-part form.
+export function issueSession(kind: SessionKind, now = Date.now(), env = "main"): { token: string; maxAge: number } {
+  const base = `${kind}.${Math.floor(now / 1000) + TTL[kind]}.${randomBytes(9).toString("hex")}`;
+  const payload = env === "main" ? base : `${base}.${env}`;
   return { token: `${payload}.${sign(payload)}`, maxAge: TTL[kind] };
 }
 
-export function validSession(kind: SessionKind, token: string | undefined, now = Date.now()): boolean {
-  if (!token || token.length > 200) return false;
+export function validSession(kind: SessionKind, token: string | undefined, now = Date.now(), env = "main"): boolean {
+  if (!token || token.length > 260) return false;
   const parts = token.split(".");
-  if (parts.length !== 4 || parts[0] !== kind) return false;
-  const payload = parts.slice(0, 3).join(".");
-  const given = Buffer.from(parts[3]);
+  const wanted = env === "main" ? 4 : 5;
+  if (parts.length !== wanted || parts[0] !== kind) return false;
+  if (env !== "main" && parts[3] !== env) return false;
+  const payload = parts.slice(0, -1).join(".");
+  const given = Buffer.from(parts.at(-1)!);
   const expected = Buffer.from(sign(payload));
   if (given.length !== expected.length || !timingSafeEqual(given, expected)) return false;
   return Number(parts[1]) * 1000 > now;
 }
 
-// Constant-time comparison of two secrets of any length.
 export function sameSecret(a: string, b: string): boolean {
   const ha = createHash("sha256").update(a).digest();
   const hb = createHash("sha256").update(b).digest();

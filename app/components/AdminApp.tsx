@@ -8,6 +8,9 @@ import { T } from "@/lib/ui-text";
 import { BRAND } from "@/lib/brand";
 import { CheckIcon, CloseIcon, DocIcon, LockIcon, PlusIcon, WarningIcon } from "./icons";
 import { Logo } from "./Logo";
+import { Conversations, Dashboard, Environments } from "./AdminDash";
+import { envBase } from "@/lib/client/env";
+import type { EnvView } from "@/lib/store/envs";
 import { SILENCE } from "@/lib/client/voice";
 
 // `indexed`: how many passages of the document can be searched by meaning.
@@ -16,7 +19,8 @@ type Kb = KbMeta & { docs: Doc[]; usage: Usage };
 type Upload = { id: number; name: string; state: "working" | "done" | "error"; message?: string };
 
 const A = T.admin;
-const PAGES = ["overview", "kbs", "quality", "system"] as const;
+// "envs" is the main administrator's only.
+const PAGES = ["overview", "envs", "kbs", "conversations", "quality", "system"] as const;
 type Page = (typeof PAGES)[number];
 const ACCEPT = ".pdf,.docx,.txt,.md,.csv,.json,.html,.htm";
 
@@ -605,7 +609,7 @@ function Documents({ kb, embeddings, onChanged }: { kb: Kb; embeddings: string |
                   </p>
                 )}
               </div>
-              <a href={`/api/kbs/${kb.id}/docs/${d.id}/file`} target="_blank" rel="noreferrer" className="rounded-lg px-2.5 py-1.5 text-sm text-graphite active:bg-mist">
+              <a href={`/api/kbs/${kb.id}/docs/${d.id}/file`} target="_blank" rel="noopener" className="rounded-lg px-2.5 py-1.5 text-sm text-graphite active:bg-mist">
                 {A.open}
               </a>
               <button onClick={() => rename(d)} className="rounded-lg px-2.5 py-1.5 text-sm text-graphite active:bg-mist">
@@ -634,6 +638,9 @@ export function AdminApp() {
   const [copied, setCopied] = useState(false);
   const [error, setError] = useState(false);
   const [page, setPage] = useState<Page>("overview");
+  const [env, setEnv] = useState<EnvView | null>(null);
+  // The main administrator, on the main environment: sees every environment.
+  const [master, setMaster] = useState(false);
 
   const load = useCallback(async () => {
     const res = await fetch("/api/admin/kbs").catch(() => null);
@@ -643,7 +650,9 @@ export function AdminApp() {
       const probe = await fetch("/api/admin/login", { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" }).catch(() => null);
       return setState(probe?.status === 503 ? "closed" : "login");
     }
-    const data = (await res.json()) as { kbs: Kb[]; ai: boolean; accessCode: boolean; embeddings: string | null };
+    const data = (await res.json()) as { kbs: Kb[]; ai: boolean; accessCode: boolean; embeddings: string | null; env: EnvView; master: boolean };
+    setEnv(data.env);
+    setMaster(data.master);
     setKbs(data.kbs);
     setAi(data.ai);
     setAccessCode(data.accessCode);
@@ -661,7 +670,8 @@ export function AdminApp() {
   if (state !== "ready") return <Login closed={state === "closed"} onDone={load} />;
 
   const kb = kbs.find((k) => k.id === selected);
-  const link = kb && typeof window !== "undefined" ? `${window.location.origin}/?kb=${kb.id}` : "";
+  const base = envBase();
+  const link = kb && typeof window !== "undefined" ? `${window.location.origin}${base}/?kb=${kb.id}` : "";
 
   const signOut = async () => {
     await fetch("/api/admin/login", { method: "DELETE" }).catch(() => {});
@@ -675,10 +685,6 @@ export function AdminApp() {
     return res?.ok ? ((await res.json()) as { kb?: Kb }) : null;
   };
 
-  const totals = kbs.reduce(
-    (t, k) => ({ questions: t.questions + k.usage.questions, answer: t.answer + k.usage.answer, none: t.none + k.usage.not_found + k.usage.ideas, ask: t.ask + k.usage.ask }),
-    { questions: 0, answer: 0, none: 0, ask: 0 },
-  );
   const go = (to: Page) => (setPage(to), setCreating(false), setEditing(false));
 
   const kbPicker = kbs.length > 1 && (
@@ -700,11 +706,11 @@ export function AdminApp() {
         <div className="flex items-center justify-between gap-3 px-5 pb-3 pt-5">
           <div className="flex flex-col gap-1.5">
             <Logo size={30} />
-            <span className="font-mono text-[13px] text-stone">{A.workspace}</span>
+            <span className="text-[13px] text-stone">{env && !env.main ? <bdi>{env.name}</bdi> : A.workspace}</span>
           </div>
         </div>
         <nav aria-label={A.workspace} className="flex gap-1 overflow-x-auto px-3 pb-3 md:flex-col md:pb-0">
-          {PAGES.map((p) => (
+          {PAGES.filter((p) => p !== "envs" || master).map((p) => (
             <button
               key={p}
               onClick={() => go(p)}
@@ -719,7 +725,7 @@ export function AdminApp() {
           <p dir="ltr" className="text-end font-mono text-[13px] text-stone">
             {BRAND.name} Workspace
           </p>
-          <a href={kb ? `/?kb=${kb.id}` : "/"} className="rounded-[8px] px-2 py-2 text-[14px] text-graphite hover:bg-side-on">
+          <a href={kb ? `${base}/?kb=${kb.id}` : `${base}/`} className="rounded-[8px] px-2 py-2 text-[14px] text-graphite hover:bg-side-on">
             {A.toChat}
           </a>
           <button onClick={signOut} className="rounded-[8px] px-2 py-2 text-start text-[14px] text-graphite hover:bg-side-on">
@@ -741,7 +747,7 @@ export function AdminApp() {
             </button>
           )}
           <div className="flex gap-1 md:hidden">
-            <a href={kb ? `/?kb=${kb.id}` : "/"} className="rounded-[8px] px-3 py-2 text-[14px] text-graphite">
+            <a href={kb ? `${base}/?kb=${kb.id}` : `${base}/`} className="rounded-[8px] px-3 py-2 text-[14px] text-graphite">
               {A.toChat}
             </a>
             <button onClick={signOut} className="rounded-[8px] px-3 py-2 text-[14px] text-graphite">
@@ -764,14 +770,7 @@ export function AdminApp() {
 
         {page === "overview" && (
           <>
-            <dl className="grid grid-cols-2 overflow-hidden rounded-[12px] border border-rule bg-paper lg:grid-cols-4">
-              {(Object.keys(totals) as (keyof typeof totals)[]).map((key, i) => (
-                <div key={key} className={`flex flex-col gap-1 px-5 py-5 ${i % 2 ? "border-s border-rule" : ""} ${i >= 2 ? "border-t border-rule lg:border-t-0" : ""} ${i === 2 ? "lg:border-s" : ""}`}>
-                  <dt className="text-[13px] text-stone">{A.totals[key]}</dt>
-                  <dd className={`font-mono text-[30px] font-medium leading-9 ${key === "answer" ? "text-ok" : ""}`}>{totals[key]}</dd>
-                </div>
-              ))}
-            </dl>
+            <Dashboard />
             <section className="flex flex-col gap-2">
               <h2 className="text-[17px] font-bold">{A.activeKbs}</h2>
               <ul className="overflow-hidden rounded-[12px] border border-rule bg-paper">
@@ -878,6 +877,10 @@ export function AdminApp() {
           ) : (
             <p className="text-[15px] text-stone">{A.noDocs}</p>
           ))}
+
+        {page === "envs" && master && <Environments />}
+
+        {page === "conversations" && <Conversations />}
 
         {page === "quality" && (
           <>

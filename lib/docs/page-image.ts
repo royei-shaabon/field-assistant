@@ -1,6 +1,6 @@
 // A picture of one page of an uploaded PDF, so an answer can show the manual's own drawing.
 // Rendered on first use and then kept in the store next to the document.
-import { kbStore } from "../store";
+import { kbStore, type KbStore } from "../store";
 
 const WIDTH = 1000;
 
@@ -13,13 +13,13 @@ function pngSize(png: Buffer): { width: number; height: number } {
   return { width: png.readUInt32BE(16), height: png.readUInt32BE(20) };
 }
 
-export async function pageImage(kbId: string, docId: string, n: number): Promise<PageImage | null> {
+// `store` is the environment's store, and `scope` its name (two environments may use the same ids).
+export async function pageImage(kbId: string, docId: string, n: number, store: KbStore = kbStore(), scope = ""): Promise<PageImage | null> {
   if (!Number.isInteger(n) || n < 1 || n > 5000) return null;
-  const store = kbStore();
   const cached = await store.getPageImage(kbId, docId, n).catch(() => null);
   if (cached) return { png: cached, ...pngSize(cached) };
 
-  const key = `${kbId}/${docId}`;
+  const key = `${scope}/${kbId}/${docId}`;
   if (open?.key !== key) {
     const file = await store.getDocFile(kbId, docId);
     if (!file || file.meta.ext !== ".pdf" || n > file.meta.passages) return null;

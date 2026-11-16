@@ -53,6 +53,9 @@ async function post(
   kbId: string,
   events: SavedConversation["events"],
   input: Input,
+  // Which conversation this is and how it was asked (typed, voice call, video call): written
+  // in the environment's log beside the question.
+  meta: { conversationId: string; channel: "chat" | "voice" | "video" },
   onProgress: (p: Progress) => void,
   onPartial: (p: PartialAnswer) => void,
   signal: AbortSignal,
@@ -60,7 +63,7 @@ async function post(
   const res = await fetch("/api/conversation", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ kbId, events, input }),
+    body: JSON.stringify({ kbId, events, input, ...meta }),
     signal,
   });
   if (!res.ok || !res.body) throw new HttpError(res.status);
@@ -612,6 +615,10 @@ export function TechnicianApp() {
   // The list of machines under the bar (only when there is more than one).
   const [machines, setMachines] = useState(false);
   const [call, setCall] = useState<"voice" | "video" | null>(null);
+  const callRef = useRef(call);
+  useEffect(() => {
+    callRef.current = call;
+  }, [call]);
   const [speech, setSpeech] = useState<Speech>({ id: 0, part: 0, lines: [], answer: 0 });
   const abort = useRef<AbortController | null>(null);
   const bottom = useRef<HTMLDivElement>(null);
@@ -690,6 +697,7 @@ export function TechnicianApp() {
         base.conversation.kbId || kbRef.current,
         base.conversation.events,
         input,
+        { conversationId: base.conversation.id, channel: callRef.current ?? "chat" },
         // The same stage reported twice in a row is one line.
         (p) => setProgress((steps) => (steps.at(-1)?.key === p ? steps : [...steps.map((s) => ({ ...s, done: true })), { key: p, done: false }])),
         (p) => {
@@ -990,6 +998,8 @@ export function TechnicianApp() {
           onDelete={(c) => {
             if (!window.confirm(T.header.confirmDelete)) return;
             deleteConversation(c.id);
+            // The environment's log marks it as removed by the technician; nothing is erased.
+            void fetch("/api/conversations/remove", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ conversationId: c.id }) }).catch(() => {});
             if (c.id === conversation.id) open(fresh());
           }}
           onClose={() => setMenu(false)}
@@ -1000,6 +1010,7 @@ export function TechnicianApp() {
         <CallView
           kind={call}
           kbId={conversation.kbId || kbId}
+          conversationId={conversation.id}
           kbName={kb?.name ?? T.appTitle}
           disclaimer={isDocs ? T.doc.disclaimer : T.disclaimer}
           title={screen.title ?? T.appTitle}
