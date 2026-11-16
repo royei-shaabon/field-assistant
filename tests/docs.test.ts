@@ -882,6 +882,9 @@ test("live call: the setup has one tool, Hebrew instructions that forbid own kno
   assert.match(text, /never shorten a step or leave out part of it/, "a spoken step keeps its limits and warnings");
   assert.deepEqual(setup.generationConfig.responseModalities, ["AUDIO"]);
   assert.ok(setup.inputAudioTranscription && setup.outputAudioTranscription);
+  // The phone's speaker reaches its microphone: the model must not take its own voice for the technician.
+  const vad = (setup as unknown as { realtimeInputConfig: { automaticActivityDetection: { startOfSpeechSensitivity: string } } }).realtimeInputConfig.automaticActivityDetection;
+  assert.equal(vad.startOfSpeechSensitivity, "START_SENSITIVITY_LOW");
 });
 
 test("live call token: the key goes in a header and never in the address the phone gets; one use, short lifetimes", async () => {
