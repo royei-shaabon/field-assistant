@@ -242,7 +242,13 @@ export const T = {
     voice: {
       title: "הקול של העוזר בשיחה",
       lead: "האזינו לקולות ובחרו אחד. הבחירה חלה על כל השיחות מיד.",
-      sample: "שלום, אני עוזר השטח. בדקו שמתג ההצתה במצב כבוי, ואז הסירו את מכסה המצבר.",
+      // The same sentence twice, without and with vowel points, to hear whether a voice reads
+      // the points. The words are ones a voice can read two ways (מכסה, שמן, בדקו).
+      sample: "בדקו את מפלס השמן, ואז הסירו את מכסה המצבר.",
+      samplePointed: "בִּדְקוּ אֶת מִפְלַס הַשֶּׁמֶן, וְאָז הָסִירוּ אֶת מִכְסֵה הַמַּצְבֵּר.",
+      plain: "משפט רגיל",
+      pointed: "אותו משפט עם ניקוד",
+      text: "המשפט להשמעה (אפשר לכתוב כל משפט)",
       play: "השמע",
       choose: "בחירה",
       chosen: "נבחר",

@@ -170,6 +170,8 @@ function VoicePicker() {
   const [list, setList] = useState<VoiceList | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [problem, setProblem] = useState<string | null>(null);
+  // What the "play" buttons say. Editable, so any sentence that sounds wrong can be tried.
+  const [text, setText] = useState<string>(A.voice.sample);
   const load = async () => {
     setBusy("load");
     const res = await fetch("/api/admin/voice").catch(() => null);
@@ -179,7 +181,7 @@ function VoicePicker() {
   const play = async (voice: string) => {
     setBusy(voice);
     setProblem(null);
-    const res = await fetch("/api/voice/speak", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ text: A.voice.sample, voice }) }).catch(() => null);
+    const res = await fetch("/api/voice/speak", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ text, voice }) }).catch(() => null);
     if (res?.ok) {
       const url = URL.createObjectURL(await res.blob());
       const audio = new Audio(url);
@@ -206,6 +208,18 @@ function VoicePicker() {
       ) : (
         <>
           <p className="text-[15px] text-graphite">{A.voice.lead}</p>
+          <label className="flex flex-col gap-1.5 text-sm font-medium text-graphite">
+            <span>{A.voice.text}</span>
+            <textarea value={text} maxLength={600} rows={2} onChange={(e) => setText(e.target.value)} className="rounded-xl border border-edge bg-paper px-3 py-2 text-base font-normal text-ink focus:border-primary" />
+          </label>
+          <div className="flex flex-wrap gap-2">
+            <button onClick={() => setText(A.voice.sample)} className="h-9 rounded-lg border border-edge px-3 text-sm font-medium">
+              {A.voice.plain}
+            </button>
+            <button onClick={() => setText(A.voice.samplePointed)} className="h-9 rounded-lg border border-edge px-3 text-sm font-medium">
+              {A.voice.pointed}
+            </button>
+          </div>
           {list.error && (
             <p role="alert" dir="ltr" className="break-words text-start font-mono text-xs text-danger-ink">
               {list.error}
@@ -219,7 +233,7 @@ function VoicePicker() {
                   {v.name}
                 </span>
                 {list.current === v.name && <span className="text-sm font-medium text-ok">{A.voice.chosen}</span>}
-                <button onClick={() => play(v.name)} disabled={busy !== null} className="h-9 rounded-lg border border-edge px-3 text-sm font-medium disabled:opacity-50">
+                <button onClick={() => play(v.name)} disabled={busy !== null || !text.trim()} className="h-9 rounded-lg border border-edge px-3 text-sm font-medium disabled:opacity-50">
                   {A.voice.play}
                 </button>
                 {list.current !== v.name && (
