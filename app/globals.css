@@ -1,46 +1,52 @@
 @import "tailwindcss";
 
-/* The brand (lib/brand.ts has the same values for icons).
-   - navy: the brand's own colour. Text, the top bar, dark cards, the call screen.
-   - blue (primary) means "you can press this": actions, links, the numbers of the steps.
-   - amber (signal) means "look here": marks on a picture and safety warnings. Also the point
-     in the logo.
+/* RIDD: editorial utility. A warm paper background, one purple for what you can press,
+   quiet borders, and no decoration that does not carry meaning. lib/brand.ts has the same
+   values for icons.
+   - ink: text. Near black, warm.
+   - primary (purple) means "you can press this": actions, links, the numbers of the steps.
+     Also the logo.
+   - signal (amber) means "look here": marks on a picture and safety warnings.
    - red is danger only, green is "worked" only.
-   Type is Heebo, the usual face of Hebrew apps, with IBM Plex Mono for numbers and codes.
-   Weights: 400 text, 500 controls, 600 headings, 700 the name in the logo. */
+   Type is Noto Sans Hebrew, with IBM Plex Mono for numbers and codes.
+   Weights: 400 text, 500 controls, 700 headings (tight letter-spacing), 800 the name in the logo. */
 @theme {
-  --font-sans: Heebo, system-ui, -apple-system, "Segoe UI", Arial, sans-serif;
+  --font-sans: "Noto Sans Hebrew", system-ui, -apple-system, "Segoe UI", Arial, sans-serif;
   --font-mono: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
 
-  --color-ink: #0d2a45;
-  --color-ink-soft: #2a4259;
+  --color-ink: #222426;
+  --color-ink-soft: #343638;
   --color-paper: #ffffff;
-  --color-mist: #f2f6fa;
-  --color-rule: #dbe3eb;
-  --color-rule-soft: #e7edf3;
-  --color-graphite: #44566a;
-  --color-stone: #596b7d;
-  --color-pebble: #91a0af;
+  --color-mist: #f7f6f3;
+  --color-rule: #e5e3df;
+  --color-rule-soft: #efede9;
+  --color-graphite: #55595e;
+  --color-stone: #696d72;
+  --color-pebble: #a3a6aa;
   /* Borders of controls: at least 3:1 on paper, so a field is visible in sunlight. */
-  --color-edge: #788898;
-  /* The technician's screen, like any messaging app: a neutral wall, plain bubbles for the
-     assistant, a solid bubble with white text for the technician's own messages.
-     canvas: the wall. bar: the top and bottom bars. bubble: the technician's own messages.
-     action: a filled button (white text on it). night: a surface that is dark in both themes
-     (warning cards, the call screen), and the dark text that sits on white or amber. */
-  --color-canvas: #f3f4f6;
-  --color-bar: #ffffff;
-  --color-bubble: #0d2a45;
-  --color-action: #0d2a45;
-  --color-night: #0d2a45;
-  --color-primary: #145da0;
-  --color-primary-strong: #0f4a80;
-  --color-primary-soft: #e2edf8;
-  --color-signal: #ffb81c;
-  --color-signal-soft: #fff1cc;
-  --color-danger: #c9291c;
-  --color-danger-ink: #a51f14;
-  --color-ok: #12703a;
+  --color-edge: #878b90;
+  /* The technician's screen.
+     canvas: the page. bar: the top and bottom bars. bubble: the technician's own messages
+     (dark text on it). action: a filled button (white text on it). night: a surface that is
+     dark in both themes (warning cards, the call screen), and the dark text that sits on
+     white or amber. */
+  --color-canvas: #fdfcfa;
+  --color-bar: #fdfcfa;
+  --color-bubble: #efede9;
+  --color-action: #5241e8;
+  --color-night: #222426;
+  --color-primary: #5241e8;
+  --color-primary-strong: #4535cf;
+  --color-primary-soft: #f2f0ff;
+  --color-signal: #f2b24c;
+  --color-signal-soft: #f8f1e5;
+  --color-warn: #8a5f33;
+  --color-danger: #b3261e;
+  --color-danger-ink: #9b1c14;
+  --color-ok: #366c55;
+  /* The implementer's screen: the side bar and the selected item in it. */
+  --color-side: #f5f4f1;
+  --color-side-on: #e9e7e2;
 }
 
 body {
@@ -55,34 +61,38 @@ body {
 .tech {
   color: var(--color-ink);
 }
+body:has(.tech) {
+  background: var(--color-canvas);
+}
 @media (prefers-color-scheme: dark) {
   .tech {
     color-scheme: dark;
-    --color-ink: #e9eef3;
-    --color-ink-soft: #c9d4de;
-    --color-paper: #17232f;
-    --color-mist: #0f1a25;
-    --color-canvas: #0a121b;
-    --color-bar: #101b27;
-    --color-rule: #243445;
-    --color-rule-soft: #1c2a39;
-    --color-graphite: #a9b7c5;
-    --color-stone: #8b9bab;
-    --color-pebble: #5d6c7b;
-    --color-edge: #62758a;
-    --color-bubble: #1f5fa3;
-    --color-action: #1f5fa3;
-    --color-night: #13283c;
-    --color-primary: #6db3f2;
-    --color-primary-strong: #8cc4f5;
-    --color-primary-soft: #16324d;
-    --color-signal-soft: #3a3011;
+    --color-ink: #ecebe8;
+    --color-ink-soft: #dad8d4;
+    --color-paper: #1f2023;
+    --color-mist: #1a1b1d;
+    --color-canvas: #141517;
+    --color-bar: #141517;
+    --color-rule: #2f3134;
+    --color-rule-soft: #26282b;
+    --color-graphite: #b4b6b9;
+    --color-stone: #9a9ea2;
+    --color-pebble: #5f6266;
+    --color-edge: #73777c;
+    --color-bubble: #2a2c30;
+    --color-action: #6556ef;
+    --color-night: #26282b;
+    --color-primary: #aaa3fa;
+    --color-primary-strong: #c4bffc;
+    --color-primary-soft: #26234a;
+    --color-signal-soft: #382d1c;
+    --color-warn: #e2b98c;
     --color-danger: #e5564a;
     --color-danger-ink: #ff8a7d;
-    --color-ok: #4cc38a;
+    --color-ok: #74c49c;
   }
   body:has(.tech) {
-    background: #0a121b;
+    background: #141517;
   }
 }
 

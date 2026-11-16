@@ -1,9 +1,11 @@
 // The product's name and colours in one place. Renaming the product is a change to this file.
 export const BRAND = {
-  name: "FieldMate",
-  tagline: "עוזר השטח לטכנאים",
+  name: "RIDD",
+  tagline: "מציאת פתרון, בלי הרעש.",
   // Used where CSS variables are not available (icons, the browser's theme colour).
-  navy: "#0d2a45",
-  blue: "#145da0",
-  amber: "#ffb81c",
+  purple: "#5145E9",
+  ring: "#F8F7FF",
+  dot: "#B6A8FF",
+  ink: "#222426",
+  back: "#FDFCFA",
 } as const;

@@ -876,13 +876,13 @@ export function TechnicianApp() {
               progress={call ? [] : progress}
               pending={
                 pending && (
-                  <div className="anim-rise flex flex-col items-end gap-1.5 pt-1.5">
+                  <div className="anim-rise flex flex-col items-start gap-1.5 pt-1.5">
                     {pending.frames?.[0] && (
                       // eslint-disable-next-line @next/next/no-img-element -- local data URL
-                      <img src={pending.frames[0]} alt={T.chat.sentPhoto} className="w-[62%] rounded-[16px] rounded-se-[5px] border-[3px] border-bubble" />
+                      <img src={pending.frames[0]} alt={T.chat.sentPhoto} className="w-[62%] rounded-[12px] rounded-ss-[3px] border-[3px] border-bubble" />
                     )}
                     {pending.said && (
-                      <div className="own max-w-[85%] rounded-[16px] rounded-se-[5px] bg-bubble px-3 py-2 text-[16px] leading-[24px] text-white">
+                      <div className="own max-w-[85%] rounded-[12px] rounded-ss-[3px] bg-bubble px-3.5 py-2.5 text-[16px] leading-[25px] text-ink-soft">
                         {pending.said}
                         <ChatTime at={pending.at} />
                       </div>

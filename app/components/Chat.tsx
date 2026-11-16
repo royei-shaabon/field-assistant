@@ -3,6 +3,7 @@
 // No data fetching here: TechnicianApp owns state. Reveal is the only component with hooks.
 "use client";
 
+import { LogoMark } from "./Logo";
 import { useEffect, useState } from "react";
 import type { Progress } from "@/lib/conversation";
 import type { PartialAnswer } from "@/lib/docs/ask";
@@ -85,18 +86,19 @@ export function wordCount(text: string): number {
   return text.split(" ").length;
 }
 
-// The chat looks like the messaging apps a technician uses every day: the assistant's messages
-// in white bubbles on one side, their own in tinted bubbles on the other, the time in the corner.
-const BUBBLE = "min-w-0 rounded-[16px] px-3 py-2 text-[16px] leading-[24px]";
+// The assistant writes on the page itself, beside its small mark, like a person's note; the
+// technician's own messages sit in a quiet tinted bubble on the other side, the time in the corner.
+const BUBBLE = "min-w-0 text-[16px] leading-[25px]";
 
 export function ChatTime({ at }: { at?: string }) {
-  return at ? <span className="mt-1 block text-end text-[13px] leading-none tabular-nums text-stone [.own_&]:text-white/75">{at}</span> : null;
+  return at ? <span className="mt-1 block text-end text-[13px] leading-none tabular-nums text-stone">{at}</span> : null;
 }
 
 export function BotBubble({ children, time, wide = false }: { children: React.ReactNode; time?: string; wide?: boolean }) {
   return (
-    <div className="anim-rise flex justify-start">
-      <div className={`${BUBBLE} rounded-ss-[5px] border border-rule-soft bg-paper ${wide ? "w-[94%]" : "max-w-[88%]"}`}>
+    <div className="anim-rise flex items-start justify-start gap-2.5 pt-1">
+      <LogoMark size={22} className="mt-0.5 shrink-0" />
+      <div className={`${BUBBLE} text-ink-soft ${wide ? "flex-1" : "max-w-[88%]"}`}>
         {children}
         <ChatTime at={time} />
       </div>
@@ -106,8 +108,8 @@ export function BotBubble({ children, time, wide = false }: { children: React.Re
 
 export function TechBubble({ children, time }: { children: React.ReactNode; time?: string }) {
   return (
-    <div className="anim-rise flex justify-end pt-1.5">
-      <div className={`own ${BUBBLE} max-w-[85%] rounded-se-[5px] bg-bubble text-white`}>
+    <div className="anim-rise flex justify-start pt-2">
+      <div className={`own ${BUBBLE} max-w-[85%] rounded-[12px] rounded-ss-[3px] bg-bubble px-3.5 py-2.5 text-ink-soft`}>
         {children}
         <ChatTime at={time} />
       </div>
@@ -216,17 +218,17 @@ function MarkList({ marks }: { marks: MarkView[] }) {
 
 function MediaBubble({ item, frames, time }: { item: Extract<ChatItem, { kind: "media" }>; frames?: string[]; time?: string }) {
   return (
-    <div className="anim-rise flex flex-col items-end gap-1.5 pt-1.5">
-      <div className="w-[62%] overflow-hidden rounded-[16px] rounded-se-[5px] border-[3px] border-bubble bg-[#191b1e]">
+    <div className="anim-rise flex flex-col items-start gap-1.5 pt-1.5">
+      <div className="w-[62%] overflow-hidden rounded-[12px] rounded-ss-[3px] border-[3px] border-bubble bg-[#191b1e]">
         {frames?.[0] ? (
           // eslint-disable-next-line @next/next/no-img-element -- local data URL
           <img src={frames[0]} alt={T.chat.sentPhoto} className="block w-full" />
         ) : (
-          <div className="grid aspect-[4/3] place-items-center p-3 text-center text-xs text-white/70">{T.chat.notStored}</div>
+          <div className="grid aspect-[4/3] place-items-center p-3 text-center text-[13px] text-white/70">{T.chat.notStored}</div>
         )}
       </div>
       {item.media === "video" && (
-        <p className="flex gap-1 text-xs text-stone">
+        <p className="flex gap-1 text-[13px] text-stone">
           <span>{T.chat.video}</span>
           <span>·</span>
           <span className="font-mono">{item.frames}</span>
@@ -234,7 +236,7 @@ function MediaBubble({ item, frames, time }: { item: Extract<ChatItem, { kind: "
         </p>
       )}
       {item.said ? (
-        <div className={`own ${BUBBLE} max-w-[85%] bg-bubble text-white`}>
+        <div className={`own ${BUBBLE} max-w-[85%] rounded-[12px] rounded-ss-[3px] bg-bubble px-3.5 py-2.5 text-ink-soft`}>
           {item.said}
           <ChatTime at={time} />
         </div>
