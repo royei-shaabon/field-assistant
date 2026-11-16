@@ -24,9 +24,9 @@ export function SourceLink({ kbId, source, dark = false }: { kbId: string; sourc
       href={sourceHref(kbId, source)}
       target="_blank"
       rel="noreferrer"
-      className={`flex min-h-14 items-center gap-3 rounded-[14px] p-2 text-[15px] ${dark ? "border border-white/40 text-white" : "bg-mist text-primary active:bg-primary-soft"}`}
+      className={`flex min-h-14 items-center gap-3 rounded-[14px] p-2 text-[15px] ${dark ? "border border-white/40 text-white" : "bg-mist text-ink active:bg-primary-soft"}`}
     >
-      <span className={`grid h-10 w-10 shrink-0 place-items-center rounded-[10px] ${dark ? "bg-white/15" : "bg-paper"}`}>
+      <span className={`grid h-10 w-10 shrink-0 place-items-center rounded-[10px] ${dark ? "bg-white/15" : "bg-paper text-primary"}`}>
         <DocIcon className="h-5 w-5" />
       </span>
       <span className="min-w-0 flex-1">
@@ -35,7 +35,7 @@ export function SourceLink({ kbId, source, dark = false }: { kbId: string; sourc
           <bdi>{source.docName}</bdi> <span>·</span> <span>{source.unit === "page" ? T.doc.page : T.doc.part}</span> <span className="font-mono">{source.n}</span>
         </span>
       </span>
-      <ArrowIcon className="h-4 w-4 shrink-0 rtl:rotate-180" />
+      <ArrowIcon className={`h-4 w-4 shrink-0 rtl:rotate-180 ${dark ? "" : "text-stone"}`} />
     </a>
   );
 }
@@ -52,7 +52,7 @@ export function MarksLegend({ marks }: { marks: DocMark[] }) {
     <ol className="flex flex-wrap gap-x-4 gap-y-1.5">
       {marks.map((m, i) => (
         <li key={i} className="flex items-center gap-2 text-[15px]">
-          <span aria-hidden className="grid h-6 w-6 shrink-0 place-items-center rounded-full bg-signal font-mono text-[13px] font-medium text-ink">
+          <span aria-hidden className="grid h-6 w-6 shrink-0 place-items-center rounded-full bg-signal font-mono text-[13px] font-medium text-night">
             {i + 1}
           </span>
           <span>{m.label}</span>
@@ -112,12 +112,13 @@ function Figure({ kbId, figure }: { kbId: string; figure: DocFigure }) {
 }
 
 // A suggested reply under a message: a tap sends it or starts an action.
-const CHIP = "min-h-12 rounded-full border border-primary bg-paper px-4 py-2 text-start text-[16px] font-medium text-primary shadow-[0_1px_1.5px_rgba(13,42,69,0.12)] active:bg-primary-soft";
+// Looks 40px tall, like a reply chip in any chat; the tap area is 48px.
+export const CHIP = "relative flex h-10 items-center gap-2 rounded-full border border-edge bg-paper px-4 text-[15px] font-medium text-ink active:bg-mist after:absolute after:inset-x-0 after:-inset-y-1 after:content-['']";
 
 export function QuickReplies({ actions }: { actions: { label: string; run?: () => void }[] }) {
   if (!actions.length) return null;
   return (
-    <div className="flex flex-wrap gap-2 px-1">
+    <div className="flex flex-wrap gap-2 px-1 pt-1">
       {actions.map((a) => (
         <button key={a.label} onClick={a.run} className={CHIP}>
           <Mixed text={a.label} />
@@ -142,8 +143,8 @@ function Feedback({ kbId }: { kbId: string }) {
     );
   }
   return (
-    <div className="flex flex-wrap items-center gap-2 px-1">
-      <span className="text-[15px] text-graphite">{T.doc.feedbackAsk}</span>
+    <div className="flex flex-wrap items-center gap-2 px-1 pt-1">
+      <span className="text-[14px] text-stone">{T.doc.feedbackAsk}</span>
       <button onClick={() => send(true)} className={CHIP}>
         {T.doc.helped}
       </button>
@@ -156,7 +157,7 @@ function Feedback({ kbId }: { kbId: string }) {
 
 export function Caution({ topic }: { topic: HazardTopic }) {
   return (
-    <div role="alert" className="on-dark overflow-hidden rounded-[16px] bg-ink text-white">
+    <div role="alert" className="on-dark overflow-hidden rounded-[16px] bg-night text-white">
       <div className="hazard-stripe h-2" />
       <div className="flex gap-2.5 px-3.5 py-3">
         <WarningIcon className="mt-0.5 h-6 w-6 shrink-0 text-signal" />
@@ -178,21 +179,21 @@ export function Ideas({ ideas, time }: { ideas: DocIdea[]; time?: string }) {
     <BotBubble wide time={time}>
       <section aria-label={`${T.doc.ideasTitle}, ${T.doc.ideasBadge}`} className="flex flex-col gap-2.5">
         <div className="flex flex-wrap items-center gap-2">
-          <h3 className="text-[17px] font-semibold">{T.doc.ideasTitle}</h3>
-          <span className="rounded-full bg-ink px-2.5 py-0.5 text-[13px] font-medium text-white">{T.doc.ideasBadge}</span>
+          <h3 className="text-[16px] font-semibold">{T.doc.ideasTitle}</h3>
+          <span className="rounded-md bg-mist px-2 py-0.5 text-[13px] font-medium text-graphite">{T.doc.ideasBadge}</span>
         </div>
-        <p className="text-[15px] leading-[22px] text-graphite">{T.doc.ideasLead}</p>
-        <ol className="flex flex-col gap-2">
+        <p className="text-[14px] leading-[20px] text-stone">{T.doc.ideasLead}</p>
+        <ol className="flex flex-col">
           {ideas.map((idea, i) => (
-            <li key={i} className="flex flex-col gap-1 rounded-[14px] bg-mist px-3 py-2.5">
-              <p className="text-[17px] leading-[26px]">
+            <li key={i} className="flex flex-col gap-0.5 border-t border-rule-soft py-2 last:pb-0">
+              <p>
                 <Mixed text={idea.text} />
               </p>
-              <p className="text-[14px] text-graphite">
+              <p className="text-[13px] text-stone">
                 <span>{T.doc.likelihood[idea.likelihood]}</span> · <span>{T.doc.minutes(idea.minutes)}</span>
               </p>
               {idea.why && (
-                <p className="text-[15px] leading-[22px] text-graphite">
+                <p className="text-[14px] leading-[20px] text-graphite">
                   <Mixed text={idea.why} />
                 </p>
               )}
@@ -237,18 +238,18 @@ export function DocAnswer({
     <article className="flex flex-col gap-2">
       {item.caution && <Caution topic={item.caution} />}
       <BotBubble wide time={writing ? undefined : time}>
-        <div className="flex flex-col gap-3">
+        <div className="flex flex-col gap-2">
           <Marks marks={item.marks} frames={frames} />
-          <h2 className="text-[18px] font-semibold leading-[26px]">
+          <h2 className="text-[16px] font-semibold leading-[24px]">
             <Reveal text={item.title} animate={animate} delay={delay} mixed />
           </h2>
-          <ol className="flex flex-col gap-3">
+          <ol className="flex flex-col gap-2">
             {item.steps.map((step, i) => {
               const marked = item.marks.flatMap((m, n) => (m.step === i ? [n + 1] : []));
               return (
                 <li key={i} className="flex gap-2.5">
                   {item.steps.length > 1 && (
-                    <span aria-hidden className="mt-0.5 grid h-6 w-6 shrink-0 place-items-center rounded-full bg-primary font-mono text-[13px] text-white">
+                    <span aria-hidden className="min-w-3.5 shrink-0 font-medium tabular-nums text-stone">
                       {i + 1}
                     </span>
                   )}
@@ -256,7 +257,7 @@ export function DocAnswer({
                     <p>
                       <Reveal text={step.text} animate={animate} delay={starts[i]} mixed />
                       {marked.map((n) => (
-                        <span key={n} aria-hidden className="ms-1.5 inline-grid h-5 w-5 translate-y-[-1px] place-items-center rounded-full bg-signal font-mono text-xs font-medium text-ink">
+                        <span key={n} aria-hidden className="ms-1.5 inline-grid h-5 w-5 translate-y-[-1px] place-items-center rounded-full bg-signal font-mono text-xs font-medium text-night">
                           {n}
                         </span>
                       ))}
@@ -275,7 +276,7 @@ export function DocAnswer({
           {!writing && item.figures?.map((f, i) => <Figure key={i} kbId={kbId} figure={f} />)}
           {!writing && single && <SourceLink kbId={kbId} source={item.steps[0].source} />}
           {!writing && (
-            <button onClick={() => setQuotes((q) => !q)} aria-expanded={quotes} className="flex min-h-11 items-center gap-2 self-start text-[15px] font-medium text-primary">
+            <button onClick={() => setQuotes((q) => !q)} aria-expanded={quotes} className="flex min-h-11 items-center gap-2 self-start text-[14px] font-medium text-primary">
               <ArrowIcon className={`h-3.5 w-3.5 transition-transform ${quotes ? "-rotate-90" : "rotate-90"}`} />
               <span>{quotes ? T.doc.hideOriginal : T.doc.original}</span>
             </button>
@@ -303,7 +304,7 @@ export function DocAsk({ item, interactive, animate, delay, onOption, time }: { 
 
 export function DocHazard({ topic, sources, kbId }: { topic: HazardTopic; sources: SourceView[]; kbId: string }) {
   return (
-    <section role="alert" className="on-dark overflow-hidden rounded-[18px] bg-ink text-white">
+    <section role="alert" className="on-dark overflow-hidden rounded-[18px] bg-night text-white">
       <div className="hazard-stripe h-2.5" />
       <div className="flex flex-col gap-2.5 px-[18px] pb-5 pt-[18px]">
         <div className="flex items-center gap-2.5">
@@ -328,7 +329,7 @@ export function DocNote({ title, hint, actions = [], time }: { title: string; hi
     <div className="flex flex-col gap-2">
       <BotBubble time={time}>
         <p>{title}</p>
-        {hint && <p className="pt-1 text-[15px] leading-[23px] text-graphite">{hint}</p>}
+        {hint && <p className="pt-1 text-[14px] leading-[21px] text-graphite">{hint}</p>}
       </BotBubble>
       <QuickReplies actions={actions} />
     </div>

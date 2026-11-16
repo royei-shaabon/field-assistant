@@ -49,11 +49,11 @@ function LiveMarks({ marks }: { marks: DocMark[] }) {
       {marks.map((m, i) => (
         <span key={i}>
           <span
-            className="absolute rounded-lg border-[3px] border-signal shadow-[0_0_0_1.5px_var(--color-ink),inset_0_0_0_1.5px_var(--color-ink)]"
+            className="absolute rounded-lg border-[3px] border-signal shadow-[0_0_0_1.5px_var(--color-night),inset_0_0_0_1.5px_var(--color-night)]"
             style={{ left: `${m.box.x / 10}%`, top: `${m.box.y / 10}%`, width: `${m.box.w / 10}%`, height: `${m.box.h / 10}%` }}
           />
           <span
-            className="absolute grid h-7 w-7 -translate-x-1/2 -translate-y-1/2 place-items-center rounded-full bg-signal font-mono text-sm font-medium text-ink shadow-[0_0_0_1.5px_var(--color-ink)]"
+            className="absolute grid h-7 w-7 -translate-x-1/2 -translate-y-1/2 place-items-center rounded-full bg-signal font-mono text-sm font-medium text-night shadow-[0_0_0_1.5px_var(--color-night)]"
             style={{ left: `${m.box.x / 10}%`, top: `${m.box.y / 10}%` }}
           >
             {i + 1}
@@ -293,7 +293,7 @@ export function CallView({
   const clock = `${String(Math.floor(seconds / 60)).padStart(2, "0")}:${String(seconds % 60).padStart(2, "0")}`;
 
   return (
-    <div ref={root} role="dialog" aria-modal="true" aria-label={kind === "video" ? T.call.video : T.call.voice} className="on-dark fixed inset-0 z-50 mx-auto flex max-w-md flex-col bg-ink text-white">
+    <div ref={root} role="dialog" aria-modal="true" aria-label={kind === "video" ? T.call.video : T.call.voice} className="on-dark fixed inset-0 z-50 mx-auto flex max-w-md flex-col bg-night text-white">
       {kind === "video" && <video ref={video} autoPlay playsInline muted className="absolute inset-0 h-full w-full object-cover" />}
       {kind === "video" && <div aria-hidden className="absolute inset-0 bg-gradient-to-b from-black/55 via-transparent to-black/75" />}
       {kind === "video" && visual && !busy && liveFor === speech.id && <LiveMarks marks={visual.marks.filter((m) => m.frame === visual.marks[0].frame)} />}
@@ -319,16 +319,16 @@ export function CallView({
         )}
 
         {problem && (
-          <div role="alert" className="flex flex-col gap-2.5 rounded-2xl bg-ink/90 p-3.5">
+          <div role="alert" className="flex flex-col gap-2.5 rounded-2xl bg-night/90 p-3.5">
             <p className="text-[17px] leading-[25px]">{problem}</p>
-            <button onClick={onHangUp} className="h-12 rounded-[14px] bg-white text-base font-medium text-ink">
+            <button onClick={onHangUp} className="h-12 rounded-[14px] bg-white text-base font-medium text-night">
               {T.call.backToChat}
             </button>
           </div>
         )}
 
         {visual && !busy && (
-          <div className={`anim-rise flex flex-col gap-2 rounded-2xl bg-ink/85 p-2.5 ${kind === "video" && liveFor === speech.id ? "mb-auto" : ""}`}>
+          <div className={`anim-rise flex flex-col gap-2 rounded-2xl bg-night/85 p-2.5 ${kind === "video" && liveFor === speech.id ? "mb-auto" : ""}`}>
             {/* While the marks are on the live picture, the still copy waits; then it takes over. */}
             {!(kind === "video" && liveFor === speech.id) && (
               <MarkedImage
@@ -349,7 +349,7 @@ export function CallView({
           <StopCard danger />
         ) : (
           saying.length > 0 && (
-            <div aria-live="polite" className={`flex flex-col gap-1.5 overflow-y-auto rounded-2xl bg-ink/85 p-3.5 font-medium ${kind === "video" ? "max-h-[24dvh] text-[17px] leading-[25px]" : "max-h-[40dvh] text-[19px] leading-7"}`}>
+            <div aria-live="polite" className={`flex flex-col gap-1.5 overflow-y-auto rounded-2xl bg-night/85 p-3.5 font-medium ${kind === "video" ? "max-h-[24dvh] text-[17px] leading-[25px]" : "max-h-[40dvh] text-[19px] leading-7"}`}>
               {saying.map((line, i) => (
                 <p key={i}>{line}</p>
               ))}
@@ -358,7 +358,7 @@ export function CallView({
         )}
 
         {heard && (
-          <p className="rounded-xl bg-ink/85 px-3 py-2 text-[17px]">
+          <p className="rounded-xl bg-night/85 px-3 py-2 text-[17px]">
             <span className="text-white/75">{T.call.you}</span> <span>{heard}</span>
           </p>
         )}
@@ -373,7 +373,7 @@ export function CallView({
             onClick={toggleMute}
             aria-label={muted ? T.call.unmute : T.call.mute}
             aria-pressed={muted}
-            className={`grid h-16 w-16 place-items-center rounded-full ${muted ? "bg-white text-ink" : "bg-white/20"}`}
+            className={`grid h-16 w-16 place-items-center rounded-full ${muted ? "bg-white text-night" : "bg-white/20"}`}
           >
             {muted ? <MicOffIcon className="h-7 w-7" /> : <MicIcon className="h-7 w-7" />}
           </button>

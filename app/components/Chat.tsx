@@ -87,16 +87,16 @@ export function wordCount(text: string): number {
 
 // The chat looks like the messaging apps a technician uses every day: the assistant's messages
 // in white bubbles on one side, their own in tinted bubbles on the other, the time in the corner.
-const BUBBLE = "min-w-0 rounded-[18px] px-3.5 py-2.5 text-[17px] leading-[26px] shadow-[0_1px_1.5px_rgba(13,42,69,0.18)]";
+const BUBBLE = "min-w-0 rounded-[16px] px-3 py-2 text-[16px] leading-[24px]";
 
 export function ChatTime({ at }: { at?: string }) {
-  return at ? <span className="mt-1 block text-end font-mono text-[13px] leading-none text-stone">{at}</span> : null;
+  return at ? <span className="mt-1 block text-end text-[13px] leading-none tabular-nums text-stone [.own_&]:text-white/75">{at}</span> : null;
 }
 
 export function BotBubble({ children, time, wide = false }: { children: React.ReactNode; time?: string; wide?: boolean }) {
   return (
     <div className="anim-rise flex justify-start">
-      <div className={`${BUBBLE} rounded-ss-[6px] bg-paper ${wide ? "w-full" : "max-w-[90%]"}`}>
+      <div className={`${BUBBLE} rounded-ss-[5px] border border-rule-soft bg-paper ${wide ? "w-[94%]" : "max-w-[88%]"}`}>
         {children}
         <ChatTime at={time} />
       </div>
@@ -107,7 +107,7 @@ export function BotBubble({ children, time, wide = false }: { children: React.Re
 export function TechBubble({ children, time }: { children: React.ReactNode; time?: string }) {
   return (
     <div className="anim-rise flex justify-end pt-1.5">
-      <div className={`${BUBBLE} max-w-[85%] rounded-se-[6px] bg-bubble`}>
+      <div className={`own ${BUBBLE} max-w-[85%] rounded-se-[5px] bg-bubble text-white`}>
         {children}
         <ChatTime at={time} />
       </div>
@@ -133,10 +133,10 @@ export function TypingBubble({ label }: { label: string }) {
 
 // A short line in the middle of the chat that nobody "said": the day, or a standing notice.
 export function ChatNote({ children, tone = "plain" }: { children: React.ReactNode; tone?: "plain" | "notice" }) {
-  return (
-    <p className={`mx-auto max-w-[88%] rounded-xl px-3 py-1.5 text-center text-[13px] leading-[19px] shadow-[0_1px_1px_rgba(13,42,69,0.1)] ${tone === "notice" ? "bg-signal-soft text-ink-soft" : "bg-paper text-graphite"}`}>
-      {children}
-    </p>
+  return tone === "notice" ? (
+    <p className="mx-auto max-w-[82%] pb-1.5 text-center text-[13px] leading-[19px] text-stone">{children}</p>
+  ) : (
+    <p className="mx-auto rounded-lg border border-rule-soft bg-paper px-2.5 py-0.5 text-center text-[13px] leading-[19px] text-graphite">{children}</p>
   );
 }
 
@@ -185,12 +185,12 @@ export function MarkedImage({ src, marks }: { src?: string; marks: (MarkView & {
         <span key={m.n}>
           <span
             aria-hidden
-            className="absolute rounded-lg border-[3px] border-signal shadow-[0_0_0_1.5px_var(--color-ink),inset_0_0_0_1.5px_var(--color-ink)]"
+            className="absolute rounded-lg border-[3px] border-signal shadow-[0_0_0_1.5px_var(--color-night),inset_0_0_0_1.5px_var(--color-night)]"
             style={{ left: `${m.box.x / 10}%`, top: `${m.box.y / 10}%`, width: `${m.box.w / 10}%`, height: `${m.box.h / 10}%` }}
           />
           <span
             aria-hidden
-            className="absolute grid h-6 w-6 -translate-x-1/2 -translate-y-1/2 place-items-center rounded-full bg-signal font-mono text-[13px] font-medium text-ink shadow-[0_0_0_1.5px_var(--color-ink)]"
+            className="absolute grid h-6 w-6 -translate-x-1/2 -translate-y-1/2 place-items-center rounded-full bg-signal font-mono text-[13px] font-medium text-night shadow-[0_0_0_1.5px_var(--color-night)]"
             style={{ left: `${m.box.x / 10}%`, top: `${m.box.y / 10}%` }}
           >
             {m.n}
@@ -206,7 +206,7 @@ function MarkList({ marks }: { marks: MarkView[] }) {
     <ol className="flex flex-col gap-1">
       {marks.map((m, i) => (
         <li key={i} className="flex items-center gap-2 text-sm text-ink-soft">
-          <span className="grid h-[18px] w-[18px] shrink-0 place-items-center rounded-full bg-signal font-mono text-[10px] font-medium text-ink">{i + 1}</span>
+          <span className="grid h-[18px] w-[18px] shrink-0 place-items-center rounded-full bg-signal font-mono text-[10px] font-medium text-night">{i + 1}</span>
           <span>{m.label}</span>
         </li>
       ))}
@@ -217,7 +217,7 @@ function MarkList({ marks }: { marks: MarkView[] }) {
 function MediaBubble({ item, frames, time }: { item: Extract<ChatItem, { kind: "media" }>; frames?: string[]; time?: string }) {
   return (
     <div className="anim-rise flex flex-col items-end gap-1.5 pt-1.5">
-      <div className="w-[62%] overflow-hidden rounded-[18px] rounded-se-[6px] border-4 border-bubble bg-[#191b1e] shadow-[0_1px_1.5px_rgba(13,42,69,0.18)]">
+      <div className="w-[62%] overflow-hidden rounded-[16px] rounded-se-[5px] border-[3px] border-bubble bg-[#191b1e]">
         {frames?.[0] ? (
           // eslint-disable-next-line @next/next/no-img-element -- local data URL
           <img src={frames[0]} alt={T.chat.sentPhoto} className="block w-full" />
@@ -234,7 +234,7 @@ function MediaBubble({ item, frames, time }: { item: Extract<ChatItem, { kind: "
         </p>
       )}
       {item.said ? (
-        <div className={`${BUBBLE} max-w-[85%] bg-bubble`}>
+        <div className={`own ${BUBBLE} max-w-[85%] bg-bubble text-white`}>
           {item.said}
           <ChatTime at={time} />
         </div>
@@ -247,7 +247,7 @@ function MediaBubble({ item, frames, time }: { item: Extract<ChatItem, { kind: "
 
 export function StopCard({ danger = false, onAck }: { danger?: boolean; onAck?: () => void }) {
   return (
-    <section role="alert" className="on-dark overflow-hidden rounded-[18px] bg-ink text-white">
+    <section role="alert" className="on-dark overflow-hidden rounded-[18px] bg-night text-white">
       <div className="hazard-stripe h-2.5" />
       <div className="flex flex-col gap-2.5 px-[18px] pb-5 pt-[18px]">
         <div className="flex items-center gap-2.5">
@@ -257,7 +257,7 @@ export function StopCard({ danger = false, onAck }: { danger?: boolean; onAck?: 
         <p className="text-[17px] leading-[26px]">{danger ? T.stop.danger : T.stop.hazard}</p>
         {!danger && <p className="text-sm leading-[21px] text-[#c9c9c4]">{T.stop.hazardNote}</p>}
         {onAck && (
-          <button onClick={onAck} className="mt-2 h-12 rounded-[14px] bg-white text-base font-medium text-ink active:opacity-90">
+          <button onClick={onAck} className="mt-2 h-12 rounded-[14px] bg-white text-base font-medium text-night active:opacity-90">
             {T.stop.acknowledge}
           </button>
         )}
@@ -381,7 +381,7 @@ function Item({
     case "picked":
       return (
         <TechBubble>
-          <span className="text-graphite">{T.chat.picked}</span> <span>{item.symptomTitle}</span>
+          <span className="opacity-75">{T.chat.picked}</span> <span>{item.symptomTitle}</span>
         </TechBubble>
       );
     case "answer":
@@ -552,7 +552,7 @@ export function MapCard({ trees, candidates, from }: { trees: TreeView[]; candid
   const line = <div aria-hidden className="h-2.5 w-0.5 self-center bg-[#d6d6d1]" />;
   return (
     <figure aria-label={T.map.title} className="m-0 flex flex-col rounded-2xl border border-rule px-3 pb-3 pt-3.5">
-      <div className="flex items-center gap-1.5 self-center rounded-[10px] bg-ink px-3 py-1.5 text-[13px] text-white">
+      <div className="flex items-center gap-1.5 self-center rounded-[10px] bg-night px-3 py-1.5 text-[13px] text-white">
         <span>{T.map.from}</span>
         <span>·</span>
         <span>{T.map[from]}</span>
@@ -588,7 +588,7 @@ export function MapCard({ trees, candidates, from }: { trees: TreeView[]; candid
                     </div>
                   ) : (
                     <div className="flex items-start gap-1.5 rounded-[10px] border border-rule px-2 py-1.5">
-                      <span aria-hidden className="mt-0.5 grid h-4 w-4 shrink-0 place-items-center rounded-full bg-ink text-white">
+                      <span aria-hidden className="mt-0.5 grid h-4 w-4 shrink-0 place-items-center rounded-full bg-night text-white">
                         <CheckIcon className="h-2.5 w-2.5" />
                       </span>
                       <span className="text-xs leading-4">

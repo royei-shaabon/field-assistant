@@ -23,10 +23,16 @@
   --color-pebble: #91a0af;
   /* Borders of controls: at least 3:1 on paper, so a field is visible in sunlight. */
   --color-edge: #788898;
-  /* The chat, like any messaging app: a tinted wall, white bubbles for the assistant, and a
-     blue-tinted bubble for the technician's own messages. */
-  --color-canvas: #e6ecf2;
-  --color-bubble: #cfe3f7;
+  /* The technician's screen, like any messaging app: a neutral wall, plain bubbles for the
+     assistant, a solid bubble with white text for the technician's own messages.
+     canvas: the wall. bar: the top and bottom bars. bubble: the technician's own messages.
+     action: a filled button (white text on it). night: a surface that is dark in both themes
+     (warning cards, the call screen), and the dark text that sits on white or amber. */
+  --color-canvas: #f3f4f6;
+  --color-bar: #ffffff;
+  --color-bubble: #0d2a45;
+  --color-action: #0d2a45;
+  --color-night: #0d2a45;
   --color-primary: #145da0;
   --color-primary-strong: #0f4a80;
   --color-primary-soft: #e2edf8;
@@ -41,6 +47,43 @@ body {
   color: var(--color-ink);
   background: var(--color-paper);
   font-family: var(--font-sans);
+}
+
+/* The technician's screen follows the phone: dark when the phone is dark, as the apps a
+   technician already uses do. Only the roles change; components name roles, never raw colours.
+   The implementer's screen and the policy pages stay light. */
+.tech {
+  color: var(--color-ink);
+}
+@media (prefers-color-scheme: dark) {
+  .tech {
+    color-scheme: dark;
+    --color-ink: #e9eef3;
+    --color-ink-soft: #c9d4de;
+    --color-paper: #17232f;
+    --color-mist: #0f1a25;
+    --color-canvas: #0a121b;
+    --color-bar: #101b27;
+    --color-rule: #243445;
+    --color-rule-soft: #1c2a39;
+    --color-graphite: #a9b7c5;
+    --color-stone: #8b9bab;
+    --color-pebble: #5d6c7b;
+    --color-edge: #62758a;
+    --color-bubble: #1f5fa3;
+    --color-action: #1f5fa3;
+    --color-night: #13283c;
+    --color-primary: #6db3f2;
+    --color-primary-strong: #8cc4f5;
+    --color-primary-soft: #16324d;
+    --color-signal-soft: #3a3011;
+    --color-danger: #e5564a;
+    --color-danger-ink: #ff8a7d;
+    --color-ok: #4cc38a;
+  }
+  body:has(.tech) {
+    background: #0a121b;
+  }
 }
 
 button:focus-visible,
@@ -65,7 +108,7 @@ input.focus-in-box:focus-visible {
 }
 
 .hazard-stripe {
-  background: repeating-linear-gradient(-45deg, var(--color-ink) 0 10px, var(--color-signal) 10px 20px);
+  background: repeating-linear-gradient(-45deg, var(--color-night) 0 10px, var(--color-signal) 10px 20px);
 }
 
 @keyframes caret { 0%, 49% { opacity: 1 } 50%, 100% { opacity: 0 } }

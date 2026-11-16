@@ -25,7 +25,7 @@ import { T } from "@/lib/ui-text";
 import { CallView, type Speech } from "./Call";
 import { Logo, LogoMark } from "./Logo";
 import { BotBubble, ChatNote, ChatTime, ChatView, Mixed, type ProgressStep } from "./Chat";
-import { QuickReplies } from "./DocChat";
+import { CHIP } from "./DocChat";
 import { CameraIcon, CloseIcon, MapIcon, MenuIcon, MicIcon, PhoneIcon, PlusIcon, SendIcon, VideoIcon } from "./icons";
 
 const EMPTY: Screen = { items: [], mode: "identify", candidates: [], trees: [], danger: false };
@@ -195,7 +195,7 @@ function Menu({
   const ref = useDialog(onClose);
   return (
     <div className="fixed inset-0 z-40 mx-auto flex max-w-md">
-      <div aria-hidden onClick={onClose} className="absolute inset-0 bg-ink/50" />
+      <div aria-hidden onClick={onClose} className="absolute inset-0 bg-night/50" />
       <div ref={ref} role="dialog" aria-modal="true" aria-label={T.doc.menu} className="anim-rise relative flex w-[86%] flex-col bg-paper shadow-[0_0_32px_rgba(18,18,18,0.18)]">
         <div className="flex h-[60px] shrink-0 items-center justify-between pe-1.5 ps-4">
           <Logo size={30} />
@@ -206,7 +206,7 @@ function Menu({
 
         <div className="flex-1 overflow-y-auto pb-2">
           <div className="px-3">
-            <button onClick={onNew} className="flex h-14 w-full items-center gap-3 rounded-[14px] bg-primary px-4 text-[17px] font-medium text-white active:opacity-90">
+            <button onClick={onNew} className="flex h-14 w-full items-center gap-3 rounded-[14px] bg-action px-4 text-[17px] font-medium text-white active:opacity-90">
               <PlusIcon />
               <span>{T.header.newCase}</span>
             </button>
@@ -359,12 +359,12 @@ function Composer({
             disabled={disabled}
             aria-label={T.composer.attach}
             aria-expanded={attachOpen}
-            className="grid h-12 w-11 shrink-0 place-items-center rounded-full text-ink active:bg-paper disabled:text-pebble"
+            className="grid h-12 w-10 shrink-0 place-items-center rounded-full text-graphite active:bg-mist disabled:text-pebble"
           >
             <PlusIcon className={`h-7 w-7 transition-transform ${attachOpen ? "rotate-45" : ""}`} />
           </button>
         )}
-        <div className="flex min-h-12 min-w-0 flex-1 items-center rounded-[24px] border border-edge bg-paper pe-1 ps-4 focus-within:border-primary focus-within:shadow-[0_0_0_1px_var(--color-primary)]">
+        <div className="flex min-h-12 min-w-0 flex-1 items-center rounded-[24px] border border-edge bg-mist pe-1 ps-4 focus-within:border-primary focus-within:shadow-[0_0_0_1px_var(--color-primary)]">
           <label htmlFor="composer-text" className="sr-only">
             {label}
           </label>
@@ -377,7 +377,7 @@ function Composer({
             enterKeyHint="send"
             autoComplete="off"
             placeholder={label}
-            className="focus-in-box h-12 min-w-0 flex-1 bg-transparent text-[17px] placeholder:text-stone"
+            className="focus-in-box h-12 min-w-0 flex-1 bg-transparent text-[16px] placeholder:text-stone"
           />
           {canAttach && !disabled && !text && !staged && (
             <FilePicker accept="image/*" multiple onFiles={onPhotos} className="grid h-11 w-11 shrink-0 place-items-center rounded-full text-graphite active:bg-mist">
@@ -387,15 +387,15 @@ function Composer({
           )}
         </div>
         {busy ? (
-          <button type="button" onClick={onCancel} aria-label={T.composer.stop} className="grid h-12 w-12 shrink-0 place-items-center rounded-full bg-primary">
+          <button type="button" onClick={onCancel} aria-label={T.composer.stop} className="grid h-12 w-12 shrink-0 place-items-center rounded-full bg-action">
             <span aria-hidden className="h-3.5 w-3.5 rounded-[3px] bg-white" />
           </button>
         ) : canSend || !onMic ? (
-          <button type="submit" disabled={!canSend} aria-label={T.composer.send} className="grid h-12 w-12 shrink-0 place-items-center rounded-full bg-primary text-white disabled:bg-rule disabled:text-stone">
+          <button type="submit" disabled={!canSend} aria-label={T.composer.send} className="grid h-12 w-12 shrink-0 place-items-center rounded-full bg-action text-white disabled:bg-rule disabled:text-stone">
             <SendIcon className="h-5 w-5" />
           </button>
         ) : (
-          <button type="button" onClick={onMic} disabled={disabled} aria-label={T.doc.startVoice} className="grid h-12 w-12 shrink-0 place-items-center rounded-full bg-primary text-white active:bg-primary-strong disabled:bg-rule disabled:text-stone">
+          <button type="button" onClick={onMic} disabled={disabled} aria-label={T.doc.startVoice} className="grid h-12 w-12 shrink-0 place-items-center rounded-full bg-action text-white active:opacity-90 disabled:bg-rule disabled:text-stone">
             <MicIcon className="h-6 w-6" />
           </button>
         )}
@@ -419,7 +419,7 @@ function AccessCode({ onDone }: { onDone: () => void }) {
     else setProblem(!res ? T.doc.access.offline : res.status === 429 ? T.doc.access.tooMany : T.doc.access.wrong);
   };
   return (
-    <main className="mx-auto flex min-h-dvh max-w-sm flex-col justify-center gap-4 px-5 py-8">
+    <main className="tech mx-auto flex min-h-dvh max-w-sm flex-col justify-center gap-4 px-5 py-8">
       <h1 className="pb-2">
         <Logo size={44} tagline />
       </h1>
@@ -447,7 +447,7 @@ function AccessCode({ onDone }: { onDone: () => void }) {
             {problem}
           </p>
         )}
-        <button disabled={busy} className="h-14 rounded-[16px] bg-primary text-[17px] font-medium text-white disabled:opacity-60">
+        <button disabled={busy} className="h-14 rounded-[16px] bg-action text-[17px] font-medium text-white disabled:opacity-60">
           {T.doc.access.submit}
         </button>
       </form>
@@ -466,7 +466,7 @@ function AccessCode({ onDone }: { onDone: () => void }) {
 // A full-screen notice with one action: nothing can be done until it is resolved.
 function Notice({ text, action, onAction }: { text: string; action?: string; onAction?: () => void }) {
   return (
-    <main className="mx-auto flex min-h-dvh max-w-sm flex-col justify-center gap-5 px-5">
+    <main className="tech mx-auto flex min-h-dvh max-w-sm flex-col justify-center gap-5 px-5">
       <h1 className="pb-1">
         <Logo size={40} />
       </h1>
@@ -474,7 +474,7 @@ function Notice({ text, action, onAction }: { text: string; action?: string; onA
         {text}
       </p>
       {action && (
-        <button onClick={onAction} className="h-14 rounded-[16px] bg-primary text-[17px] font-medium text-white">
+        <button onClick={onAction} className="h-14 rounded-[16px] bg-action text-[17px] font-medium text-white">
           {action}
         </button>
       )}
@@ -485,7 +485,7 @@ function Notice({ text, action, onAction }: { text: string; action?: string; onA
 // A round icon button in the top bar, as in any messaging app. The label is read by a screen reader.
 function HeaderButton({ label, onClick, disabled, children }: { label: string; onClick: () => void; disabled?: boolean; children: React.ReactNode }) {
   return (
-    <button onClick={onClick} disabled={disabled} aria-label={label} className="grid h-12 w-12 shrink-0 place-items-center rounded-full text-white active:bg-white/15 disabled:opacity-45">
+    <button onClick={onClick} disabled={disabled} aria-label={label} className="grid h-12 w-11 shrink-0 place-items-center rounded-full text-ink active:bg-mist disabled:opacity-40">
       {children}
     </button>
   );
@@ -784,22 +784,22 @@ export function TechnicianApp() {
 
   if (locked) return <AccessCode onDone={() => window.location.reload()} />;
   if (kbs === "error") return <Notice text={T.doc.loadError} action={T.doc.retry} onAction={() => (setKbs(null), setAttempt((n) => n + 1))} />;
-  if (kbs === null) return <main className="grid min-h-dvh place-items-center text-[17px] text-graphite">{T.doc.loading}</main>;
+  if (kbs === null) return <main className="tech grid min-h-dvh place-items-center text-[17px] text-graphite">{T.doc.loading}</main>;
   if (kbs.length === 0) return <Notice text={T.doc.noKbs} />;
 
   return (
-    <div className="mx-auto flex h-dvh max-w-md flex-col bg-canvas">
-      <header className="on-dark flex h-[62px] shrink-0 items-center bg-ink pe-1 ps-0.5 text-white shadow-[0_1px_3px_rgba(13,42,69,0.3)]">
+    <div className="tech mx-auto flex h-dvh max-w-md flex-col bg-canvas">
+      <header className="flex h-[58px] shrink-0 items-center border-b border-rule bg-bar pe-1 ps-0.5">
         <HeaderButton label={T.doc.menu} onClick={() => setMenu(true)}>
           <MenuIcon />
         </HeaderButton>
-        <LogoMark size={40} className="shrink-0 rounded-full ring-1 ring-white/30" />
+        <LogoMark size={38} className="shrink-0 rounded-full" />
         <div className="min-w-0 flex-1 px-2.5 leading-tight">
           {/* dir="auto": an English machine name is cut at its end, not at its start. */}
-          <h1 dir="auto" className="truncate text-right text-[17px] font-semibold">
+          <h1 dir="auto" className="truncate text-right text-[16px] font-semibold">
             {kb?.name ?? T.appTitle}
           </h1>
-          <p dir="auto" className="truncate text-right text-[13px] text-white/75">
+          <p dir="auto" className="truncate text-right text-[13px] text-stone">
             {screen.title ?? (isDocs ? T.doc.status : T.appTitle)}
           </p>
         </div>
@@ -833,12 +833,15 @@ export function TechnicianApp() {
                 </h2>
               </BotBubble>
               {isDocs && !noDocuments && (
-                <div className="flex flex-wrap gap-2 px-1">
-                  <FilePicker accept="image/*" multiple onFiles={stagePhotos} className="flex min-h-12 items-center gap-2 rounded-full border border-primary bg-paper px-4 text-[16px] font-medium text-primary shadow-[0_1px_1.5px_rgba(13,42,69,0.12)] active:bg-primary-soft">
+                <div className="flex flex-wrap items-start gap-2 px-1 pt-1">
+                  <FilePicker accept="image/*" multiple onFiles={stagePhotos} className={CHIP}>
                     <CameraIcon className="h-5 w-5" />
                     <span>{T.doc.startPhoto}</span>
                   </FilePicker>
-                  <QuickReplies actions={[{ label: T.doc.startVoice, run: () => startCall("voice") }]} />
+                  <button onClick={() => startCall("voice")} className={CHIP}>
+                    <MicIcon className="h-5 w-5" />
+                    <span>{T.doc.startVoice}</span>
+                  </button>
                 </div>
               )}
             </div>
@@ -861,10 +864,10 @@ export function TechnicianApp() {
                   <div className="anim-rise flex flex-col items-end gap-1.5 pt-1.5">
                     {pending.frames?.[0] && (
                       // eslint-disable-next-line @next/next/no-img-element -- local data URL
-                      <img src={pending.frames[0]} alt={T.chat.sentPhoto} className="w-[62%] rounded-[18px] rounded-se-[6px] border-4 border-bubble shadow-[0_1px_1.5px_rgba(13,42,69,0.18)]" />
+                      <img src={pending.frames[0]} alt={T.chat.sentPhoto} className="w-[62%] rounded-[16px] rounded-se-[5px] border-[3px] border-bubble" />
                     )}
                     {pending.said && (
-                      <div className="max-w-[85%] rounded-[18px] rounded-se-[6px] bg-bubble px-3.5 py-2.5 text-[17px] leading-[26px] shadow-[0_1px_1.5px_rgba(13,42,69,0.18)]">
+                      <div className="own max-w-[85%] rounded-[16px] rounded-se-[5px] bg-bubble px-3 py-2 text-[16px] leading-[24px] text-white">
                         {pending.said}
                         <ChatTime at={pending.at} />
                       </div>
@@ -889,7 +892,7 @@ export function TechnicianApp() {
         </div>
       </main>
 
-      <div className="px-2 pb-[max(10px,env(safe-area-inset-bottom))] pt-1.5">
+      <div className="border-t border-rule bg-bar px-2 pb-[max(10px,env(safe-area-inset-bottom))] pt-2">
         <Composer
           placeholder={isDocs ? T.doc.placeholder : screen.mode === "identify" ? T.composer.describe : T.composer.answer}
           text={draft}
