@@ -22,6 +22,8 @@ export const LIMITS = {
   speak: { max: 240, windowMs: 5 * 60_000 },
   // Live calls: each one opens a session with the live model.
   live: { max: 20, windowMs: 10 * 60_000 },
+  // The live call's tool: a search per question (an embedding call, no language model).
+  lookup: { max: 120, windowMs: 10 * 60_000 },
 } satisfies Record<string, Limit>;
 
 // True when the call is allowed; counts it.

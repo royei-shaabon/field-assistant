@@ -24,9 +24,9 @@ export function SourceLink({ kbId, source, dark = false }: { kbId: string; sourc
       href={sourceHref(kbId, source)}
       target="_blank"
       rel="noreferrer"
-      className={`flex min-h-14 items-center gap-3 rounded-[14px] p-2 text-[15px] ${dark ? "border border-white/40 text-white" : "bg-mist text-ink active:bg-primary-soft"}`}
+      className={`flex min-h-12 items-center gap-3 rounded-[10px] border px-2 py-1.5 text-[15px] ${dark ? "border-white/40 text-white" : "border-rule bg-paper text-ink active:bg-mist"}`}
     >
-      <span className={`grid h-10 w-10 shrink-0 place-items-center rounded-[10px] ${dark ? "bg-white/15" : "bg-paper text-primary"}`}>
+      <span className={`grid h-9 w-9 shrink-0 place-items-center rounded-[7px] ${dark ? "bg-white/15" : "bg-primary-soft text-primary"}`}>
         <DocIcon className="h-5 w-5" />
       </span>
       <span className="min-w-0 flex-1">
@@ -113,12 +113,12 @@ function Figure({ kbId, figure }: { kbId: string; figure: DocFigure }) {
 
 // A suggested reply under a message: a tap sends it or starts an action.
 // Looks 40px tall, like a reply chip in any chat; the tap area is 48px.
-export const CHIP = "relative flex h-10 items-center gap-2 rounded-full border border-edge bg-paper px-4 text-[15px] font-medium text-ink active:bg-mist after:absolute after:inset-x-0 after:-inset-y-1 after:content-['']";
+export const CHIP = "relative flex h-10 items-center gap-2 rounded-[7px] border border-edge bg-mist px-3.5 text-[15px] font-medium text-ink active:bg-rule-soft after:absolute after:inset-x-0 after:-inset-y-1 after:content-['']";
 
 export function QuickReplies({ actions }: { actions: { label: string; run?: () => void }[] }) {
   if (!actions.length) return null;
   return (
-    <div className="flex flex-wrap gap-2 px-1 pt-1">
+    <div className="flex flex-wrap gap-2 ps-8 pt-1">
       {actions.map((a) => (
         <button key={a.label} onClick={a.run} className={CHIP}>
           <Mixed text={a.label} />
@@ -137,13 +137,13 @@ function Feedback({ kbId }: { kbId: string }) {
   };
   if (sent) {
     return (
-      <p role="status" className="px-1 text-[15px] text-graphite">
+      <p role="status" className="ps-8 text-[15px] text-graphite">
         {T.doc.feedbackThanks}
       </p>
     );
   }
   return (
-    <div className="flex flex-wrap items-center gap-2 px-1 pt-1">
+    <div className="flex flex-wrap items-center gap-2 ps-8 pt-1">
       <span className="text-[14px] text-stone">{T.doc.feedbackAsk}</span>
       <button onClick={() => send(true)} className={CHIP}>
         {T.doc.helped}
@@ -157,16 +157,13 @@ function Feedback({ kbId }: { kbId: string }) {
 
 export function Caution({ topic }: { topic: HazardTopic }) {
   return (
-    <div role="alert" className="on-dark overflow-hidden rounded-[16px] bg-night text-white">
-      <div className="hazard-stripe h-2" />
-      <div className="flex gap-2.5 px-3.5 py-3">
-        <WarningIcon className="mt-0.5 h-6 w-6 shrink-0 text-signal" />
-        <div className="flex flex-col gap-0.5">
-          <p className="text-[17px] font-semibold leading-6">
-            <span>{T.doc.cautionTitle}</span> <span className="text-signal">{T.doc.topics[topic]}</span>
-          </p>
-          <p className="text-[15px] leading-[22px] text-[#c9c9c4]">{T.doc.cautionBody}</p>
-        </div>
+    <div role="alert" className="flex gap-2.5 rounded-[10px] border border-signal bg-signal-soft px-3.5 py-3">
+      <WarningIcon className="mt-0.5 h-6 w-6 shrink-0 text-warn" />
+      <div className="flex flex-col gap-0.5">
+        <p className="text-[16px] font-bold leading-6 text-ink">
+          <span>{T.doc.cautionTitle}</span> <span className="text-warn">{T.doc.topics[topic]}</span>
+        </p>
+        <p className="text-[15px] leading-[22px] text-ink-soft">{T.doc.cautionBody}</p>
       </div>
     </div>
   );
@@ -179,8 +176,8 @@ export function Ideas({ ideas, time }: { ideas: DocIdea[]; time?: string }) {
     <BotBubble wide time={time}>
       <section aria-label={`${T.doc.ideasTitle}, ${T.doc.ideasBadge}`} className="flex flex-col gap-2.5">
         <div className="flex flex-wrap items-center gap-2">
-          <h3 className="text-[16px] font-semibold">{T.doc.ideasTitle}</h3>
-          <span className="rounded-md bg-mist px-2 py-0.5 text-[13px] font-medium text-graphite">{T.doc.ideasBadge}</span>
+          <h3 className="text-[16px] font-bold text-ink">{T.doc.ideasTitle}</h3>
+          <span className="rounded-[5px] border border-rule px-2 py-0.5 text-[13px] font-medium text-graphite">{T.doc.ideasBadge}</span>
         </div>
         <p className="text-[14px] leading-[20px] text-stone">{T.doc.ideasLead}</p>
         <ol className="flex flex-col">
@@ -240,7 +237,7 @@ export function DocAnswer({
       <BotBubble wide time={writing ? undefined : time}>
         <div className="flex flex-col gap-2">
           <Marks marks={item.marks} frames={frames} />
-          <h2 className="text-[16px] font-semibold leading-[24px]">
+          <h2 className="text-[16px] font-bold leading-[24px] tracking-[-0.01em] text-ink">
             <Reveal text={item.title} animate={animate} delay={delay} mixed />
           </h2>
           <ol className="flex flex-col gap-2">
@@ -249,7 +246,7 @@ export function DocAnswer({
               return (
                 <li key={i} className="flex gap-2.5">
                   {item.steps.length > 1 && (
-                    <span aria-hidden className="min-w-3.5 shrink-0 font-medium tabular-nums text-stone">
+                    <span aria-hidden className="min-w-4 shrink-0 font-mono text-[14px] font-medium leading-[25px] text-primary">
                       {i + 1}
                     </span>
                   )}
@@ -257,7 +254,7 @@ export function DocAnswer({
                     <p>
                       <Reveal text={step.text} animate={animate} delay={starts[i]} mixed />
                       {marked.map((n) => (
-                        <span key={n} aria-hidden className="ms-1.5 inline-grid h-5 w-5 translate-y-[-1px] place-items-center rounded-full bg-signal font-mono text-xs font-medium text-night">
+                        <span key={n} aria-hidden className="ms-1.5 inline-grid h-5 w-5 translate-y-[-1px] place-items-center rounded-full bg-signal font-mono text-[13px] font-medium text-night">
                           {n}
                         </span>
                       ))}

@@ -25,10 +25,10 @@ import {
 } from "@/lib/client/conversations";
 import { T } from "@/lib/ui-text";
 import { CallView, type Speech } from "./Call";
+import { BRAND } from "@/lib/brand";
 import { Logo, LogoMark } from "./Logo";
-import { BotBubble, ChatNote, ChatTime, ChatView, Mixed, type ProgressStep } from "./Chat";
-import { CHIP } from "./DocChat";
-import { CameraIcon, CloseIcon, MapIcon, MenuIcon, MicIcon, PhoneIcon, PlusIcon, SendIcon, VideoIcon } from "./icons";
+import { ChatTime, ChatView, type ProgressStep } from "./Chat";
+import { ArrowIcon, CameraIcon, CloseIcon, DocIcon, MapIcon, MenuIcon, PhoneIcon, PlusIcon, SendIcon, VideoIcon } from "./icons";
 
 const EMPTY: Screen = { items: [], mode: "identify", candidates: [], trees: [], danger: false };
 const MAX_PHOTOS = 4;
@@ -208,7 +208,7 @@ function Menu({
 
         <div className="flex-1 overflow-y-auto pb-2">
           <div className="px-3">
-            <button onClick={onNew} className="flex h-14 w-full items-center gap-3 rounded-[14px] bg-action px-4 text-[17px] font-medium text-white active:opacity-90">
+            <button onClick={onNew} className="flex h-12 w-full items-center gap-3 rounded-[10px] bg-action px-4 text-[16px] font-medium text-white active:opacity-90">
               <PlusIcon />
               <span>{T.header.newCase}</span>
             </button>
@@ -223,7 +223,7 @@ function Menu({
                     <button
                       onClick={() => onKb(k.id)}
                       aria-current={k.id === kbId ? "true" : undefined}
-                      className={`flex min-h-12 w-full items-center rounded-[14px] border px-3.5 py-2 text-start text-base ${k.id === kbId ? "border-primary border-s-4 font-semibold" : "border-edge active:bg-mist"}`}
+                      className={`flex min-h-12 w-full items-center rounded-[10px] border px-3.5 py-2 text-start text-base ${k.id === kbId ? "border-primary border-s-[3px] bg-primary-soft font-semibold" : "border-edge active:bg-mist"}`}
                     >
                       <bdi>{k.name}</bdi>
                     </button>
@@ -242,7 +242,7 @@ function Menu({
                   <button
                     onClick={() => onOpen(c)}
                     aria-current={c.id === currentId ? "true" : undefined}
-                    className={`flex min-h-14 min-w-0 flex-1 items-center gap-3 rounded-xl px-2.5 py-2 text-start active:bg-mist ${c.id === currentId ? "border-s-4 border-primary bg-mist" : ""}`}
+                    className={`flex min-h-14 min-w-0 flex-1 items-center gap-3 rounded-xl px-2.5 py-2 text-start active:bg-mist ${c.id === currentId ? "border-s-[3px] border-primary bg-mist" : ""}`}
                   >
                     {showStatus && <span aria-hidden className={`h-2 w-2 shrink-0 rounded-full ${DOT[c.mode]}`} />}
                     <span className="min-w-0 flex-1">
@@ -292,7 +292,6 @@ function Composer({
   onPhotos,
   onVideo,
   onCancel,
-  onMic,
 }: {
   placeholder: string;
   text: string;
@@ -308,8 +307,6 @@ function Composer({
   onPhotos: (f: File[]) => void;
   onVideo: (f: File[]) => void;
   onCancel: () => void;
-  // With nothing typed, the round button is a microphone that starts a voice conversation.
-  onMic?: () => void;
 }) {
   const canSend = !busy && !disabled && (text.trim().length > 0 || staged !== null);
   const label = staged ? T.composer.askAboutPhoto : placeholder;
@@ -351,9 +348,8 @@ function Composer({
         </div>
       )}
 
-      {/* The bar every messaging app has: attach, the message field with the camera in it,
-          and one round button that sends, or records when there is nothing to send. */}
-      <div className="flex items-end gap-1.5">
+      {/* One white field: attach inside it, the camera, and a square send button. */}
+      <div className="flex min-h-[54px] items-center gap-1 rounded-[12px] border border-edge bg-paper pe-1.5 ps-1 focus-within:border-primary focus-within:shadow-[0_0_0_1px_var(--color-primary)]">
         {canAttach && (
           <button
             type="button"
@@ -361,44 +357,38 @@ function Composer({
             disabled={disabled}
             aria-label={T.composer.attach}
             aria-expanded={attachOpen}
-            className="grid h-12 w-10 shrink-0 place-items-center rounded-full text-graphite active:bg-mist disabled:text-pebble"
+            className="grid h-12 w-11 shrink-0 place-items-center rounded-[8px] text-graphite active:bg-mist disabled:text-pebble"
           >
-            <PlusIcon className={`h-7 w-7 transition-transform ${attachOpen ? "rotate-45" : ""}`} />
+            <PlusIcon className={`transition-transform ${attachOpen ? "rotate-45" : ""}`} />
           </button>
         )}
-        <div className="flex min-h-12 min-w-0 flex-1 items-center rounded-[24px] border border-edge bg-mist pe-1 ps-4 focus-within:border-primary focus-within:shadow-[0_0_0_1px_var(--color-primary)]">
-          <label htmlFor="composer-text" className="sr-only">
-            {label}
-          </label>
-          <input
-            id="composer-text"
-            value={text}
-            onChange={(e) => onText(e.target.value)}
-            maxLength={500}
-            disabled={disabled}
-            enterKeyHint="send"
-            autoComplete="off"
-            placeholder={label}
-            className="focus-in-box h-12 min-w-0 flex-1 bg-transparent text-[16px] placeholder:text-stone"
-          />
-          {canAttach && !disabled && !text && !staged && (
-            <FilePicker accept="image/*" multiple onFiles={onPhotos} className="grid h-11 w-11 shrink-0 place-items-center rounded-full text-graphite active:bg-mist">
-              <CameraIcon className="h-6 w-6" />
-              <span className="sr-only">{T.doc.camera}</span>
-            </FilePicker>
-          )}
-        </div>
+        <label htmlFor="composer-text" className="sr-only">
+          {label}
+        </label>
+        <input
+          id="composer-text"
+          value={text}
+          onChange={(e) => onText(e.target.value)}
+          maxLength={500}
+          disabled={disabled}
+          enterKeyHint="send"
+          autoComplete="off"
+          placeholder={label}
+          className={`focus-in-box h-12 min-w-0 flex-1 bg-transparent text-[16px] placeholder:text-stone ${canAttach ? "" : "ps-3"}`}
+        />
+        {canAttach && !disabled && !text && !staged && (
+          <FilePicker accept="image/*" multiple onFiles={onPhotos} className="grid h-12 w-11 shrink-0 place-items-center rounded-[8px] text-graphite active:bg-mist">
+            <CameraIcon />
+            <span className="sr-only">{T.doc.camera}</span>
+          </FilePicker>
+        )}
         {busy ? (
-          <button type="button" onClick={onCancel} aria-label={T.composer.stop} className="grid h-12 w-12 shrink-0 place-items-center rounded-full bg-action">
+          <button type="button" onClick={onCancel} aria-label={T.composer.stop} className="grid h-11 w-11 shrink-0 place-items-center rounded-[9px] bg-action">
             <span aria-hidden className="h-3.5 w-3.5 rounded-[3px] bg-white" />
           </button>
-        ) : canSend || !onMic ? (
-          <button type="submit" disabled={!canSend} aria-label={T.composer.send} className="grid h-12 w-12 shrink-0 place-items-center rounded-full bg-action text-white disabled:bg-rule disabled:text-stone">
-            <SendIcon className="h-5 w-5" />
-          </button>
         ) : (
-          <button type="button" onClick={onMic} disabled={disabled} aria-label={T.doc.startVoice} className="grid h-12 w-12 shrink-0 place-items-center rounded-full bg-action text-white active:opacity-90 disabled:bg-rule disabled:text-stone">
-            <MicIcon className="h-6 w-6" />
+          <button type="submit" disabled={!canSend} aria-label={T.composer.send} className="grid h-11 w-11 shrink-0 place-items-center rounded-[9px] bg-action text-white disabled:bg-rule-soft disabled:text-pebble">
+            <SendIcon className="h-5 w-5" />
           </button>
         )}
       </div>
@@ -804,31 +794,38 @@ export function TechnicianApp() {
 
   return (
     <div className="tech mx-auto flex h-dvh max-w-md flex-col bg-canvas">
-      <header className="flex h-[58px] shrink-0 items-center border-b border-rule bg-bar pe-1 ps-0.5">
-        <HeaderButton label={T.doc.menu} onClick={() => setMenu(true)}>
-          <MenuIcon />
-        </HeaderButton>
-        <LogoMark size={38} className="shrink-0 rounded-full" />
-        <div className="min-w-0 flex-1 px-2.5 leading-tight">
-          {/* dir="auto": an English machine name is cut at its end, not at its start. */}
-          <h1 dir="auto" className="truncate text-right text-[16px] font-semibold">
-            {kb?.name ?? T.appTitle}
-          </h1>
-          <p dir="auto" className="truncate text-right text-[13px] text-stone">
-            {screen.title ?? (isDocs ? T.doc.status : T.appTitle)}
-          </p>
-        </div>
-        {screen.candidates.length > 0 && (
-          <HeaderButton label={T.header.map} onClick={() => setMaps((m) => [...m, screen.items.length])} disabled={busy}>
-            <MapIcon />
+      <header className="shrink-0 border-b border-rule bg-bar">
+        <div className="flex h-[60px] items-center pe-1 ps-3.5">
+          <LogoMark size={32} className="shrink-0" />
+          <div className="min-w-0 flex-1 px-2.5 leading-tight">
+            <h1 dir="ltr" className="text-end text-[18px] font-extrabold tracking-[-0.03em] rtl:text-right">
+              {BRAND.name}
+            </h1>
+            <p className="truncate text-[13px] text-stone">{BRAND.tagline}</p>
+          </div>
+          {screen.candidates.length > 0 && (
+            <HeaderButton label={T.header.map} onClick={() => setMaps((m) => [...m, screen.items.length])} disabled={busy}>
+              <MapIcon />
+            </HeaderButton>
+          )}
+          <HeaderButton label={T.header.newCase} onClick={() => open(fresh())} disabled={busy || empty}>
+            <PlusIcon />
           </HeaderButton>
-        )}
-        <HeaderButton label={T.call.voiceShort} onClick={() => startCall("voice")} disabled={busy || noDocuments}>
-          <PhoneIcon />
-        </HeaderButton>
-        <HeaderButton label={T.call.videoShort} onClick={() => startCall("video")} disabled={busy || noDocuments}>
-          <VideoIcon />
-        </HeaderButton>
+          <HeaderButton label={T.doc.menu} onClick={() => setMenu(true)}>
+            <MenuIcon />
+          </HeaderButton>
+        </div>
+        {/* Which machine this conversation is about. A tap opens the menu, where it changes. */}
+        <button onClick={() => setMenu(true)} className="flex min-h-12 w-full items-center gap-2.5 border-t border-rule-soft px-3.5 text-start active:bg-mist">
+          <span className="shrink-0 text-[13px] font-medium text-stone">{T.doc.kb}</span>
+          <span aria-hidden className="h-4 w-px bg-rule" />
+          <DocIcon className="h-[18px] w-[18px] shrink-0 text-primary" />
+          <bdi className="min-w-0 truncate text-[15px] font-medium">{kb?.name ?? T.appTitle}</bdi>
+          {screen.title && !isDocs && (
+            <bdi className="min-w-0 flex-1 truncate text-[13px] text-stone">· {screen.title}</bdi>
+          )}
+          <ArrowIcon className="ms-auto h-4 w-4 shrink-0 rotate-90 text-stone" />
+        </button>
       </header>
 
       <main ref={scroller} className="flex flex-1 flex-col overflow-y-auto px-2.5 pb-3 pt-3">
@@ -838,27 +835,33 @@ export function TechnicianApp() {
               {T.doc.opening}
             </p>
           ) : empty ? (
-            // A new conversation opens the way a chat with a person does: a first message from
-            // the other side, and two ways to answer that need no typing.
-            <div className="flex flex-col gap-2">
-              <ChatNote tone="notice">{notice}</ChatNote>
-              <BotBubble>
-                <h2 className="font-normal">
-                  <Mixed text={noDocuments ? T.doc.empty : isDocs ? T.doc.welcome(kb?.name ?? T.appTitle) : T.chat.emptyLead} />
-                </h2>
-              </BotBubble>
+            // A new conversation: one plain question, and a few ways to start that need no typing.
+            <div className="flex flex-col px-2 pb-2 pt-6">
+              <p className="flex items-center gap-2 font-mono text-[13px] text-stone">
+                <span aria-hidden className="h-2 w-2 bg-primary" />
+                <span>{T.doc.emptyEyebrow}</span>
+                <span aria-hidden>/</span>
+                <span>01</span>
+              </p>
+              <h2 className="pt-3 text-[30px] font-extrabold leading-[36px] tracking-[-0.035em]">{noDocuments ? T.doc.empty : isDocs ? T.doc.emptyTitle : T.chat.emptyLead}</h2>
               {isDocs && !noDocuments && (
-                <div className="flex flex-wrap items-start gap-2 px-1 pt-1">
-                  <FilePicker accept="image/*" multiple onFiles={stagePhotos} className={CHIP}>
-                    <CameraIcon className="h-5 w-5" />
-                    <span>{T.doc.startPhoto}</span>
-                  </FilePicker>
-                  <button onClick={() => startCall("voice")} className={CHIP}>
-                    <MicIcon className="h-5 w-5" />
-                    <span>{T.doc.startVoice}</span>
-                  </button>
-                </div>
+                <>
+                  <p className="pt-2.5 text-[16px] leading-[25px] text-graphite">{T.doc.emptySub}</p>
+                  <h3 className="pb-1 pt-8 text-[13px] font-medium text-stone">{T.doc.emptyTry}</h3>
+                  <ul className="border-t border-rule">
+                    {T.doc.emptyIdeas.map((idea) => (
+                      <li key={idea} className="border-b border-rule">
+                        <button onClick={() => void sendMessage(idea, null)} className="flex min-h-[52px] w-full items-center justify-between gap-3 text-start text-[16px] active:bg-mist">
+                          <span>{idea}</span>
+                          <ArrowIcon className="h-4 w-4 shrink-0 rotate-180 text-stone" />
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                  <p className="pt-5 text-[13px] leading-5 text-stone">{T.doc.emptyHint}</p>
+                </>
               )}
+              <p className="pt-3 text-[13px] leading-5 text-stone">{notice}</p>
             </div>
           ) : (
             <ChatView
@@ -876,13 +879,13 @@ export function TechnicianApp() {
               progress={call ? [] : progress}
               pending={
                 pending && (
-                  <div className="anim-rise flex flex-col items-end gap-1.5 pt-1.5">
+                  <div className="anim-rise flex flex-col items-start gap-1.5 pt-1.5">
                     {pending.frames?.[0] && (
                       // eslint-disable-next-line @next/next/no-img-element -- local data URL
-                      <img src={pending.frames[0]} alt={T.chat.sentPhoto} className="w-[62%] rounded-[16px] rounded-se-[5px] border-[3px] border-bubble" />
+                      <img src={pending.frames[0]} alt={T.chat.sentPhoto} className="w-[62%] rounded-[12px] rounded-ss-[3px] border-[3px] border-bubble" />
                     )}
                     {pending.said && (
-                      <div className="own max-w-[85%] rounded-[16px] rounded-se-[5px] bg-bubble px-3 py-2 text-[16px] leading-[24px] text-white">
+                      <div className="own max-w-[85%] rounded-[12px] rounded-ss-[3px] bg-bubble px-3.5 py-2.5 text-[16px] leading-[25px] text-ink-soft">
                         {pending.said}
                         <ChatTime at={pending.at} />
                       </div>
@@ -907,7 +910,7 @@ export function TechnicianApp() {
         </div>
       </main>
 
-      <div className="border-t border-rule bg-bar px-2 pb-[max(10px,env(safe-area-inset-bottom))] pt-2">
+      <div className="bg-bar px-3 pb-[max(8px,env(safe-area-inset-bottom))] pt-2">
         <Composer
           placeholder={isDocs ? T.doc.placeholder : screen.mode === "identify" ? T.composer.describe : T.composer.answer}
           text={draft}
@@ -923,8 +926,20 @@ export function TechnicianApp() {
           onPhotos={stagePhotos}
           onVideo={stageVideo}
           onCancel={() => abort.current?.abort()}
-          onMic={isDocs ? () => startCall("voice") : undefined}
         />
+        {isDocs && (
+          <div className="flex items-center gap-1 pt-1">
+            <button onClick={() => startCall("voice")} disabled={busy || noDocuments} className="flex h-12 items-center gap-2 rounded-[8px] px-2 text-[14px] font-medium text-graphite active:bg-mist disabled:opacity-40">
+              <PhoneIcon className="h-5 w-5" />
+              <span>{T.doc.voiceCall}</span>
+            </button>
+            <span aria-hidden className="h-4 w-px bg-rule" />
+            <button onClick={() => startCall("video")} disabled={busy || noDocuments} className="flex h-12 items-center gap-2 rounded-[8px] px-2 text-[14px] font-medium text-graphite active:bg-mist disabled:opacity-40">
+              <VideoIcon className="h-5 w-5" />
+              <span>{T.doc.videoCall}</span>
+            </button>
+          </div>
+        )}
       </div>
 
       {menu && (
