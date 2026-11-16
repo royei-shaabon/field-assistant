@@ -421,7 +421,7 @@ export type AskTiming = {
   // Rendering the found pages as pictures for the main model.
   images: number;
   // One entry per call to the main model: until its first text, its whole length, and whether it asked for a skill.
-  turns: { firstText: number | null; total: number; skill: boolean }[];
+  turns: { firstText: number | null; total: number; skill: boolean; usage?: { cached: number; written: number; fresh: number; output: number } }[];
   // Skills the agent asked for during the loop.
   skills: number;
   // From the start until the first verified step was sent to the phone.
@@ -505,7 +505,7 @@ export async function askDocuments(
       turnStarted = Date.now();
       turnFirstText = null;
       const reply = await client.turn({ system: prompt, messages, tools: skills.map(({ name, description, input_schema }) => ({ name, description, input_schema })), schema }, onText);
-      timing.turns.push({ firstText: turnFirstText, total: Date.now() - turnStarted, skill: reply.toolCalls.length > 0 });
+      timing.turns.push({ firstText: turnFirstText, total: Date.now() - turnStarted, skill: reply.toolCalls.length > 0, ...(reply.usage ? { usage: reply.usage } : {}) });
 
       if (reply.toolCalls.length) {
         messages.push(reply.assistant);

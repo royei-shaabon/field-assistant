@@ -18,6 +18,8 @@ export const LIMITS = {
   upload: { max: 60, windowMs: 10 * 60_000 },
   // Building the meaning index calls the embedding service: one call per ~45 seconds of work.
   index: { max: 120, windowMs: 10 * 60_000 },
+  // Spoken lines in a call: a few per answer. New sentences cost; repeated ones come from the store.
+  speak: { max: 240, windowMs: 5 * 60_000 },
 } satisfies Record<string, Limit>;
 
 // True when the call is allowed; counts it.

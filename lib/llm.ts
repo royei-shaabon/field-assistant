@@ -31,6 +31,8 @@ export type AgentTurn = {
   toolCalls: { id: string; name: string; input: unknown }[];
   // The assistant message to append unchanged before the tool results.
   assistant: AgentMessage;
+  // Prompt tokens: read from the cache, written to it, sent fresh; and tokens written back.
+  usage?: { cached: number; written: number; fresh: number; output: number };
 };
 
 export interface ModelClient {
@@ -134,6 +136,8 @@ export class AnthropicModelClient implements ModelClient {
     }
     const text = response.content.findLast((b) => b.type === "text");
     return {
+      // How much of the prompt came from the cache, and how much was new.
+      usage: { cached: response.usage.cache_read_input_tokens ?? 0, written: response.usage.cache_creation_input_tokens ?? 0, fresh: response.usage.input_tokens, output: response.usage.output_tokens },
       stopReason: response.stop_reason,
       text: response.stop_reason === "end_turn" && text && "text" in text ? text.text : null,
       toolCalls: response.content.flatMap((b) => (b.type === "tool_use" ? [{ id: b.id, name: b.name, input: b.input }] : [])),

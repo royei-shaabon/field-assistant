@@ -115,7 +115,8 @@
 - `npm run skill-eval`: מריץ את `identify` ו-`interpret` מול המודל האמיתי על הקבועים ב-`tests/fixtures/`. דורש מפתח API ועולה כסף. ראו `.claude/skills/skill-eval/`.
 - `npm run dev` / `npm run build` / `npm run lint`.
 - משתני סביבה: `ANTHROPIC_API_KEY`, `ADMIN_PASSWORD`, `ACCESS_CODE`, `SESSION_SECRET`, `DAILY_QUESTION_LIMIT`, `DATA_DIR`, `HIDE_SAMPLE_KB`,
-  `EMBEDDINGS` (`vertex` מפעיל חיפוש לפי משמעות), `EMBED_MODEL`, `EMBED_LOCATION`, `EMBED_BATCH`. פריסה: ראו `README.md`.
+  `EMBEDDINGS` (`vertex` מפעיל חיפוש לפי משמעות), `EMBED_MODEL`, `EMBED_LOCATION`, `EMBED_BATCH`, `FIRST_SEARCH`,
+  `VOICE` (`google` מפעיל קול טבעי בשיחה), `TTS_VOICE`. פריסה: ראו `README.md`.
 
 ## סקילי המוצר (`skills/`, `lib/skills/`)
 - כל קריאה למודל עוברת דרך `lib/llm.ts`. מודל: `claude-sonnet-5-5`, פלט JSON דרך structured outputs.
@@ -175,7 +176,13 @@
 - הציטוטים מהמדריך נפתחים בכפתור אחד לכל התשובה ("מה כתוב במקור"), לא בקישור מתחת לכל שלב.
 - בשיחת וידאו התמונה שנשלחת לאייג'נט היא בדיוק החלק של המצלמה שמוצג על המסך. לכן הסימון מצויר ישר על הווידאו החי (`LiveMarks`)
   למשך 15 שניות, עם הערה שהוא נכון כל עוד המצלמה לא זזה, ואחר כך מוצגת התמונה הקפואה עם אותם סימונים.
-- שיחה קולית ושיחת וידאו (`app/components/Call.tsx`): זיהוי דיבור והקראה של הדפדפן (he-IL). בשיחת וידאו פריים אחד
+- **הקול בשיחה (`VOICE=google`, באישור המשתמש):** `lib/voice/tts.ts` פונה ל-Google Cloud Text-to-Speech בזהות של השירות. `POST /api/voice/speak`
+  מחזיר MP3 לשורה אחת, ושומר אותו ב-store לפי קול וטקסט (`tts/`). את הקול בוחר המטמיע ב-`/admin` ("הקול של העוזר בשיחה", `settings.json`).
+  בטלפון, `lib/client/voice.ts` מנגן שורה אחרי שורה ומביא את הבאה בזמן שהנוכחית מתנגנת. השיחה אומרת מיד "רגע, בודק במדריך",
+  ואז כל שלב מאומת ברגע שהוא מגיע (`partialSpeech`), ורק מה שעוד לא נאמר. `forVoice` מתאים שורה לדיבור (בלי מונח אנגלי בסוגריים, יחידות בעברית).
+  אפשר לקטוע: דיבור מעל העוזר (`listenForSpeech`, תלוי בביטול ההד של הטלפון) או נגיעה. בלי `VOICE`, או כשהשירות נכשל: הקול של הטלפון.
+  זיהוי הדיבור עדיין של הדפדפן.
+- שיחה קולית ושיחת וידאו (`app/components/Call.tsx`): זיהוי דיבור של הדפדפן (he-IL). בשיחת וידאו פריים אחד
   נשלח עם כל משפט. השיחה היא חזית לאותה שיחה, וכל מה שנאמר נכנס לצ'אט. מה שמוקרא נבנה ב-`lib/speech.ts`:
   בעצי תקלות רק מטקסט המאגר ומ-`T`, אף פעם לא מצעד מסוכן (`tests/speech.test.ts`). במאגר מסמכים מוקראים
   השלבים המאומתים, ובשיחת וידאו מוצג הפריים עם הסימון.

@@ -1,12 +1,15 @@
 "use client";
 
 // Live call with the assistant: the technician talks (browser speech recognition, Hebrew), the
-// assistant answers out loud (browser speech synthesis) with the same KB lines the chat shows,
-// and in a video call the camera stays on and a frame goes with every sentence.
+// assistant answers out loud, line by line as the answer is written (lib/client/voice.ts), with
+// the same lines the chat shows, and can be cut short by talking over it or by a tap.
+// In a video call the camera stays on and a frame goes with every sentence.
 // The call is a front end to the same conversation: everything said lands in the chat.
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { Progress } from "@/lib/conversation";
 import type { Screen } from "@/lib/screen";
+import { listenForSpeech, voicePlayer } from "@/lib/client/voice";
+import { forVoice } from "@/lib/speech";
 import { T } from "@/lib/ui-text";
 import type { DocMark } from "@/lib/docs/ask";
 import { MarkedImage, StopCard } from "./Chat";
@@ -31,11 +34,10 @@ function recognitionClass(): (new () => Recognition) | undefined {
   return w.SpeechRecognition ?? w.webkitSpeechRecognition;
 }
 
-function hebrewVoice(): SpeechSynthesisVoice | undefined {
-  return window.speechSynthesis?.getVoices().find((v) => v.lang.toLowerCase().startsWith("he"));
-}
-
-export type Speech = { id: number; lines: string[] };
+// What the call says. A new `id` starts over (anything still being said is dropped); the same
+// `id` with a higher `part` adds lines to it, as the answer is written. `answer` grows when a
+// finished answer arrives: marks on the live picture are timed from it.
+export type Speech = { id: number; part: number; lines: string[]; answer: number };
 
 const LIVE_MARKS_MS = 15_000;
 
@@ -108,13 +110,13 @@ export function CallView({
   // Which answer's marks are on the live picture right now (they are removed after a while).
   const [liveFor, setLiveFor] = useState(0);
   useEffect(() => {
-    const show = setTimeout(() => setLiveFor(speech.id), 0);
+    const show = setTimeout(() => setLiveFor(speech.answer), 0);
     const hide = setTimeout(() => setLiveFor(0), LIVE_MARKS_MS);
     return () => {
       clearTimeout(show);
       clearTimeout(hide);
     };
-  }, [speech.id]);
+  }, [speech.answer]);
 
   const busyRef = useRef(busy);
   const mutedRef = useRef(muted);
@@ -207,45 +209,43 @@ export function CallView({
       live.current = false;
       r.onend = null;
       r.abort();
-      window.speechSynthesis?.cancel();
     };
   }, [frame, listen]);
 
-  // Say the new lines, then listen again.
+  // The player tells the call when it starts and stops talking. While it talks, the microphone
+  // listens for the technician talking over it; when it stops, the call listens for a sentence.
+  const interrupt = useCallback(() => voicePlayer().stop(), []);
+  useEffect(() => {
+    const player = voicePlayer();
+    let stopHearing: (() => void) | undefined;
+    player.onState = (talking) => {
+      speaking.current = talking;
+      setState(talking ? "speaking" : "idle");
+      stopHearing?.();
+      stopHearing = undefined;
+      if (talking) {
+        recognition.current?.abort();
+        if (!mutedRef.current) stopHearing = listenForSpeech(interrupt);
+      } else {
+        // A moment for the microphone to be released before speech recognition takes it.
+        setTimeout(listen, 200);
+      }
+    };
+    return () => {
+      player.onState = () => {};
+      stopHearing?.();
+      player.stop();
+    };
+  }, [listen, interrupt]);
+
+  // Say the new lines. A new `id` replaces what was being said; a new `part` adds to it.
   useEffect(() => {
     if (!speech.lines.length) return;
-    const show = setTimeout(() => setSaying(speech.lines), 0);
-    const synth = window.speechSynthesis;
-    if (!synth) {
-      const t = setTimeout(listen, 0);
-      return () => (clearTimeout(show), clearTimeout(t));
-    }
-    recognition.current?.abort();
-    synth.cancel();
-    const u = new SpeechSynthesisUtterance(speech.lines.map((l) => (/[.?!:,]$/.test(l) ? l : `${l}.`)).join(" "));
-    u.lang = "he-IL";
-    const voice = hebrewVoice();
-    if (voice) u.voice = voice;
-    u.rate = 1.05;
-    speaking.current = true;
-    const start = setTimeout(() => setState("speaking"), 0);
-    u.onend = u.onerror = () => {
-      speaking.current = false;
-      setState("idle");
-      listen();
-    };
-    try {
-      synth.speak(u);
-    } catch {
-      // No usable voice: the lines stay on screen as captions, and the call keeps listening.
-      speaking.current = false;
-      setTimeout(listen, 0);
-    }
-    return () => {
-      clearTimeout(show);
-      clearTimeout(start);
-    };
-  }, [speech.id, speech.lines, listen]);
+    const fresh = speech.part === 0;
+    const show = setTimeout(() => setSaying((now) => (fresh ? speech.lines : [...now, ...speech.lines])), 0);
+    voicePlayer().say(speech.lines.map(forVoice), fresh);
+    return () => clearTimeout(show);
+  }, [speech.id, speech.part, speech.lines]);
 
   // After the server answers, listening resumes once speaking is done (or right away).
   useEffect(() => {
@@ -296,7 +296,7 @@ export function CallView({
     <div ref={root} role="dialog" aria-modal="true" aria-label={kind === "video" ? T.call.video : T.call.voice} className="on-dark fixed inset-0 z-50 mx-auto flex max-w-md flex-col bg-night text-white">
       {kind === "video" && <video ref={video} autoPlay playsInline muted className="absolute inset-0 h-full w-full object-cover" />}
       {kind === "video" && <div aria-hidden className="absolute inset-0 bg-gradient-to-b from-black/55 via-transparent to-black/75" />}
-      {kind === "video" && visual && !busy && liveFor === speech.id && <LiveMarks marks={visual.marks.filter((m) => m.frame === visual.marks[0].frame)} />}
+      {kind === "video" && visual && !busy && liveFor === speech.answer && <LiveMarks marks={visual.marks.filter((m) => m.frame === visual.marks[0].frame)} />}
 
       <header className="relative flex items-center justify-between px-5 pb-2 pt-5">
         <div className="min-w-0">
@@ -312,9 +312,15 @@ export function CallView({
       <div className="relative flex flex-1 flex-col justify-end gap-4 px-5 pb-4">
         {kind === "voice" && (
           <div className="flex flex-1 items-center justify-center">
-            <span className={`grid h-28 w-28 place-items-center rounded-full bg-white/10 ${state === "speaking" ? "ring-8 ring-signal/30" : state === "listening" ? "ring-4 ring-white/15" : ""}`}>
+            {/* While the assistant talks, a tap on the circle cuts it short. */}
+            <button
+              onClick={interrupt}
+              disabled={state !== "speaking"}
+              aria-label={T.call.interrupt}
+              className={`grid h-28 w-28 place-items-center rounded-full bg-white/10 ${state === "speaking" ? "ring-8 ring-signal/30" : state === "listening" ? "ring-4 ring-white/15" : ""}`}
+            >
               <LogoMark size={64} className="rounded-[24%] ring-2 ring-white/40" />
-            </span>
+            </button>
           </div>
         )}
 
@@ -328,15 +334,15 @@ export function CallView({
         )}
 
         {visual && !busy && (
-          <div className={`anim-rise flex flex-col gap-2 rounded-2xl bg-night/85 p-2.5 ${kind === "video" && liveFor === speech.id ? "mb-auto" : ""}`}>
+          <div className={`anim-rise flex flex-col gap-2 rounded-2xl bg-night/85 p-2.5 ${kind === "video" && liveFor === speech.answer ? "mb-auto" : ""}`}>
             {/* While the marks are on the live picture, the still copy waits; then it takes over. */}
-            {!(kind === "video" && liveFor === speech.id) && (
+            {!(kind === "video" && liveFor === speech.answer) && (
               <MarkedImage
                 src={visual.frames[visual.marks[0].frame]}
                 marks={visual.marks.filter((m) => m.frame === visual.marks[0].frame).map((m, i) => ({ ...m, n: i + 1, symptomTitle: "" }))}
               />
             )}
-            {kind === "video" && liveFor === speech.id && <p className="text-sm text-signal">{T.call.liveNote}</p>}
+            {kind === "video" && liveFor === speech.answer && <p className="text-sm text-signal">{T.call.liveNote}</p>}
             <p className="text-sm text-white/75">{T.call.marksLegend}</p>
             <MarksLegend marks={visual.marks.filter((m) => m.frame === visual.marks[0].frame)} />
           </div>
@@ -362,8 +368,13 @@ export function CallView({
             <span className="text-white/75">{T.call.you}</span> <span>{heard}</span>
           </p>
         )}
-        <p role="status" className="h-6 text-base text-white/80">
-          {status}
+        {state === "speaking" && kind === "video" && (
+          <button onClick={interrupt} className="h-12 self-start rounded-full bg-white px-5 text-base font-medium text-night">
+            {T.call.interrupt}
+          </button>
+        )}
+        <p role="status" className="min-h-6 text-base text-white/80">
+          {state === "speaking" && !busy ? T.call.tapToInterrupt : status}
         </p>
       </div>
 

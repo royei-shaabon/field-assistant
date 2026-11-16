@@ -9,6 +9,8 @@ import path from "node:path";
 import { agentSkills, loadAgentSkills, runSearch } from "../lib/docs/agent-skills";
 import { normalize, VertexEmbedder, type Embedder } from "../lib/docs/embed";
 import { indexDoc } from "../lib/docs/semantic";
+import { forVoice, partialSpeech } from "../lib/speech";
+import { GoogleVoice, speak, type VoiceService } from "../lib/voice/tts";
 import { askDocuments, hazardTopic, partialAnswer, quoteInPassage, rankIdeas, toThousandths, type DocResult, type PartialAnswer } from "../lib/docs/ask";
 import { imageSize } from "../lib/docs/image-size";
 import { docScreen, handleDocConversation, type DocEvent } from "../lib/docs/conversation";
@@ -707,4 +709,74 @@ test("first search: in parallel the question is embedded alongside the small mod
   plain.plan = ["tyre pressure"];
   const out = await askDocuments(plain, kb.index, { kbName: "x", docs: kb.docs, question: hebrew, images: [], history: [], embedder: new FakeEmbedder(), firstSearch: "meaning" });
   assert.deepEqual([out.result.kind, plain.plans.length], ["answer", 1]);
+});
+
+test("spoken wording: English labels in brackets are dropped, units are said in Hebrew, the rest is untouched", () => {
+  assert.equal(forVoice("SAMPLE פתחו את קופסת הפיוזים (Fuse box) ליד המצבר."), "SAMPLE פתחו את קופסת הפיוזים ליד המצבר.");
+  assert.equal(forVoice("SAMPLE החופש התקין: 25 עד 35 mm."), "SAMPLE החופש התקין: 25 עד 35 מילימטר.");
+  assert.equal(forVoice("SAMPLE לחץ 200 kPa (29 psi) בקדמי"), "SAMPLE לחץ 200 קילופסקל בקדמי");
+  assert.equal(forVoice("SAMPLE המתינו (כשתי דקות) ואז בדקו"), "SAMPLE המתינו (כשתי דקות) ואז בדקו", "a Hebrew bracket stays");
+  assert.equal(forVoice("SAMPLE כבו את המנוע"), "SAMPLE כבו את המנוע");
+});
+
+test("a call speaks the answer as it is written: the warning first, then the title and each verified step", () => {
+  const source = { docId: "d1", docName: "m", origin: "manufacturer" as const, unit: "page" as const, n: 4 };
+  const one = partialSpeech({ title: "SAMPLE כותרת", steps: [{ text: "SAMPLE שלב א", quote: "q", source }], caution: "brakes" });
+  assert.equal(one.at(-1), "SAMPLE שלב א");
+  assert.ok(one.indexOf("SAMPLE כותרת") > 0, "the warning lines come before the title");
+  const two = partialSpeech({ title: "SAMPLE כותרת", steps: [{ text: "SAMPLE שלב א", quote: "q", source }, { text: "SAMPLE שלב ב", quote: "q", source }], caution: "brakes" });
+  // The caller says only what is new: here, the second step.
+  assert.deepEqual(two.filter((l) => !one.includes(l)), ["SAMPLE שלב ב"]);
+  assert.deepEqual(partialSpeech({ title: "SAMPLE כותרת", steps: [] }), ["SAMPLE כותרת"]);
+});
+
+test("natural voice: request shape, the list of Hebrew voices, the next voice when one is refused, and no retry on a real failure", async () => {
+  const saved = { fetch: globalThis.fetch, env: { ...process.env } };
+  process.env.GOOGLE_ACCESS_TOKEN = "sample-token";
+  const requests: { url: string; auth: string; body?: { input: { text: string }; voice: { languageCode: string; name: string }; audioConfig: { audioEncoding: string } } }[] = [];
+  let refuse = new Set<string>();
+  let status = 400;
+  globalThis.fetch = (async (url: string, init: RequestInit) => {
+    const body = init.body ? JSON.parse(String(init.body)) : undefined;
+    requests.push({ url: String(url), auth: (init.headers as Record<string, string>).Authorization, body });
+    if (String(url).includes("/voices")) return Response.json({ voices: [{ name: "he-IL-Wavenet-B", ssmlGender: "MALE" }, { name: "he-IL-Chirp3-HD-Kore", ssmlGender: "FEMALE" }] });
+    if (refuse.has(body.voice.name)) return Response.json({ error: { message: "SAMPLE voice does not exist" } }, { status });
+    return Response.json({ audioContent: Buffer.from(`audio:${body.voice.name}`).toString("base64") });
+  }) as typeof fetch;
+  try {
+    const service: VoiceService = new GoogleVoice();
+    const first = await speak(service, "SAMPLE שלום", "he-IL-Wavenet-B");
+    assert.deepEqual([first.voice, first.audio.toString()], ["he-IL-Wavenet-B", "audio:he-IL-Wavenet-B"]);
+    assert.equal(requests[0].url, "https://texttospeech.googleapis.com/v1/text:synthesize");
+    assert.deepEqual([requests[0].auth, requests[0].body!.voice.languageCode, requests[0].body!.audioConfig.audioEncoding, requests[0].body!.input.text], ["Bearer sample-token", "he-IL", "MP3", "SAMPLE שלום"]);
+    assert.deepEqual((await service.voices()).map((v) => v.name), ["he-IL-Chirp3-HD-Kore", "he-IL-Wavenet-B"]);
+    // The chosen voice is not available to this account: the default is used instead.
+    refuse = new Set(["he-IL-Sample-Gone"]);
+    assert.notEqual((await speak(service, "SAMPLE שלום", "he-IL-Sample-Gone")).voice, "he-IL-Sample-Gone");
+    // A real failure (permission, outage) is reported, with the provider's message and no token.
+    refuse = new Set(["he-IL-Wavenet-B"]);
+    status = 403;
+    await assert.rejects(speak(service, "SAMPLE שלום", "he-IL-Wavenet-B"), (e: Error) => /HTTP 403: SAMPLE voice does not exist/.test(e.message) && !e.message.includes("sample-token"));
+    // A very long line is cut before it is sent.
+    refuse = new Set();
+    await speak(service, "א".repeat(5000), "he-IL-Wavenet-B");
+    assert.equal(requests.at(-1)!.body!.input.text.length, 600);
+  } finally {
+    globalThis.fetch = saved.fetch;
+    for (const k of Object.keys(process.env)) if (!(k in saved.env)) delete process.env[k];
+    Object.assign(process.env, saved.env);
+  }
+});
+
+test("spoken lines and the chosen voice are kept in the store; bad keys are refused", async () => {
+  const store = await tempStore();
+  assert.deepEqual(await store.getSettings(), {});
+  await store.putSettings({ voice: "he-IL-Wavenet-B" });
+  assert.equal((await store.getSettings()).voice, "he-IL-Wavenet-B");
+  const hash = "a".repeat(64);
+  assert.equal(await store.getAudio("he-IL-Wavenet-B", hash), null);
+  await store.putAudio("he-IL-Wavenet-B", hash, Buffer.from("SAMPLE"));
+  assert.equal((await store.getAudio("he-IL-Wavenet-B", hash))!.toString(), "SAMPLE");
+  assert.equal(await store.getAudio("../x", hash), null);
+  await assert.rejects(store.putAudio("he-IL-Wavenet-B", "../../x", Buffer.from("x")));
 });

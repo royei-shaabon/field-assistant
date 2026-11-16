@@ -28,7 +28,21 @@ ANTHROPIC_API_KEY=... ADMIN_PASSWORD=... npm run dev
 | `EMBEDDINGS` | לא | `vertex` מפעיל חיפוש לפי משמעות (היברידי) דרך Vertex AI. בלעדיו: חיפוש לפי מילים. |
 | `EMBED_MODEL` | לא | מודל ה-embedding. ברירת מחדל: `text-multilingual-embedding-002`. שינוי מחייב בנייה מחדש של האינדקס. |
 | `EMBED_LOCATION` | לא | האזור של Vertex AI. ברירת מחדל: `us-central1`. |
+| `VOICE` | לא | `google` מפעיל קול טבעי בשיחה דרך Google Cloud Text-to-Speech. |
+| `TTS_VOICE` | לא | קול ברירת המחדל, עד שנבחר קול ב-`/admin`. |
+| `FIRST_SEARCH` | לא | איך רץ החיפוש הראשון: `parallel` (ברירת מחדל), `sequential`, `meaning`. |
 | `EMBED_BATCH` | לא | כמה קטעים בבקשה אחת. ברירת מחדל: 16. למודל שמקבל קטע אחד בבקשה: `1`. |
+
+### קול טבעי בשיחה (Google Cloud Text-to-Speech)
+גם כאן אין מפתח: השירות מזדהה בזהות שלו. פעם אחת, ב-Cloud Shell:
+```bash
+gcloud services enable texttospeech.googleapis.com
+```
+```bash
+gcloud run services update field-assistant --region me-west1 --update-env-vars VOICE=google
+```
+אחר כך, ב-`/admin`, תחת "מצב המערכת": "הצגת הקולות", האזנה לכל קול, ו"בחירה". בלי `VOICE` מדבר הקול המובנה של הטלפון.
+`TTS_VOICE` קובע קול ברירת מחדל לפני שנבחר אחד במסך.
 
 ### חיפוש לפי משמעות (Vertex AI)
 ב-Cloud Run אין צורך במפתח: השירות מזדהה בזהות שלו. פעם אחת, ב-Cloud Shell:

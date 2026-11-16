@@ -214,6 +214,26 @@ export class KbStore {
     await this.touch(kbId); // rebuilds the search index, which holds the vectors
   }
 
+  // Service-wide settings the implementer changes in /admin (today: the voice of the assistant).
+  async getSettings(): Promise<{ voice?: string }> {
+    return parse<{ voice?: string }>(await this.driver.read("settings.json")) ?? {};
+  }
+
+  async putSettings(settings: { voice?: string }): Promise<void> {
+    await this.driver.write("settings.json", json(settings));
+  }
+
+  // Spoken lines are kept, so the same sentence is synthesised once per voice.
+  async getAudio(voice: string, hash: string): Promise<Buffer | null> {
+    if (!/^[A-Za-z0-9-]{1,80}$/.test(voice) || !/^[a-f0-9]{64}$/.test(hash)) return null;
+    return this.driver.read(`tts/${voice}/${hash}.mp3`);
+  }
+
+  async putAudio(voice: string, hash: string, audio: Buffer): Promise<void> {
+    if (!/^[A-Za-z0-9-]{1,80}$/.test(voice) || !/^[a-f0-9]{64}$/.test(hash)) throw new Invalid("audio key");
+    await this.driver.write(`tts/${voice}/${hash}.mp3`, audio);
+  }
+
   // Every document with its passages and its meaning index: what the search index is built from.
   async loadDocs(kbId: string): Promise<StoredDoc[]> {
     const metas = await this.listDocs(kbId);

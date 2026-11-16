@@ -162,6 +162,85 @@ function UsageTiles({ usage }: { usage: Usage }) {
   );
 }
 
+type VoiceList = { enabled: boolean; current: string; voices: { name: string; gender: string }[]; error?: string };
+
+// The implementer listens to the Hebrew voices the account offers and picks the one the
+// assistant speaks with in a call.
+function VoicePicker() {
+  const [list, setList] = useState<VoiceList | null>(null);
+  const [busy, setBusy] = useState<string | null>(null);
+  const [problem, setProblem] = useState<string | null>(null);
+  const load = async () => {
+    setBusy("load");
+    const res = await fetch("/api/admin/voice").catch(() => null);
+    setList(res?.ok ? ((await res.json()) as VoiceList) : { enabled: true, current: "", voices: [], error: A.errors.generic });
+    setBusy(null);
+  };
+  const play = async (voice: string) => {
+    setBusy(voice);
+    setProblem(null);
+    const res = await fetch("/api/voice/speak", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ text: A.voice.sample, voice }) }).catch(() => null);
+    if (res?.ok) {
+      const url = URL.createObjectURL(await res.blob());
+      const audio = new Audio(url);
+      audio.onended = () => URL.revokeObjectURL(url);
+      await audio.play().catch(() => setProblem(A.voice.failed));
+    } else setProblem(A.voice.failed);
+    setBusy(null);
+  };
+  const choose = async (voice: string) => {
+    setBusy(voice);
+    const res = await fetch("/api/admin/voice", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ voice }) }).catch(() => null);
+    if (res?.ok) setList((l) => l && { ...l, current: voice });
+    setBusy(null);
+  };
+  return (
+    <section className="flex flex-col gap-2.5">
+      <h4 className="text-[15px] font-semibold">{A.voice.title}</h4>
+      {!list ? (
+        <button onClick={load} disabled={busy !== null} className="h-10 self-start rounded-xl border border-rule px-4 text-[15px] font-medium active:bg-mist disabled:opacity-50">
+          {A.voice.load}
+        </button>
+      ) : !list.enabled ? (
+        <p className="text-[15px] text-graphite">{A.voice.off}</p>
+      ) : (
+        <>
+          <p className="text-[15px] text-graphite">{A.voice.lead}</p>
+          {list.error && (
+            <p role="alert" dir="ltr" className="break-words text-start font-mono text-xs text-danger-ink">
+              {list.error}
+            </p>
+          )}
+          {list.voices.length === 0 && !list.error && <p className="text-[15px] text-stone">{A.voice.none}</p>}
+          <ul className="flex flex-col divide-y divide-rule-soft rounded-[14px] border border-rule">
+            {list.voices.map((v) => (
+              <li key={v.name} className="flex items-center gap-2 px-3 py-2">
+                <span dir="ltr" className="min-w-0 flex-1 truncate text-start font-mono text-sm">
+                  {v.name}
+                </span>
+                {list.current === v.name && <span className="text-sm font-medium text-ok">{A.voice.chosen}</span>}
+                <button onClick={() => play(v.name)} disabled={busy !== null} className="h-9 rounded-lg border border-edge px-3 text-sm font-medium disabled:opacity-50">
+                  {A.voice.play}
+                </button>
+                {list.current !== v.name && (
+                  <button onClick={() => choose(v.name)} disabled={busy !== null} className="h-9 rounded-lg bg-primary px-3 text-sm font-medium text-white disabled:opacity-50">
+                    {A.voice.choose}
+                  </button>
+                )}
+              </li>
+            ))}
+          </ul>
+          {problem && (
+            <p role="alert" className="text-sm text-danger-ink">
+              {problem}
+            </p>
+          )}
+        </>
+      )}
+    </section>
+  );
+}
+
 type DiagnoseCheck = { name: "key_and_model" | "question_answering" | "fast_search" | "embeddings"; ok: boolean; ms: number; detail?: string };
 
 // Asks the server to try the model: first the key, then one full question on a sample page.
@@ -591,6 +670,7 @@ export function AdminApp() {
               <section className="flex flex-col gap-2.5 border-t border-rule pt-6">
                 <h3 className="text-[17px] font-semibold">{A.system}</h3>
                 <Diagnose />
+                <VoicePicker />
               </section>
             </>
           ) : null}

@@ -8,7 +8,8 @@ import type { DocInput } from "@/lib/docs/conversation";
 import { LEGAL_LINKS } from "@/lib/legal-text";
 import type { Screen } from "@/lib/screen";
 import type { KbSummary } from "@/lib/server/kbs";
-import { resumeSpeech, speechFor } from "@/lib/speech";
+import { partialSpeech, resumeSpeech, speechFor } from "@/lib/speech";
+import { voicePlayer } from "@/lib/client/voice";
 import { dataUrlToImage, photoToDataUrl, thumbnail, videoToDataUrls } from "@/lib/client/image";
 import {
   conversationsSnapshot,
@@ -571,7 +572,7 @@ export function TechnicianApp() {
   const [error, setError] = useState<string | null>(null);
   const [menu, setMenu] = useState(false);
   const [call, setCall] = useState<"voice" | "video" | null>(null);
-  const [speech, setSpeech] = useState<Speech>({ id: 0, lines: [] });
+  const [speech, setSpeech] = useState<Speech>({ id: 0, part: 0, lines: [], answer: 0 });
   const abort = useRef<AbortController | null>(null);
   const bottom = useRef<HTMLDivElement>(null);
   const activeRef = useRef(active);
@@ -633,6 +634,15 @@ export function TechnicianApp() {
     setLive(null);
     let streamed = false;
     const sentAt = Date.now();
+    // In a call the answer is spoken as it is written: a short "checking" at once, then each
+    // verified step when it arrives, then whatever the finished answer adds.
+    const said = new Set<string>();
+    const sayMore = (lines: string[], finished = false) => {
+      const fresh = lines.filter((l) => !said.has(l));
+      fresh.forEach((l) => said.add(l));
+      if (fresh.length || finished) setSpeech((s) => ({ ...s, part: s.part + 1, lines: fresh, answer: s.answer + (finished ? 1 : 0) }));
+    };
+    if (speak && input.kind !== "view") setSpeech((s) => ({ id: s.id + 1, part: 0, lines: [T.call.checking], answer: s.answer }));
     const controller = new AbortController();
     abort.current = controller;
     try {
@@ -645,6 +655,7 @@ export function TechnicianApp() {
         (p) => {
           streamed = true;
           setLive(p);
+          if (speak) sayMore(partialSpeech(p));
         },
         controller.signal,
       );
@@ -670,7 +681,7 @@ export function TechnicianApp() {
       setAnimateFrom(input.kind === "view" ? Number.MAX_SAFE_INTEGER : from);
       setStreamed(streamed);
       setActive({ conversation, screen: res.screen });
-      if (speak) setSpeech((s) => ({ id: s.id + 1, lines: speechFor(res.screen, from) }));
+      if (speak) sayMore(speechFor(res.screen, from), true);
       return true;
     } catch (e) {
       if (e instanceof HttpError && e.status === 401) setLocked(true);
@@ -748,7 +759,9 @@ export function TechnicianApp() {
     const base = target(active);
     if (base !== active) open(base);
     const lines = base.screen.items.length ? resumeSpeech(base.screen) : [T.call.greeting];
-    setSpeech((s) => ({ id: s.id + 1, lines }));
+    // Inside the tap that starts the call, so the phone lets the assistant speak later.
+    voicePlayer().unlock();
+    setSpeech((s) => ({ id: s.id + 1, part: 0, lines, answer: s.answer + 1 }));
     setCall(kind);
   };
 
@@ -946,7 +959,7 @@ export function TechnicianApp() {
           onUtterance={(text, frame) => void sendMessage(text, frame ? { frames: [frame], media: "photo" } : null, true)}
           onAck={(symptomId) => send(activeRef.current, { kind: "acknowledge", symptomId }, { said: T.stop.acknowledged }, true)}
           onHangUp={() => {
-            window.speechSynthesis?.cancel();
+            voicePlayer().stop();
             setCall(null);
           }}
         />

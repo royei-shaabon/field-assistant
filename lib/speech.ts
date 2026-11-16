@@ -2,6 +2,7 @@
 // knowledge bases: KB text and fixed strings only, never model output, never a hazard step.
 // Document knowledge bases: the same verified steps the chat shows, and no steps on a hazard topic.
 // Suggested checks from general knowledge are read after a sentence saying they are not from the manual.
+import type { PartialAnswer } from "./docs/ask";
 import type { ChatItem, Screen } from "./screen";
 import { T } from "./ui-text";
 
@@ -45,6 +46,31 @@ function lineFor(item: ChatItem, screen: Screen): string[] {
     default:
       return []; // the technician's own messages and past questions are not read back
   }
+}
+
+// A line as it should be said, not as it is written. On screen an English term sits next to
+// the Hebrew one so the technician can find the label; out loud it only breaks the sentence.
+const UNITS: [RegExp, string][] = [
+  [/(\d)\s*mm\b/g, "$1 מילימטר"],
+  [/(\d)\s*cm\b/g, "$1 סנטימטר"],
+  [/(\d)\s*km\/h\b/g, "$1 קילומטר לשעה"],
+  [/(\d)\s*kPa\b/g, "$1 קילופסקל"],
+  [/(\d)\s*psi\b/gi, "$1 פי אס איי"],
+  [/(\d)\s*N[·.]?m\b/g, "$1 ניוטון מטר"],
+  [/(\d)\s*°C\b/g, "$1 מעלות"],
+];
+export function forVoice(line: string): string {
+  let text = line;
+  // "(Fuse box)" after the Hebrew name: dropped. A bracket with Hebrew or only numbers stays.
+  text = text.replace(/\s*\(([^()]*)\)/g, (whole, inner: string) => (/[A-Za-z]/.test(inner) && !/[\u0590-\u05ff]/.test(inner) ? "" : whole));
+  for (const [pattern, said] of UNITS) text = text.replace(pattern, said);
+  return text.replace(/\s+([.,:;!?])/g, "$1").replace(/\s{2,}/g, " ").trim();
+}
+
+// What a call can already say while the answer is still being written: the warning first,
+// then the title and every verified step. The caller says only the lines it has not said yet.
+export function partialSpeech(partial: PartialAnswer): string[] {
+  return [...(partial.caution ? [T.doc.cautionTitle, T.doc.topics[partial.caution], T.doc.cautionBody] : []), partial.title, ...partial.steps.map((s) => s.text)];
 }
 
 // Lines for the items from `from` on, then the open question (and how to check it).

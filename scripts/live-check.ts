@@ -32,7 +32,7 @@ type Step = { text: string; quote: string; source: { docName: string; n: number 
 type Idea = { text: string; why: string; likelihood: string; minutes: number };
 type Item = { kind: string; ideas?: Idea[]; title?: string; steps?: Step[]; question?: string; options?: string[]; caution?: string; topic?: string };
 
-type Timing = { plan: number; search: number; images: number; turns: { firstText: number | null; total: number; skill: boolean }[]; skills: number; firstStep: number | null; total: number };
+type Timing = { plan: number; search: number; images: number; turns: { firstText: number | null; total: number; skill: boolean; usage?: { cached: number; written: number; fresh: number; output: number } }[]; skills: number; firstStep: number | null; total: number };
 
 type Figure = { caption: string; box: { x: number; y: number; w: number; h: number }; source: { n: number } };
 
@@ -81,6 +81,7 @@ async function ask(kbId: string, text: string) {
   const tally: Record<string, number> = {};
   const times: number[] = [];
   const firsts: number[] = [];
+  const caches: boolean[] = [];
   const stages: { plan: number; search: number; images: number; firstText: number; writing: number; server: number; network: number; turns: number }[] = [];
   for (const q of QUESTIONS) {
     const r = await ask(kbId, q);
@@ -95,6 +96,11 @@ async function ask(kbId: string, text: string) {
       // "writing": from the main model's first text until it finished its answer.
       const row = { plan: t.plan, search: t.search, images: t.images, firstText: t.turns[0]?.firstText ?? t.turns[0]?.total ?? 0, writing: last ? last.total - (last.firstText ?? 0) : 0, server: t.total, network: r.ms - t.total, turns: t.turns.length };
       stages.push(row);
+      const u = t.turns[0]?.usage;
+      if (u) {
+        caches.push(u.cached > 0);
+        console.log(`  prompt: ${u.cached} tokens from cache, ${u.written} written to cache, ${u.fresh} fresh; ${t.turns.reduce((n, x) => n + (x.usage?.output ?? 0), 0)} written out`);
+      }
       console.log(`  timing: plan ${row.plan} | search ${row.search} | images ${row.images} | model first text ${row.firstText} | writing ${row.writing} | model calls ${row.turns} | server total ${row.server} | outside the server ${row.network} ms`);
     }
     for (const f of r.item?.figures ?? []) console.log(`  figure p.${f.source.n} "${f.caption}" box ${JSON.stringify(f.box)}`);
@@ -110,6 +116,7 @@ async function ask(kbId: string, text: string) {
   if (stages.length) {
     console.log("\n=== where the time goes (median ms) ===");
     for (const key of ["plan", "search", "images", "firstText", "writing", "server", "network"] as const) console.log(`${key.padEnd(10)} ${median(stages.map((s) => s[key]))}`);
+    if (caches.length) console.log(`answers whose prompt was read from the cache: ${caches.filter(Boolean).length} of ${caches.length}`);
     console.log(`answers that needed more than one model call: ${stages.filter((s) => s.turns > 1).length} of ${stages.length}`);
   }
   times.sort((a, b) => a - b);

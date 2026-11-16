@@ -3,6 +3,8 @@
 // The vectors come from an embedding model outside this service. Without one configured,
 // search stays keyword-only and everything else works as before.
 
+import { googleAccessToken, googleProject } from "../server/google-auth";
+
 export interface Embedder {
   // Vectors of different models cannot be compared, so every stored vector carries this name.
   readonly model: string;
@@ -22,8 +24,6 @@ export function normalize(values: ArrayLike<number>): Float32Array {
   return v;
 }
 
-const METADATA = "http://metadata.google.internal/computeMetadata/v1";
-
 // Google Vertex AI text embeddings. On Cloud Run the service's own identity is used (no key to
 // store): the service account needs the "Vertex AI User" role, and the Vertex AI API enabled.
 export class VertexEmbedder implements Embedder {
@@ -31,35 +31,12 @@ export class VertexEmbedder implements Embedder {
   private location = process.env.EMBED_LOCATION || "us-central1";
   // Texts per request. Some models accept one text per request: set EMBED_BATCH=1 for those.
   private batch = Math.max(1, Number(process.env.EMBED_BATCH) || 16);
-  private token?: { value: string; until: number };
-  private projectId?: string;
-
-  private async metadata(pathname: string): Promise<Response> {
-    const res = await fetch(`${METADATA}/${pathname}`, { headers: { "Metadata-Flavor": "Google" }, signal: AbortSignal.timeout(5000) });
-    if (!res.ok) throw new Error(`metadata server: HTTP ${res.status}`);
-    return res;
-  }
-
-  private async project(): Promise<string> {
-    this.projectId ??= process.env.GOOGLE_CLOUD_PROJECT || (await (await this.metadata("project/project-id")).text()).trim();
-    return this.projectId;
-  }
-
-  private async accessToken(): Promise<string> {
-    // For running outside Google Cloud: a short-lived token from `gcloud auth print-access-token`.
-    if (process.env.GOOGLE_ACCESS_TOKEN) return process.env.GOOGLE_ACCESS_TOKEN;
-    if (this.token && this.token.until > Date.now()) return this.token.value;
-    const body = (await (await this.metadata("instance/service-accounts/default/token")).json()) as { access_token: string; expires_in: number };
-    this.token = { value: body.access_token, until: Date.now() + (body.expires_in - 120) * 1000 };
-    return this.token.value;
-  }
-
   private async request(texts: string[], kind: "document" | "query"): Promise<Float32Array[]> {
-    const url = `https://${this.location}-aiplatform.googleapis.com/v1/projects/${await this.project()}/locations/${this.location}/publishers/google/models/${this.model}:predict`;
+    const url = `https://${this.location}-aiplatform.googleapis.com/v1/projects/${await googleProject()}/locations/${this.location}/publishers/google/models/${this.model}:predict`;
     const task_type = kind === "query" ? "RETRIEVAL_QUERY" : "RETRIEVAL_DOCUMENT";
     const res = await fetch(url, {
       method: "POST",
-      headers: { Authorization: `Bearer ${await this.accessToken()}`, "Content-Type": "application/json" },
+      headers: { Authorization: `Bearer ${await googleAccessToken()}`, "Content-Type": "application/json" },
       body: JSON.stringify({ instances: texts.map((content) => ({ content, task_type })), parameters: { autoTruncate: true } }),
       signal: AbortSignal.timeout(30_000),
     });
