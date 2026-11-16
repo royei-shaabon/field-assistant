@@ -57,6 +57,11 @@ export function liveSetup(machine: string): Record<string, unknown> {
         ],
       },
     ],
+    // A phone's speaker reaches its own microphone. Low start sensitivity and a longer run of
+    // speech before it counts: the model's own voice coming back must not cut it off.
+    realtimeInputConfig: {
+      automaticActivityDetection: { startOfSpeechSensitivity: "START_SENSITIVITY_LOW", prefixPaddingMs: 200, silenceDurationMs: 700 },
+    },
     inputAudioTranscription: {},
     outputAudioTranscription: {},
   };

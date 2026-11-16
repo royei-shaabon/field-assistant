@@ -28,6 +28,10 @@ const fromBase64 = (b64: string) => Uint8Array.from(atob(b64), (c) => c.charCode
 // the page; the page brings it down to 16 kHz.
 const WORKLET = `class Tap extends AudioWorkletProcessor { process(inputs) { const ch = inputs[0] && inputs[0][0]; if (ch) this.port.postMessage(ch.slice(0)); return true; } } registerProcessor("tap", Tap);`;
 
+// How loud a 100 ms piece of the microphone must be (RMS, 0..1) to count as the technician
+// talking over the model rather than the model's own voice from the speaker.
+const BARGE_IN = 0.05;
+
 export type LiveEvents = {
   onState: (s: "connecting" | "listening" | "speaking" | "ended") => void;
   onHeard: (text: string) => void; // the technician, as transcribed
@@ -47,6 +51,8 @@ export class LiveCall {
   private muted = false;
   private dropUntilTurn = false;
   private newTurn = true;
+  // Until when the microphone is still treated as hearing the speaker (the echo's tail).
+  private quietAt = 0;
   private ended = false;
   private frames?: ReturnType<typeof setInterval>;
 
@@ -83,6 +89,31 @@ export class LiveCall {
     }
   }
 
+  // While the model is talking, the phone's speaker reaches its own microphone, and the model
+  // would hear itself and stop. So while it talks (and a moment after), quiet pieces go out as
+  // silence. A voice counts only when two pieces in a row (~200 ms) are loud: the technician
+  // talking over it, close to the phone. Then everything goes through, the held piece first.
+  private held: number[] | null = null;
+  private gate(piece: number[]): number[][] {
+    const talking = this.sources.length > 0 || this.ctx!.currentTime < this.quietAt;
+    if (!talking) {
+      this.held = null;
+      return [piece];
+    }
+    const rms = Math.sqrt(piece.reduce((sum, v) => sum + v * v, 0) / piece.length);
+    if (rms < BARGE_IN) {
+      this.held = null;
+      return [new Array<number>(piece.length).fill(0)];
+    }
+    if (!this.held) {
+      this.held = piece;
+      return [new Array<number>(piece.length).fill(0)];
+    }
+    const out = [this.held, piece];
+    this.held = null;
+    return out;
+  }
+
   private send(message: object) {
     if (this.ws?.readyState === WebSocket.OPEN) this.ws.send(JSON.stringify(message));
   }
@@ -101,10 +132,13 @@ export class LiveCall {
         this.pending.push(n ? sum / n : 0);
       }
       if (this.pending.length >= 1600) {
-        const pcm = new Int16Array(this.pending.length);
-        this.pending.forEach((v, i) => (pcm[i] = Math.max(-1, Math.min(1, v)) * 0x7fff));
+        const piece = this.pending;
         this.pending = [];
-        this.send({ realtimeInput: { audio: { mimeType: "audio/pcm;rate=16000", data: toBase64(new Uint8Array(pcm.buffer)) } } });
+        for (const out of this.gate(piece)) {
+          const pcm = new Int16Array(out.length);
+          out.forEach((v, i) => (pcm[i] = Math.max(-1, Math.min(1, v)) * 0x7fff));
+          this.send({ realtimeInput: { audio: { mimeType: "audio/pcm;rate=16000", data: toBase64(new Uint8Array(pcm.buffer)) } } });
+        }
       }
     };
     if (ctx.audioWorklet) {
@@ -142,6 +176,7 @@ export class LiveCall {
     this.sources.push(source);
     source.onended = () => {
       this.sources = this.sources.filter((s) => s !== source);
+      this.quietAt = ctx.currentTime + 0.35;
       if (!this.sources.length) this.events.onState("listening");
     };
     this.events.onState("speaking");
@@ -159,6 +194,8 @@ export class LiveCall {
     }
     this.sources = [];
     this.nextTime = 0;
+    // It stopped because the technician talked: let the microphone through at once.
+    this.quietAt = 0;
     this.events.onState("listening");
   }
 
