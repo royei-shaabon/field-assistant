@@ -12,14 +12,14 @@ export async function POST(request: Request) {
   if (!(await technicianAllowed())) return needsCode();
   if (!allow(`lookup:${clientKey(request)}`, LIMITS.lookup)) return tooMany();
   if (tooLarge(request, 4000)) return Response.json({ error: "too large" }, { status: 413 });
-  const body = (await request.json().catch(() => null)) as { kbId?: unknown; question?: unknown; conversationId?: unknown; video?: unknown } | null;
+  const body = (await request.json().catch(() => null)) as { kbId?: unknown; question?: unknown; english?: unknown; conversationId?: unknown; video?: unknown } | null;
   const question = typeof body?.question === "string" ? body.question.trim().slice(0, 500) : "";
   const kb = typeof body?.kbId === "string" ? await loadDocKb(body.kbId) : null;
   if (!kb) return Response.json({ error: "unknown knowledge base" }, { status: 400 });
   if (!question) return Response.json({ error: "no question" }, { status: 400 });
   const envId = await currentEnvId();
   const started = Date.now();
-  const result = await liveLookup(kb.index, question, embedder());
+  const result = { ...(await liveLookup(kb.index, question, embedder(), typeof body?.english === "string" ? body.english : undefined)), general_checks_allowed: kb.meta.ideas !== false };
   const ms = Date.now() - started;
   log.info("live.lookup", { env: envId, kb: kb.meta.id, ms, passages: result.passages.length, caution: Boolean(result.caution) });
   if (ms > 3000) log.warn("live.lookup_slow", { env: envId, kb: kb.meta.id, ms });

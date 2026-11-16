@@ -51,6 +51,10 @@ const TRACK_WIDTH = 160;
 const TRACK_MS = 120;
 // This many looks in a row without finding the part, and the mark comes off.
 const TRACK_PATIENCE = 12;
+// Following a mark as the camera moves. Off: on a real phone camera the mark shook and drifted
+// instead of holding its part, and a steady mark with an honest note is better than a nervous
+// one. The mark is drawn where the look found the part and stays there for a few seconds.
+const FOLLOW_MARKS = false;
 // The notice at the bottom of a video call is shown when the call opens, then makes room.
 const NOTICE_MS = 8_000;
 const ZOOMS = [1, 2, 3] as const;
@@ -179,7 +183,7 @@ export function CallView({
       const now = smallRef.current();
       const cx = ((mark.box.x + mark.box.w / 2) / 1000) * (seen?.w ?? 0);
       const cy = ((mark.box.y + mark.box.h / 2) / 1000) * (seen?.h ?? 0);
-      const template = seen ? templateAt(seen, cx, cy) : null;
+      const template = FOLLOW_MARKS && seen ? templateAt(seen, cx, cy) : null;
       if (template && now && seen && now.w === seen.w && now.h === seen.h) {
         // The camera may have moved while the look ran: find the part where it is now.
         const rough = locate(now, template, cx, cy, 44, 2);
@@ -233,14 +237,14 @@ export function CallView({
   // A still from the live camera, sent with what the technician says. Only the part of the
   // camera picture that is on screen is sent (the video fills the screen and is cropped to it),
   // so the agent sees what the technician sees.
-  const frame = useCallback((ring?: { x: number; y: number }): string | undefined => {
+  const frame = useCallback((ring?: { x: number; y: number }, longSide = 1280): string | undefined => {
     const v = video.current;
     if (kind !== "video" || !v || !v.videoWidth || !v.clientWidth) return undefined;
     const cover = Math.max(v.clientWidth / v.videoWidth, v.clientHeight / v.videoHeight);
     // Zoomed in, only the middle of the picture is on screen, and only that is sent.
     const sw = v.clientWidth / cover / zoomRef.current;
     const sh = v.clientHeight / cover / zoomRef.current;
-    const scale = Math.min(1, 1280 / Math.max(sw, sh));
+    const scale = Math.min(1, longSide / Math.max(sw, sh));
     const canvas = document.createElement("canvas");
     canvas.width = Math.round(sw * scale);
     canvas.height = Math.round(sh * scale);
@@ -264,8 +268,8 @@ export function CallView({
   useEffect(() => {
     videoTool.current = async ({ name, args }) => {
       const ring = touchedRef.current;
-      const image = frame(ring ?? undefined);
-      const seen = smallRef.current();
+      const image = frame(ring ?? undefined, 1024);
+      const seen = FOLLOW_MARKS ? smallRef.current() : null;
       if (!image) return { result: { ok: false, note: "no picture" }, quiet: true };
       const marking = name === "mark_on_picture";
       const pointing = marking && args.pointing === true;
@@ -380,7 +384,7 @@ export function CallView({
       // Two things at once: the fast search the model speaks from (a second or two), and the
       // full checked answer, which lands in the chat with its pages.
       onVideoTool: (tool) => videoTool.current(tool),
-      onTool: async (question) => {
+      onTool: async (question, english) => {
         asked.current++;
         const picture = frame();
         // The checked answer carries the safety warning too: shown when it arrives.
@@ -388,7 +392,7 @@ export function CallView({
           const warning = (r as { warning?: string } | null)?.warning;
           warn(warning);
         });
-        const res = await fetch("/api/voice/lookup", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ kbId, question, conversationId, video: kind === "video" }) }).catch(() => null);
+        const res = await fetch("/api/voice/lookup", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ kbId, question, english, conversationId, video: kind === "video" }) }).catch(() => null);
         const found = res?.ok ? ((await res.json()) as { caution?: string }) : null;
         warn(found?.caution);
         return found ?? { kind: "error", note: T.doc.error };
@@ -675,6 +679,7 @@ export function CallView({
             {quick.length > 0 && (
               // What each number on the picture is, in words: the colour is never the only sign.
               <div role="status" className="anim-rise flex flex-col gap-1.5 rounded-2xl bg-night/85 p-3">
+                {!FOLLOW_MARKS && <p className="text-sm text-signal">{T.call.liveNote}</p>}
                 <p className="text-sm text-white/75">{T.call.marksLegend}</p>
                 <ol className="flex flex-col gap-1.5">
                   {quick.map((m) => (

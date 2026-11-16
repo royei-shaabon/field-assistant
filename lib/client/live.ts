@@ -43,7 +43,8 @@ export type LiveEvents = {
   onState: (s: "connecting" | "listening" | "speaking" | "ended") => void;
   onHeard: (text: string) => void; // the technician, as transcribed
   onSaid: (text: string, fresh: boolean) => void; // the model, as transcribed
-  onTool: (question: string) => Promise<unknown>;
+  // `english`: the same question in English, when the model gave one.
+  onTool: (question: string, english?: string) => Promise<unknown>;
   // Video calls: the model asked to mark a part or to look at the picture.
   onVideoTool?: (tool: VideoTool) => Promise<VideoToolResult>;
   onError: (message: string) => void;
@@ -259,7 +260,8 @@ export class LiveCall {
         this.send({ toolResponse: { functionResponses: [{ id: call.id, name: call.name, response: { result: answer.result, scheduling: answer.quiet ? "SILENT" : "WHEN_IDLE" } }] } });
         continue;
       }
-      const result = await this.events.onTool(String((call.args as { question?: unknown } | undefined)?.question ?? "")).catch(() => ({ kind: "error" }));
+      const asked = (call.args ?? {}) as { question?: unknown; english?: unknown };
+      const result = await this.events.onTool(String(asked.question ?? ""), typeof asked.english === "string" ? asked.english : undefined).catch(() => ({ kind: "error" }));
       // Said as soon as the model finishes what it is saying now.
       this.send({ toolResponse: { functionResponses: [{ id: call.id, name: call.name, response: { result, scheduling: "WHEN_IDLE" } }] } });
     }

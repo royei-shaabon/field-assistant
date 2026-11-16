@@ -67,7 +67,9 @@ export async function lookAtPicture(client: ModelClient, request: LookRequest): 
       { type: "image", mediaType: request.image.mediaType, data: request.image.data },
       { type: "text", text: `${size ? `The picture is ${size.width} by ${size.height} pixels.\n` : ""}${request.language ? `Write name and seen in ${request.language}.\n` : ""}${request.ring ? "ring: the technician touched the picture and an orange ring is drawn at that spot.\n" : ""}${ask}${reference}` },
     ],
-    direct: true,
+    // A question about the picture is waited for in silence, so it runs on the small, quick
+    // model. Finding where a part is needs the main model's eye, and nobody waits for a mark.
+    ...(request.question && !request.find && !request.pointing ? { fast: true } : { direct: true }),
   });
   try {
     return checkedLook(JSON.parse(response.text ?? ""), size);

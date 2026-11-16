@@ -13,7 +13,12 @@ import type { SearchIndex } from "../docs/search";
 import { T } from "../ui-text";
 
 export const LOOKUP_PASSAGES = 5;
-const PASSAGE_CHARS = 900;
+// The pages that answer best are given whole: a troubleshooting table or a "before first use"
+// list is often at the bottom of a page, and a cut page hides exactly the line that was needed.
+// The rest are given in part, to keep the answer quick.
+export const WHOLE_PAGES = 3;
+const WHOLE_CHARS = 5000;
+const PART_CHARS = 900;
 
 export type LiveLookup = {
   kind: "passages" | "not_found";
@@ -23,12 +28,15 @@ export type LiveLookup = {
   note: string;
 };
 
-export async function liveLookup(index: SearchIndex, question: string, embedder: Embedder | null): Promise<LiveLookup> {
-  const hits = (await runSearch(index, [question], { embedder })).slice(0, LOOKUP_PASSAGES);
-  const passages = hits.map((h) => ({
-    source: `${h.docName}, ${h.unit === "page" ? T.doc.page : T.doc.part} ${h.n}`,
-    text: h.text.length > PASSAGE_CHARS ? `${h.text.slice(0, PASSAGE_CHARS)}…` : h.text,
-  }));
+// `english`: the same question in English, when the live model gave one. Manuals are mostly in
+// English, so it finds by words what the technician's own language finds only by meaning.
+export async function liveLookup(index: SearchIndex, question: string, embedder: Embedder | null, english?: string): Promise<LiveLookup> {
+  const queries = [question, ...(english?.trim() ? [english.trim().slice(0, 300)] : [])];
+  const hits = (await runSearch(index, queries, { embedder })).slice(0, LOOKUP_PASSAGES);
+  const passages = hits.map((h, i) => {
+    const limit = i < WHOLE_PAGES ? WHOLE_CHARS : PART_CHARS;
+    return { source: `${h.docName}, ${h.unit === "page" ? T.doc.page : T.doc.part} ${h.n}`, text: h.text.length > limit ? `${h.text.slice(0, limit)}…` : h.text };
+  });
   // The same hazard gate as the chat: the question, and the passages that answer it best.
   const topic = hazardTopic(question, { hazard: "none", steps: hits.slice(0, 3).map((h) => ({ text: "", ref: h.ref, quote: h.text })) });
   return {
