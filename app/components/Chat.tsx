@@ -3,7 +3,6 @@
 // No data fetching here: TechnicianApp owns state. Reveal is the only component with hooks.
 "use client";
 
-import { LogoMark } from "./Logo";
 import { useEffect, useState } from "react";
 import type { Progress } from "@/lib/conversation";
 import type { PartialAnswer } from "@/lib/docs/ask";
@@ -86,7 +85,7 @@ export function wordCount(text: string): number {
   return text.split(" ").length;
 }
 
-// The assistant writes on the page itself, beside its small mark, like a person's note; the
+// The assistant writes on the page itself, with no bubble and no badge, like a person's note; the
 // technician's own messages sit in a quiet tinted bubble on the other side, the time in the corner.
 const BUBBLE = "min-w-0 text-[16px] leading-[25px]";
 
@@ -96,9 +95,8 @@ export function ChatTime({ at }: { at?: string }) {
 
 export function BotBubble({ children, time, wide = false }: { children: React.ReactNode; time?: string; wide?: boolean }) {
   return (
-    <div className="anim-rise flex items-start justify-start gap-2.5 pt-1">
-      <LogoMark size={22} className="mt-0.5 shrink-0" />
-      <div className={`${BUBBLE} text-ink-soft ${wide ? "flex-1" : "max-w-[88%]"}`}>
+    <div className="anim-rise flex justify-start px-1 pt-1">
+      <div className={`${BUBBLE} text-ink-soft ${wide ? "w-full" : "max-w-[92%]"}`}>
         {children}
         <ChatTime at={time} />
       </div>

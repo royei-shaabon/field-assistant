@@ -10,7 +10,10 @@ export async function GET() {
   const current = (await kbStore().getSettings()).voice ?? (service ? defaultVoices(service)[0] : "");
   if (!service) return Response.json({ enabled: false, current, voices: [] }, { headers: { "Cache-Control": "no-store" } });
   try {
-    return Response.json({ enabled: true, current, voices: await service.voices() }, { headers: { "Cache-Control": "no-store" } });
+    // Gemini's text-to-speech voices are left out: that service does not answer here. The live
+    // call's Gemini voices are chosen separately (/api/admin/voice/live).
+    const voices = (await service.voices()).filter((v) => v.provider !== "gemini");
+    return Response.json({ enabled: true, current, voices }, { headers: { "Cache-Control": "no-store" } });
   } catch (e) {
     // The provider's message, never a credential: it tells the implementer what to fix.
     return Response.json({ enabled: true, current, voices: [], error: (e as Error).message.slice(0, 400) }, { headers: { "Cache-Control": "no-store" } });

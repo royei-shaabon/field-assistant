@@ -36,6 +36,8 @@ export function slug(name: string): string {
   return ascii.length >= 2 ? ascii : `kb-${Date.now().toString(36)}`;
 }
 
+export type Settings = { voice?: string; liveVoice?: string };
+
 export class KbStore {
   constructor(private driver: BlobDriver) {}
 
@@ -215,11 +217,12 @@ export class KbStore {
   }
 
   // Service-wide settings the implementer changes in /admin (today: the voice of the assistant).
-  async getSettings(): Promise<{ voice?: string }> {
-    return parse<{ voice?: string }>(await this.driver.read("settings.json")) ?? {};
+  // `voice`: the classic call's voice. `liveVoice`: the live call's voice.
+  async getSettings(): Promise<Settings> {
+    return parse<Settings>(await this.driver.read("settings.json")) ?? {};
   }
 
-  async putSettings(settings: { voice?: string }): Promise<void> {
+  async putSettings(settings: Settings): Promise<void> {
     await this.driver.write("settings.json", json(settings));
   }
 

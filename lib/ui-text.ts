@@ -21,7 +21,7 @@ export const T = {
     footer: "כל תשובה מגיעה מהמדריכים, עם העמוד.",
   },
   caseStatus: { identify: "ממתין לתיאור", question: "בבדיקה", stop: "עצירה", done: "הסתיים", ended: "נעצר" },
-  header: { newCase: "שיחה חדשה", cases: "תפריט", map: "מפה", now: "עכשיו", close: "סגירה", deleteCase: "מחיקה", confirmDelete: "למחוק את השיחה מהטלפון הזה?" },
+  header: { newCase: "שיחה חדשה", cases: "תפריט", map: "מפה", now: "עכשיו", close: "סגירה", deleteCase: "הסרה", confirmDelete: "להסיר את השיחה מהרשימה?" },
   progress: {
     reading: "קורא את התיאור",
     looking: "מסתכל על התמונה",
@@ -90,6 +90,9 @@ export const T = {
     send: "שליחה",
     stop: "עצירה",
     attach: "תמונה",
+    dictate: "הקלטה",
+    dictateStop: "סיום ההקלטה",
+    listening: "מקשיב… דברו, ואז שלחו",
     photo: "צילום או תמונה",
     video: "סרטון",
     removeAttachment: "הסרת הקובץ",
@@ -260,9 +263,22 @@ export const T = {
     renameDoc: "שינוי שם",
     renameDocPrompt: "השם שהטכנאים יראו ליד כל תשובה (למשל: מדריך בעלים Rebel 500):",
     system: "מצב המערכת",
-    voice: {
+    liveVoice: {
       title: "הקול של העוזר בשיחה",
-      lead: "האזינו לקולות ובחרו אחד. הבחירה חלה על כל השיחות מיד.",
+      lead: "האזינו לכל קול ובחרו אחד. הבחירה חלה על השיחה הבאה של כל טכנאי.",
+      sample: "שלום, אני כאן. ספרו לי מה קורה במכונה.",
+      male: "גבר",
+      female: "אישה",
+      play: "האזנה",
+      choose: "בחירה",
+      chosen: "נבחר",
+      preparing: "מכין את הדוגמה…",
+      failed: "ההשמעה נכשלה.",
+      off: "השיחה החיה כבויה בשרת (חסר GEMINI_API_KEY).",
+    },
+    voice: {
+      title: "קול גיבוי",
+      lead: "משמש רק כשהשיחה החיה לא זמינה. האזינו ובחרו אחד.",
       // The same sentence twice, without and with vowel points, to hear whether a voice reads
       // the points. The words are ones a voice can read two ways (מכסה, שמן, בדקו).
       sample: "בדקו את מפלס השמן, ואז הסירו את מכסה המצבר.",

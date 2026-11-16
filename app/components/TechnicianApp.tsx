@@ -11,10 +11,12 @@ import type { KbSummary } from "@/lib/server/kbs";
 import { liveToolResult, partialSpeech, resumeSpeech, speechFor } from "@/lib/speech";
 import { primeLiveAudio } from "@/lib/client/live";
 import { voicePlayer } from "@/lib/client/voice";
+import { canDictate, startDictation } from "@/lib/client/dictation";
 import { dataUrlToImage, photoToDataUrl, thumbnail, videoToDataUrls } from "@/lib/client/image";
 import {
   conversationsSnapshot,
   deleteConversation,
+  visibleConversations,
   newConversationId,
   parseConversations,
   saveConversation,
@@ -25,10 +27,9 @@ import {
 } from "@/lib/client/conversations";
 import { T } from "@/lib/ui-text";
 import { CallView, type Speech } from "./Call";
-import { BRAND } from "@/lib/brand";
-import { Logo, LogoMark } from "./Logo";
+import { Logo } from "./Logo";
 import { ChatTime, ChatView, type ProgressStep } from "./Chat";
-import { ArrowIcon, CameraIcon, CloseIcon, DocIcon, MapIcon, MenuIcon, PhoneIcon, PlusIcon, SendIcon, VideoIcon } from "./icons";
+import { ArrowIcon, CameraIcon, CloseIcon, MapIcon, MenuIcon, MicIcon, PhoneIcon, PlusIcon, SendIcon, VideoIcon } from "./icons";
 
 const EMPTY: Screen = { items: [], mode: "identify", candidates: [], trees: [], danger: false };
 const MAX_PHOTOS = 4;
@@ -277,6 +278,8 @@ function Menu({
   );
 }
 
+const noSubscribe = () => () => {};
+
 function Composer({
   placeholder,
   text,
@@ -292,6 +295,7 @@ function Composer({
   onPhotos,
   onVideo,
   onCancel,
+  onMicBlocked,
 }: {
   placeholder: string;
   text: string;
@@ -307,9 +311,25 @@ function Composer({
   onPhotos: (f: File[]) => void;
   onVideo: (f: File[]) => void;
   onCancel: () => void;
+  onMicBlocked: () => void;
 }) {
   const canSend = !busy && !disabled && (text.trim().length > 0 || staged !== null);
-  const label = staged ? T.composer.askAboutPhoto : placeholder;
+  // Dictation: known only in the browser, so it is read after the first render.
+  const dictation = useSyncExternalStore(noSubscribe, canDictate, () => false);
+  const [listening, setListening] = useState(false);
+  const stopDictation = useRef<(() => void) | null>(null);
+  useEffect(() => () => stopDictation.current?.(), []);
+  const dictate = () => {
+    const stop = startDictation({
+      onText: onText,
+      onEnd: () => (setListening(false), (stopDictation.current = null)),
+      onBlocked: onMicBlocked,
+    });
+    if (!stop) return;
+    stopDictation.current = stop;
+    setListening(true);
+  };
+  const label = listening ? T.composer.listening : staged ? T.composer.askAboutPhoto : placeholder;
   return (
     <form
       aria-label={T.doc.placeholder}
@@ -376,19 +396,22 @@ function Composer({
           placeholder={label}
           className={`focus-in-box h-12 min-w-0 flex-1 bg-transparent text-[16px] placeholder:text-stone ${canAttach ? "" : "ps-3"}`}
         />
-        {canAttach && !disabled && !text && !staged && (
-          <FilePicker accept="image/*" multiple onFiles={onPhotos} className="grid h-12 w-11 shrink-0 place-items-center rounded-[8px] text-graphite active:bg-mist">
-            <CameraIcon />
-            <span className="sr-only">{T.doc.camera}</span>
-          </FilePicker>
-        )}
         {busy ? (
           <button type="button" onClick={onCancel} aria-label={T.composer.stop} className="grid h-11 w-11 shrink-0 place-items-center rounded-[9px] bg-action">
             <span aria-hidden className="h-3.5 w-3.5 rounded-[3px] bg-white" />
           </button>
-        ) : (
+        ) : listening ? (
+          <button type="button" onClick={() => stopDictation.current?.()} aria-label={T.composer.dictateStop} className="grid h-11 w-11 shrink-0 place-items-center rounded-[9px] bg-danger text-white">
+            <span aria-hidden className="h-3.5 w-3.5 rounded-[3px] bg-white" />
+          </button>
+        ) : canSend || !dictation ? (
           <button type="submit" disabled={!canSend} aria-label={T.composer.send} className="grid h-11 w-11 shrink-0 place-items-center rounded-[9px] bg-action text-white disabled:bg-rule-soft disabled:text-pebble">
             <SendIcon className="h-5 w-5" />
+          </button>
+        ) : (
+          // Nothing typed: the button records. The words land in the box, ready to send or fix.
+          <button type="button" onClick={dictate} disabled={disabled} aria-label={T.composer.dictate} className="grid h-11 w-11 shrink-0 place-items-center rounded-[9px] text-graphite active:bg-mist disabled:text-pebble">
+            <MicIcon />
           </button>
         )}
       </div>
@@ -475,6 +498,29 @@ function Notice({ text, action, onAction }: { text: string; action?: string; onA
 }
 
 // A round icon button in the top bar, as in any messaging app. The label is read by a screen reader.
+// The machines this technician can ask about, opened from the bar. Shown only when there is
+// more than one; a tap outside or Escape closes it.
+function Machines({ kbs, kbId, onPick, onClose }: { kbs: KbSummary[]; kbId: string; onPick: (id: string) => void; onClose: () => void }) {
+  const ref = useDialog(onClose);
+  return (
+    <>
+      <div aria-hidden onClick={onClose} className="fixed inset-0 z-30" />
+      <div ref={ref} role="dialog" aria-modal="true" aria-label={T.doc.switchKb} className="anim-rise absolute inset-x-2 top-[calc(100%+4px)] z-40 overflow-hidden rounded-[12px] border border-edge bg-paper shadow-[0_8px_24px_rgba(18,18,18,0.14)]">
+        <ul className="max-h-[60dvh] overflow-y-auto py-1">
+          {kbs.map((k) => (
+            <li key={k.id}>
+              <button onClick={() => onPick(k.id)} aria-current={k.id === kbId ? "true" : undefined} className={`flex min-h-12 w-full items-center gap-3 px-4 text-start text-[16px] active:bg-mist ${k.id === kbId ? "font-semibold" : ""}`}>
+                <bdi className="min-w-0 flex-1 truncate">{k.name}</bdi>
+                {k.id === kbId && <span aria-hidden className="h-2 w-2 shrink-0 rounded-full bg-primary" />}
+              </button>
+            </li>
+          ))}
+        </ul>
+      </div>
+    </>
+  );
+}
+
 function HeaderButton({ label, onClick, disabled, children }: { label: string; onClick: () => void; disabled?: boolean; children: React.ReactNode }) {
   return (
     <button onClick={onClick} disabled={disabled} aria-label={label} className="grid h-12 w-11 shrink-0 place-items-center rounded-full text-ink active:bg-mist disabled:opacity-40">
@@ -500,7 +546,8 @@ const speechSupported = () => {
 
 export function TechnicianApp() {
   const raw = useSyncExternalStore(subscribeConversations, conversationsSnapshot, () => "[]");
-  const all = useMemo(() => parseConversations(raw), [raw]);
+  // Removed conversations stay on the phone (soft delete) but are not shown.
+  const all = useMemo(() => visibleConversations(parseConversations(raw)), [raw]);
   // null: loading. "error": the server could not be reached.
   const [kbs, setKbs] = useState<KbSummary[] | "error" | null>(null);
   const [kbId, setKbId] = useState("");
@@ -562,6 +609,8 @@ export function TechnicianApp() {
   const [maps, setMaps] = useState<number[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [menu, setMenu] = useState(false);
+  // The list of machines under the bar (only when there is more than one).
+  const [machines, setMachines] = useState(false);
   const [call, setCall] = useState<"voice" | "video" | null>(null);
   const [speech, setSpeech] = useState<Speech>({ id: 0, part: 0, lines: [], answer: 0 });
   const abort = useRef<AbortController | null>(null);
@@ -794,38 +843,47 @@ export function TechnicianApp() {
 
   return (
     <div className="tech mx-auto flex h-dvh max-w-md flex-col bg-canvas">
-      <header className="shrink-0 border-b border-rule bg-bar">
-        <div className="flex h-[60px] items-center pe-1 ps-3.5">
-          <LogoMark size={32} className="shrink-0" />
-          <div className="min-w-0 flex-1 px-2.5 leading-tight">
-            <h1 dir="ltr" className="text-end text-[18px] font-extrabold tracking-[-0.03em] rtl:text-right">
-              {BRAND.name}
-            </h1>
-            <p className="truncate text-[13px] text-stone">{BRAND.tagline}</p>
-          </div>
-          {screen.candidates.length > 0 && (
-            <HeaderButton label={T.header.map} onClick={() => setMaps((m) => [...m, screen.items.length])} disabled={busy}>
-              <MapIcon />
-            </HeaderButton>
+      {/* A quiet bar, as in the chat apps people know: the menu, which machine, and the two
+          ways to call. No logo here: the screen is the conversation. */}
+      <header className="relative flex h-14 shrink-0 items-center border-b border-rule-soft bg-bar pe-1 ps-1">
+        <HeaderButton label={T.doc.menu} onClick={() => setMenu(true)}>
+          <MenuIcon />
+        </HeaderButton>
+        <div className="min-w-0 flex-1 px-1">
+          {list.length > 1 ? (
+            <button
+              onClick={() => setMachines((m) => !m)}
+              aria-expanded={machines}
+              aria-label={`${T.doc.switchKb}: ${kb?.name ?? ""}`}
+              className="flex h-12 max-w-full items-center gap-1.5 rounded-[8px] px-2 text-[15px] font-medium active:bg-mist"
+            >
+              <bdi className="min-w-0 truncate">{kb?.name ?? T.appTitle}</bdi>
+              <ArrowIcon className={`h-3.5 w-3.5 shrink-0 text-stone transition-transform ${machines ? "-rotate-90" : "rotate-90"}`} />
+            </button>
+          ) : (
+            // One machine: nothing to choose, so it is only a small name.
+            <p className="truncate px-2 text-[13px] text-stone">
+              <bdi>{kb?.name ?? T.appTitle}</bdi>
+              {screen.title && !isDocs && <span> · {screen.title}</span>}
+            </p>
           )}
-          <HeaderButton label={T.header.newCase} onClick={() => open(fresh())} disabled={busy || empty}>
-            <PlusIcon />
-          </HeaderButton>
-          <HeaderButton label={T.doc.menu} onClick={() => setMenu(true)}>
-            <MenuIcon />
-          </HeaderButton>
         </div>
-        {/* Which machine this conversation is about. A tap opens the menu, where it changes. */}
-        <button onClick={() => setMenu(true)} className="flex min-h-12 w-full items-center gap-2.5 border-t border-rule-soft px-3.5 text-start active:bg-mist">
-          <span className="shrink-0 text-[13px] font-medium text-stone">{T.doc.kb}</span>
-          <span aria-hidden className="h-4 w-px bg-rule" />
-          <DocIcon className="h-[18px] w-[18px] shrink-0 text-primary" />
-          <bdi className="min-w-0 truncate text-[15px] font-medium">{kb?.name ?? T.appTitle}</bdi>
-          {screen.title && !isDocs && (
-            <bdi className="min-w-0 flex-1 truncate text-[13px] text-stone">· {screen.title}</bdi>
-          )}
-          <ArrowIcon className="ms-auto h-4 w-4 shrink-0 rotate-90 text-stone" />
-        </button>
+        {screen.candidates.length > 0 && (
+          <HeaderButton label={T.header.map} onClick={() => setMaps((m) => [...m, screen.items.length])} disabled={busy}>
+            <MapIcon />
+          </HeaderButton>
+        )}
+        {isDocs && (
+          <>
+            <HeaderButton label={T.doc.videoCall} onClick={() => startCall("video")} disabled={busy || noDocuments}>
+              <VideoIcon />
+            </HeaderButton>
+            <HeaderButton label={T.doc.voiceCall} onClick={() => startCall("voice")} disabled={busy || noDocuments}>
+              <PhoneIcon />
+            </HeaderButton>
+          </>
+        )}
+        {machines && <Machines kbs={list} kbId={kbId} onPick={(id) => (setMachines(false), switchKb(id))} onClose={() => setMachines(false)} />}
       </header>
 
       <main ref={scroller} className="flex flex-1 flex-col overflow-y-auto px-2.5 pb-3 pt-3">
@@ -835,33 +893,22 @@ export function TechnicianApp() {
               {T.doc.opening}
             </p>
           ) : empty ? (
-            // A new conversation: one plain question, and a few ways to start that need no typing.
-            <div className="flex flex-col px-2 pb-2 pt-6">
-              <p className="flex items-center gap-2 font-mono text-[13px] text-stone">
-                <span aria-hidden className="h-2 w-2 bg-primary" />
-                <span>{T.doc.emptyEyebrow}</span>
-                <span aria-hidden>/</span>
-                <span>01</span>
-              </p>
-              <h2 className="pt-3 text-[30px] font-extrabold leading-[36px] tracking-[-0.035em]">{noDocuments ? T.doc.empty : isDocs ? T.doc.emptyTitle : T.chat.emptyLead}</h2>
+            // A new conversation: one question, and three ways to start without typing.
+            <div className="flex flex-col px-3 pb-3">
+              <h2 className="text-[28px] font-extrabold leading-[34px] tracking-[-0.035em]">{noDocuments ? T.doc.empty : isDocs ? T.doc.emptyTitle : T.chat.emptyLead}</h2>
               {isDocs && !noDocuments && (
-                <>
-                  <p className="pt-2.5 text-[16px] leading-[25px] text-graphite">{T.doc.emptySub}</p>
-                  <h3 className="pb-1 pt-8 text-[13px] font-medium text-stone">{T.doc.emptyTry}</h3>
-                  <ul className="border-t border-rule">
-                    {T.doc.emptyIdeas.map((idea) => (
-                      <li key={idea} className="border-b border-rule">
-                        <button onClick={() => void sendMessage(idea, null)} className="flex min-h-[52px] w-full items-center justify-between gap-3 text-start text-[16px] active:bg-mist">
-                          <span>{idea}</span>
-                          <ArrowIcon className="h-4 w-4 shrink-0 rotate-180 text-stone" />
-                        </button>
-                      </li>
-                    ))}
-                  </ul>
-                  <p className="pt-5 text-[13px] leading-5 text-stone">{T.doc.emptyHint}</p>
-                </>
+                <ul className="pt-5">
+                  {T.doc.emptyIdeas.map((idea) => (
+                    <li key={idea} className="border-b border-rule-soft">
+                      <button onClick={() => void sendMessage(idea, null)} className="flex min-h-12 w-full items-center justify-between gap-3 text-start text-[16px] text-graphite active:bg-mist">
+                        <span>{idea}</span>
+                        <ArrowIcon className="h-4 w-4 shrink-0 rotate-180 text-pebble" />
+                      </button>
+                    </li>
+                  ))}
+                </ul>
               )}
-              <p className="pt-3 text-[13px] leading-5 text-stone">{notice}</p>
+              <p className="pt-4 text-[13px] leading-5 text-stone">{notice}</p>
             </div>
           ) : (
             <ChatView
@@ -926,20 +973,8 @@ export function TechnicianApp() {
           onPhotos={stagePhotos}
           onVideo={stageVideo}
           onCancel={() => abort.current?.abort()}
+          onMicBlocked={() => setError(T.call.noMic)}
         />
-        {isDocs && (
-          <div className="flex items-center gap-1 pt-1">
-            <button onClick={() => startCall("voice")} disabled={busy || noDocuments} className="flex h-12 items-center gap-2 rounded-[8px] px-2 text-[14px] font-medium text-graphite active:bg-mist disabled:opacity-40">
-              <PhoneIcon className="h-5 w-5" />
-              <span>{T.doc.voiceCall}</span>
-            </button>
-            <span aria-hidden className="h-4 w-px bg-rule" />
-            <button onClick={() => startCall("video")} disabled={busy || noDocuments} className="flex h-12 items-center gap-2 rounded-[8px] px-2 text-[14px] font-medium text-graphite active:bg-mist disabled:opacity-40">
-              <VideoIcon className="h-5 w-5" />
-              <span>{T.doc.videoCall}</span>
-            </button>
-          </div>
-        )}
       </div>
 
       {menu && (

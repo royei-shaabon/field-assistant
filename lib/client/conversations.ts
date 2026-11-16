@@ -7,6 +7,8 @@ import type { Screen } from "../screen";
 const KEY = "kb.conversations.v2";
 const SELECTED = "kb.selected";
 const KEEP = 20;
+// Removed conversations are kept too, without their pictures, up to what the phone's storage holds.
+const KEEP_HIDDEN = 200;
 
 export type SavedConversation = {
   id: string;
@@ -19,6 +21,9 @@ export type SavedConversation = {
   media?: Record<number, string[]>;
   // When each event was sent, by event index: the time shown in the corner of a message.
   times?: Record<number, number>;
+  // Set when the technician removed the conversation from their list. It is hidden, never
+  // erased from this phone (soft delete), so it can still be looked at later.
+  deletedAt?: number;
 };
 
 const KEEP_MEDIA = 3;
@@ -52,25 +57,41 @@ export function parseConversations(raw: string): SavedConversation[] {
   }
 }
 
-export function saveConversation(c: SavedConversation): void {
-  const list = [c, ...parseConversations(conversationsSnapshot()).filter((x) => x.id !== c.id)]
-    .slice(0, KEEP)
-    .map((x, i) => (i < KEEP_MEDIA ? x : { ...x, media: undefined }));
-  try {
-    localStorage.setItem(KEY, JSON.stringify(list));
-    window.dispatchEvent(new Event(CHANGED));
-  } catch {
-    // Storage full or blocked: the conversation still works, it just is not remembered.
-  }
+// What the technician sees in the list: everything that was not removed.
+export function visibleConversations(list: SavedConversation[]): SavedConversation[] {
+  return list.filter((c) => !c.deletedAt);
 }
 
-export function deleteConversation(id: string): void {
+function write(list: SavedConversation[]): void {
+  const shown = visibleConversations(list)
+    .slice(0, KEEP)
+    .map((x, i) => (i < KEEP_MEDIA ? x : { ...x, media: undefined }));
+  const hidden = list
+    .filter((c) => c.deletedAt)
+    .slice(0, KEEP_HIDDEN)
+    .map((x) => ({ ...x, media: undefined }));
+  const put = (items: SavedConversation[]) => localStorage.setItem(KEY, JSON.stringify(items));
   try {
-    localStorage.setItem(KEY, JSON.stringify(parseConversations(conversationsSnapshot()).filter((x) => x.id !== id)));
-    window.dispatchEvent(new Event(CHANGED));
+    put([...shown, ...hidden]);
   } catch {
-    // Nothing to delete from.
+    // The phone's storage is full: the oldest removed conversations make room, the shown ones stay.
+    try {
+      put([...shown, ...hidden.slice(0, 20)]);
+    } catch {
+      // Storage blocked: the conversation still works, it just is not remembered.
+      return;
+    }
   }
+  window.dispatchEvent(new Event(CHANGED));
+}
+
+export function saveConversation(c: SavedConversation): void {
+  write([c, ...parseConversations(conversationsSnapshot()).filter((x) => x.id !== c.id)]);
+}
+
+// Soft delete: the conversation leaves the list and stays on the phone, marked with the time.
+export function deleteConversation(id: string, now = Date.now()): void {
+  write(parseConversations(conversationsSnapshot()).map((x) => (x.id === id ? { ...x, deletedAt: now } : x)));
 }
 
 export function newConversationId(): string {

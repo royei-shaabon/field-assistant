@@ -118,7 +118,7 @@ export const CHIP = "relative flex h-10 items-center gap-2 rounded-[7px] border 
 export function QuickReplies({ actions }: { actions: { label: string; run?: () => void }[] }) {
   if (!actions.length) return null;
   return (
-    <div className="flex flex-wrap gap-2 ps-8 pt-1">
+    <div className="flex flex-wrap gap-2 px-1 pt-1">
       {actions.map((a) => (
         <button key={a.label} onClick={a.run} className={CHIP}>
           <Mixed text={a.label} />
@@ -137,13 +137,13 @@ function Feedback({ kbId }: { kbId: string }) {
   };
   if (sent) {
     return (
-      <p role="status" className="ps-8 text-[15px] text-graphite">
+      <p role="status" className="px-1 text-[15px] text-graphite">
         {T.doc.feedbackThanks}
       </p>
     );
   }
   return (
-    <div className="flex flex-wrap items-center gap-2 ps-8 pt-1">
+    <div className="flex flex-wrap items-center gap-2 px-1 pt-1">
       <span className="text-[14px] text-stone">{T.doc.feedbackAsk}</span>
       <button onClick={() => send(true)} className={CHIP}>
         {T.doc.helped}

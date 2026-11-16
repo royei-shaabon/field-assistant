@@ -166,6 +166,96 @@ function UsageTiles({ usage }: { usage: Usage }) {
   );
 }
 
+type LiveVoices = { enabled: boolean; current: string; voices: { name: string; label: string; gender: "male" | "female"; style: string }[] };
+
+// The live call's voice: every voice has a Hebrew name, a play button and a choose button.
+// The sample is the live model itself, so what is heard here is what a technician hears.
+function LiveVoicePicker() {
+  const [list, setList] = useState<LiveVoices | null>(null);
+  const [busy, setBusy] = useState<string | null>(null);
+  const [problem, setProblem] = useState<string | null>(null);
+  useEffect(() => {
+    let alive = true;
+    void fetch("/api/admin/voice/live")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data) => alive && setList(data as LiveVoices | null))
+      .catch(() => {});
+    return () => {
+      alive = false;
+    };
+  }, []);
+  const play = async (voice: string) => {
+    // Created and started inside the tap: a phone refuses a sound that starts after a network wait.
+    const audio = new Audio(SILENCE);
+    void audio.play().catch(() => {});
+    setBusy(voice);
+    setProblem(null);
+    const res = await fetch("/api/admin/voice/live", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ voice, text: A.liveVoice.sample }) }).catch(() => null);
+    if (res?.ok) {
+      const url = URL.createObjectURL(await res.blob());
+      audio.onended = () => URL.revokeObjectURL(url);
+      audio.src = url;
+      await audio.play().catch((e: Error) => setProblem(`${A.liveVoice.failed} ${e.name}`));
+    } else {
+      const body = (await res?.json().catch(() => null)) as { detail?: string } | null;
+      setProblem(body?.detail ? `${A.liveVoice.failed} ${body.detail}` : A.liveVoice.failed);
+    }
+    setBusy(null);
+  };
+  const choose = async (voice: string) => {
+    const res = await fetch("/api/admin/voice/live", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ voice }) }).catch(() => null);
+    if (res?.ok) setList((l) => l && { ...l, current: voice });
+    else setProblem(A.errors.generic);
+  };
+  if (!list) return null;
+  return (
+    <section className="flex flex-col gap-3">
+      <div>
+        <h2 className="text-[17px] font-bold">{A.liveVoice.title}</h2>
+        <p className="text-[14px] text-stone">{list.enabled ? A.liveVoice.lead : A.liveVoice.off}</p>
+      </div>
+      {busy && (
+        <p role="status" className="text-[14px] text-graphite">
+          {A.liveVoice.preparing}
+        </p>
+      )}
+      {problem && (
+        <p role="alert" dir="auto" className="text-[14px] text-danger-ink">
+          {problem}
+        </p>
+      )}
+      <ul className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
+        {list.voices.map((v) => {
+          const on = v.name === list.current;
+          return (
+            <li key={v.name} className={`flex items-center gap-3 rounded-[10px] border bg-paper px-3.5 py-3 ${on ? "border-primary shadow-[0_0_0_1px_var(--color-primary)]" : "border-rule"}`}>
+              <div className="min-w-0 flex-1">
+                <p className="text-[16px] font-semibold">{v.label}</p>
+                <p className="text-[13px] text-stone">
+                  <span>{A.liveVoice[v.gender]}</span> · <span>{v.style}</span>
+                </p>
+              </div>
+              <button onClick={() => play(v.name)} disabled={!list.enabled || busy !== null} className="h-10 rounded-[8px] border border-edge px-3 text-[14px] font-medium hover:bg-mist disabled:opacity-40">
+                {A.liveVoice.play}
+              </button>
+              {on ? (
+                <span className="flex h-10 items-center gap-1 px-1 text-[14px] font-medium text-ok">
+                  <CheckIcon className="h-4 w-4" />
+                  {A.liveVoice.chosen}
+                </span>
+              ) : (
+                <button onClick={() => choose(v.name)} className="h-10 rounded-[8px] bg-primary px-3 text-[14px] font-medium text-white hover:bg-primary-strong">
+                  {A.liveVoice.choose}
+                </button>
+              )}
+            </li>
+          );
+        })}
+      </ul>
+    </section>
+  );
+}
+
 type VoiceList = { enabled: boolean; current: string; voices: { name: string; gender: string; provider: string }[]; error?: string };
 const PROVIDER: Record<string, string> = { gemini: "Google Gemini", google: "Google", azure: "Microsoft", eleven: "ElevenLabs" };
 
@@ -803,6 +893,7 @@ export function AdminApp() {
         {page === "system" && (
           <section className="flex flex-col gap-6">
             <Diagnose />
+            <LiveVoicePicker />
             <VoicePicker />
           </section>
         )}
