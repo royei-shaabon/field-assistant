@@ -32,11 +32,29 @@ const WORKLET = `class Tap extends AudioWorkletProcessor { process(inputs) { con
 // talking over the model rather than the model's own voice from the speaker.
 const BARGE_IN = 0.05;
 
+// A part circled on the live picture: its name, and its box in thousandths of the picture.
+export type LiveMark = { label: string; box: { x: number; y: number; w: number; h: number } };
+
+// The model gives a box as [ymin, xmin, ymax, xmax], 0 to 1000. Anything else is dropped:
+// a mark in the wrong place is worse than no mark.
+export function markFromTool(args: unknown): LiveMark | null {
+  const a = args as { label?: unknown; box_2d?: unknown } | null;
+  const b = Array.isArray(a?.box_2d) ? a.box_2d.map(Number) : [];
+  if (typeof a?.label !== "string" || !a.label.trim() || b.length !== 4 || b.some((n) => !Number.isFinite(n) || n < 0 || n > 1000)) return null;
+  const [y0, x0, y1, x1] = b;
+  if (x1 - x0 < 10 || y1 - y0 < 10) return null;
+  return { label: a.label.trim().slice(0, 40), box: { x: x0, y: y0, w: x1 - x0, h: y1 - y0 } };
+}
+
+const MARK_TOOL = "mark_on_picture";
+
 export type LiveEvents = {
   onState: (s: "connecting" | "listening" | "speaking" | "ended") => void;
   onHeard: (text: string) => void; // the technician, as transcribed
   onSaid: (text: string, fresh: boolean) => void; // the model, as transcribed
   onTool: (question: string) => Promise<unknown>;
+  // Video calls: the model circled a part it sees in the picture.
+  onMark?: (mark: LiveMark) => void;
   onError: (message: string) => void;
 };
 
@@ -214,7 +232,7 @@ export class LiveCall {
     let msg: {
       setupComplete?: object;
       serverContent?: { modelTurn?: { parts?: { inlineData?: { data: string } }[] }; interrupted?: boolean; turnComplete?: boolean; inputTranscription?: { text?: string }; outputTranscription?: { text?: string } };
-      toolCall?: { functionCalls?: { id: string; name: string; args?: { question?: string } }[] };
+      toolCall?: { functionCalls?: { id: string; name: string; args?: { question?: string; label?: string; box_2d?: number[] } }[] };
       goAway?: object;
     };
     try {
@@ -244,11 +262,25 @@ export class LiveCall {
       }
     }
     for (const call of msg.toolCall?.functionCalls ?? []) {
+      if (call.name === MARK_TOOL) {
+        // Drawn at once; the model goes on talking and hears nothing back.
+        const mark = markFromTool(call.args);
+        if (mark) this.events.onMark?.(mark);
+        this.send({ toolResponse: { functionResponses: [{ id: call.id, name: call.name, response: { result: { ok: Boolean(mark) }, scheduling: "SILENT" } }] } });
+        continue;
+      }
       const result = await this.events.onTool(String(call.args?.question ?? "")).catch(() => ({ kind: "error" }));
       // Said as soon as the model finishes what it is saying now.
       this.send({ toolResponse: { functionResponses: [{ id: call.id, name: call.name, response: { result, scheduling: "WHEN_IDLE" } }] } });
     }
     if (msg.goAway) this.events.onError("goAway");
+  }
+
+  // The technician touched the picture: the model gets the picture with a ring at that spot,
+  // and where it is, and is asked (by its instructions) to say what it is and mark it.
+  point(x: number, y: number, picture?: string) {
+    if (picture) this.send({ realtimeInput: { video: { mimeType: "image/jpeg", data: picture.slice(picture.indexOf(",") + 1) } } });
+    this.send({ realtimeInput: { text: `TAP x=${Math.round(x)} y=${Math.round(y)}` } });
   }
 
   stop() {

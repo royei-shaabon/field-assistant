@@ -13,6 +13,8 @@
 export const LIVE_MODEL = () => process.env.GEMINI_LIVE_MODEL || "gemini-3.8-live";
 
 export const LIVE_TOOL = "answer_from_manual";
+// Video calls only: the model points at a part it sees in the camera picture.
+export const LIVE_MARK_TOOL = "mark_on_picture";
 
 // The voices the implementer can choose for the live call, each with a Hebrew name to pick it
 // by. The style words are Google's own descriptions of its voices.
@@ -39,7 +41,7 @@ export const isLiveVoice = (name: unknown): name is string => typeof name === "s
 // The voice of the next call: the implementer's choice in /admin, then the environment, then the default.
 export const liveVoice = (chosen?: string) => (isLiveVoice(chosen) ? chosen : process.env.GEMINI_LIVE_VOICE || LIVE_VOICE);
 
-export function liveInstructions(machine: string): string {
+export function liveInstructions(machine: string, video = false): string {
   return [
     `You are the voice of a field assistant for the machine "${machine}". A field technician is talking to you on the phone, in Hebrew, standing next to the machine.`,
     "Speak like an experienced, calm colleague on a call: short spoken sentences in everyday modern Israeli Hebrew, always the plural imperative (\"בדקו\", \"פתחו\"). Never read lists, page numbers, or English terms in brackets.",
@@ -56,12 +58,17 @@ export function liveInstructions(machine: string): string {
     "Never give a technical instruction, a value or a diagnosis from your own knowledge, even when you think you know it.",
     "The tool answers within a second or two: do not fill the pause, and do not announce that you are searching or reading.",
     "Without the tool: greetings, repeating what you said, saying it slower, confirming the technician understood.",
-    "If you can see the camera, you may say where something is in the picture, but instructions still come only from the tool.",
+    ...(video
+      ? [
+          `This is a video call: you see the technician's camera, about one picture a second. Whenever you mention a part and you can see it in the current picture, call ${LIVE_MARK_TOOL} right then, with its short Hebrew name and its box, so it is circled on the technician's screen while you talk. Mark only what you actually see; never guess a place. Marking is pointing, not instructing: instructions still come only from ${LIVE_TOOL}.`,
+          `When you receive a line starting with TAP, the technician touched the picture at that point (x and y in thousandths of the picture's width and height, from the top left; the picture sent with it has a ring there). Look at that spot, say in a few words what part it is, mark it with ${LIVE_MARK_TOOL}, and ask what they want to know about it. If you cannot tell what it is, say so.`,
+        ]
+      : []),
     "When you receive the text START, greet in one short sentence and ask what the problem is.",
   ].join("\n");
 }
 
-export function liveSetup(machine: string, chosenVoice?: string): Record<string, unknown> {
+export function liveSetup(machine: string, chosenVoice?: string, video = false): Record<string, unknown> {
   const voice = liveVoice(chosenVoice);
   return {
     model: `models/${LIVE_MODEL()}`,
@@ -69,7 +76,7 @@ export function liveSetup(machine: string, chosenVoice?: string): Record<string,
       responseModalities: ["AUDIO"],
       speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: voice } } },
     },
-    systemInstruction: { parts: [{ text: liveInstructions(machine) }] },
+    systemInstruction: { parts: [{ text: liveInstructions(machine, video) }] },
     tools: [
       {
         functionDeclarations: [
@@ -84,6 +91,23 @@ export function liveSetup(machine: string, chosenVoice?: string): Record<string,
               required: ["question"],
             },
           },
+          ...(video
+            ? [
+                {
+                  name: LIVE_MARK_TOOL,
+                  description: "Circles a part on the technician's live camera picture. Call it when you mention a part that is visible in the current picture.",
+                  behavior: "NON_BLOCKING",
+                  parameters: {
+                    type: "OBJECT",
+                    properties: {
+                      label: { type: "STRING", description: "The part's name in Hebrew, two or three words." },
+                      box_2d: { type: "ARRAY", items: { type: "INTEGER" }, description: "The part's box in the current picture as [ymin, xmin, ymax, xmax], each 0 to 1000." },
+                    },
+                    required: ["label", "box_2d"],
+                  },
+                },
+              ]
+            : []),
         ],
       },
     ],

@@ -10,7 +10,8 @@ import { agentSkills, loadAgentSkills, runSearch } from "../lib/docs/agent-skill
 import { normalize, VertexEmbedder, type Embedder } from "../lib/docs/embed";
 import { indexDoc } from "../lib/docs/semantic";
 import { forVoice, liveToolResult, partialSpeech } from "../lib/speech";
-import { createLiveToken, isLiveVoice, LIVE_VOICE, LIVE_VOICES, liveSample, liveSetup, liveSocketUrl, liveVoice, LIVE_TOOL } from "../lib/voice/live";
+import { createLiveToken, isLiveVoice, LIVE_VOICE, LIVE_VOICES, liveSample, liveSetup, liveSocketUrl, liveVoice, LIVE_MARK_TOOL, LIVE_TOOL } from "../lib/voice/live";
+import { markFromTool } from "../lib/client/live";
 import { deleteConversation, parseConversations, conversationsSnapshot, saveConversation, visibleConversations } from "../lib/client/conversations";
 import { liveLookup, LOOKUP_PASSAGES } from "../lib/voice/lookup";
 import { AzureVoice, ElevenVoice, GeminiVoice, GoogleVoice, speak, VoiceProviders, type VoiceService } from "../lib/voice/tts";
@@ -1029,4 +1030,25 @@ test("conversations: removing one hides it and keeps it on the phone (soft delet
     g.localStorage = saved.localStorage;
     g.window = saved.window;
   }
+});
+
+test("video call: the model can circle a part, only in a video call, and a bad box is dropped", () => {
+  const names = (setup: Record<string, unknown>) => (setup.tools as { functionDeclarations: { name: string }[] }[]).flatMap((t) => t.functionDeclarations.map((f) => f.name));
+  const text = (setup: Record<string, unknown>) => (setup.systemInstruction as { parts: { text: string }[] }).parts[0].text;
+  const voice = liveSetup("SAMPLE", undefined, false);
+  const video = liveSetup("SAMPLE", undefined, true);
+  assert.deepEqual(names(voice), [LIVE_TOOL]);
+  assert.deepEqual(names(video), [LIVE_TOOL, LIVE_MARK_TOOL]);
+  assert.doesNotMatch(text(voice), /TAP/);
+  assert.match(text(video), /Mark only what you actually see/);
+  assert.match(text(video), /instructions still come only from answer_from_manual/, "pointing is not instructing");
+  assert.match(text(video), /TAP/);
+
+  // [ymin, xmin, ymax, xmax] in thousandths becomes x, y, width, height.
+  assert.deepEqual(markFromTool({ label: " SAMPLE מכסה ", box_2d: [100, 200, 400, 600] }), { label: "SAMPLE מכסה", box: { x: 200, y: 100, w: 400, h: 300 } });
+  assert.equal(markFromTool({ label: "SAMPLE", box_2d: [100, 200, 400] }), null);
+  assert.equal(markFromTool({ label: "SAMPLE", box_2d: [100, 200, 400, 1600] }), null, "outside the picture");
+  assert.equal(markFromTool({ label: "SAMPLE", box_2d: [400, 600, 100, 200] }), null, "upside down");
+  assert.equal(markFromTool({ label: "", box_2d: [100, 200, 400, 600] }), null);
+  assert.equal(markFromTool(null), null);
 });

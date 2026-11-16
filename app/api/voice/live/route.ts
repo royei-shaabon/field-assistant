@@ -13,12 +13,12 @@ export async function POST(request: Request) {
   const key = process.env.GEMINI_API_KEY;
   // Not configured: the phone falls back to the call with the browser's voice.
   if (!key) return Response.json({ error: "live_off" }, { status: 409 });
-  const body = (await request.json().catch(() => null)) as { kbId?: unknown } | null;
+  const body = (await request.json().catch(() => null)) as { kbId?: unknown; video?: unknown } | null;
   const kb = typeof body?.kbId === "string" ? await loadDocKb(body.kbId) : null;
   if (!kb) return Response.json({ error: "unknown knowledge base" }, { status: 400 });
   try {
     // The voice the implementer chose in /admin.
-    const token = await createLiveToken(key, liveSetup(kb.meta.name, (await kbStore().getSettings()).liveVoice));
+    const token = await createLiveToken(key, liveSetup(kb.meta.name, (await kbStore().getSettings()).liveVoice, body?.video === true));
     return Response.json({ url: liveSocketUrl(token), model: LIVE_MODEL() }, { headers: { "Cache-Control": "no-store" } });
   } catch (e) {
     console.error("[live]", (e as Error).message);
