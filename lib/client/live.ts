@@ -39,12 +39,17 @@ export type VideoToolResult = { result: unknown; quiet: boolean };
 
 const ANSWER_TOOL = "answer_from_manual";
 
+// `t`: milliseconds since the call started.
+export type TraceEvent = { t: number; type: "heard" | "said" | "said_cut" | "tool" | "tool_result" | "tap" | "state" | "error"; name?: string; text?: string; ms?: number };
+
 export type LiveEvents = {
   onState: (s: "connecting" | "listening" | "speaking" | "ended") => void;
   onHeard: (text: string) => void; // the technician, as transcribed
   onSaid: (text: string, fresh: boolean) => void; // the model, as transcribed
   // `english`: the same question in English, when the model gave one.
   onTool: (question: string, english?: string) => Promise<unknown>;
+  // One line of the call's record (see `trace`).
+  onTrace?: (event: TraceEvent) => void;
   // Video calls: the model asked to mark a part or to look at the picture.
   onVideoTool?: (tool: VideoTool) => Promise<VideoToolResult>;
   onError: (message: string) => void;
@@ -64,6 +69,7 @@ export class LiveCall {
   // Until when the microphone is still treated as hearing the speaker (the echo's tail).
   private quietAt = 0;
   private ended = false;
+  private startedAt = Date.now();
   private frames?: ReturnType<typeof setInterval>;
 
   constructor(private events: LiveEvents) {}
@@ -83,7 +89,10 @@ export class LiveCall {
       ws.onerror = () => reject(new Error("socket"));
     });
     ws.onclose = (e) => {
-      if (!this.ended) this.events.onError(e.reason || `closed ${e.code}`);
+      if (!this.ended) {
+        this.trace({ type: "error", text: `connection closed: ${e.reason || e.code}`.slice(0, 200) });
+        this.events.onError(e.reason || `closed ${e.code}`);
+      }
       this.stop();
     };
     ws.onmessage = (e) => void this.receive(typeof e.data === "string" ? e.data : new TextDecoder().decode(e.data as ArrayBuffer));
@@ -232,16 +241,26 @@ export class LiveCall {
     } catch {
       return;
     }
-    if (msg.setupComplete) this.send({ realtimeInput: { text: "START" } });
+    if (msg.setupComplete) {
+      this.trace({ type: "state", text: "connected" });
+      this.send({ realtimeInput: { text: "START" } });
+    }
     const c = msg.serverContent;
     if (c) {
       if (c.interrupted) {
         this.hush();
         this.newTurn = true;
+        this.flushSaid(true);
       }
       if (c.inputTranscription?.text) {
         this.events.onHeard(c.inputTranscription.text);
         this.dropUntilTurn = false;
+        this.heard += c.inputTranscription.text;
+      }
+      if (c.outputTranscription?.text) {
+        // The model began to answer: what was heard until now is one utterance.
+        this.flushHeard();
+        this.said += c.outputTranscription.text;
       }
       if (c.outputTranscription?.text && !this.dropUntilTurn) {
         this.events.onSaid(c.outputTranscription.text, this.newTurn);
@@ -251,32 +270,67 @@ export class LiveCall {
       if (c.turnComplete) {
         this.newTurn = true;
         this.dropUntilTurn = false;
+        this.flushSaid(false);
       }
     }
-    for (const call of msg.toolCall?.functionCalls ?? []) {
-      if (call.name !== ANSWER_TOOL) {
-        // Marking or looking: answered by the app while the model keeps listening.
-        const answer = (await this.events.onVideoTool?.({ name: call.name, args: (call.args ?? {}) as Record<string, unknown> }).catch(() => null)) ?? { result: { ok: false }, quiet: true };
-        this.send({ toolResponse: { functionResponses: [{ id: call.id, name: call.name, response: { result: answer.result, scheduling: answer.quiet ? "SILENT" : "WHEN_IDLE" } }] } });
-        continue;
-      }
-      const asked = (call.args ?? {}) as { question?: unknown; english?: unknown };
-      const result = await this.events.onTool(String(asked.question ?? ""), typeof asked.english === "string" ? asked.english : undefined).catch(() => ({ kind: "error" }));
-      // Said as soon as the model finishes what it is saying now.
-      this.send({ toolResponse: { functionResponses: [{ id: call.id, name: call.name, response: { result, scheduling: "WHEN_IDLE" } }] } });
+    // Each tool call is answered by itself: a mark that takes a few seconds does not hold up
+    // the manual search that came with it.
+    for (const call of msg.toolCall?.functionCalls ?? []) void this.answer(call);
+    if (msg.goAway) {
+      this.trace({ type: "error", text: "the model is closing the call (goAway)" });
+      this.events.onError("goAway");
     }
-    if (msg.goAway) this.events.onError("goAway");
+  }
+
+  // The record of the call, for looking at afterwards: what was heard, what was said, every
+  // tool call with what came back and how long it took.
+  private heard = "";
+  private said = "";
+  private trace(event: Omit<TraceEvent, "t">) {
+    this.events.onTrace?.({ ...event, t: Date.now() - this.startedAt });
+  }
+  private flushHeard() {
+    if (this.heard.trim()) this.trace({ type: "heard", text: this.heard.trim().slice(0, 600) });
+    this.heard = "";
+  }
+  private flushSaid(cut: boolean) {
+    if (this.said.trim()) this.trace({ type: cut ? "said_cut" : "said", text: this.said.trim().slice(0, 1200) });
+    this.said = "";
+  }
+
+  private async answer(call: { id: string; name: string; args?: Record<string, unknown> }) {
+    this.flushHeard();
+    const began = Date.now();
+    const args = (call.args ?? {}) as Record<string, unknown>;
+    this.trace({ type: "tool", name: call.name, text: JSON.stringify(args).slice(0, 400) });
+    let result: unknown;
+    let quiet = false;
+    if (call.name === ANSWER_TOOL) {
+      result = await this.events.onTool(String(args.question ?? ""), typeof args.english === "string" ? args.english : undefined).catch(() => ({ kind: "error" }));
+    } else {
+      // Marking or looking: answered by the app while the model keeps listening.
+      const answer = (await this.events.onVideoTool?.({ name: call.name, args }).catch(() => null)) ?? { result: { ok: false }, quiet: true };
+      result = answer.result;
+      quiet = answer.quiet;
+    }
+    this.trace({ type: "tool_result", name: call.name, ms: Date.now() - began, text: JSON.stringify(result).slice(0, 1500) });
+    // Said as soon as the model finishes what it is saying now; a mark needs no words.
+    this.send({ toolResponse: { functionResponses: [{ id: call.id, name: call.name, response: { result, scheduling: quiet ? "SILENT" : "WHEN_IDLE" } }] } });
   }
 
   // The technician touched the picture: the model gets the picture with a ring at that spot,
   // and where it is, and is asked (by its instructions) to say what it is and mark it.
   point(x: number, y: number, picture?: string) {
+    this.trace({ type: "tap", text: `${Math.round(x)},${Math.round(y)}` });
     if (picture) this.send({ realtimeInput: { video: { mimeType: "image/jpeg", data: picture.slice(picture.indexOf(",") + 1) } } });
     this.send({ realtimeInput: { text: `TAP x=${Math.round(x)} y=${Math.round(y)}` } });
   }
 
   stop() {
     if (this.ended) return;
+    this.flushHeard();
+    this.flushSaid(true);
+    this.trace({ type: "state", text: "ended" });
     this.ended = true;
     if (this.frames) clearInterval(this.frames);
     this.hush();

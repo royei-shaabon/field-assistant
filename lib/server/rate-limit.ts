@@ -26,6 +26,8 @@ export const LIMITS = {
   lookup: { max: 120, windowMs: 10 * 60_000 },
   // A careful look at one picture in a video call: a call to the main model each time.
   look: { max: 90, windowMs: 10 * 60_000 },
+  // The call's record, sent in pieces every few seconds.
+  trace: { max: 400, windowMs: 10 * 60_000 },
 } satisfies Record<string, Limit>;
 
 // True when the call is allowed; counts it.

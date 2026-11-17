@@ -8,13 +8,13 @@ import { T } from "@/lib/ui-text";
 import { BRAND } from "@/lib/brand";
 import { CheckIcon, CloseIcon, DocIcon, LockIcon, PlusIcon, WarningIcon } from "./icons";
 import { Logo } from "./Logo";
-import { Conversations, Dashboard, Environments } from "./AdminDash";
+import { CallTraces, Conversations, Dashboard, Environments } from "./AdminDash";
 import { envBase } from "@/lib/client/env";
 import type { EnvView } from "@/lib/store/envs";
 import { SILENCE } from "@/lib/client/voice";
 
-// `indexed`: how many passages of the document can be searched by meaning.
-type Doc = DocMeta & { indexed?: number };
+// `indexed` of `sections`: how much of the document can be searched by meaning.
+type Doc = DocMeta & { indexed?: number; sections?: number };
 type Kb = KbMeta & { docs: Doc[]; usage: Usage };
 type Upload = { id: number; name: string; state: "working" | "done" | "error"; message?: string };
 
@@ -466,6 +466,19 @@ function Documents({ kb, embeddings, onChanged }: { kb: Kb; embeddings: string |
     setIndexing(null);
   };
 
+  // Documents whose meaning index is missing or was made for an older way of cutting pages are
+  // indexed again by themselves when the screen opens: nobody has to press anything.
+  const started = useRef(false);
+  useEffect(() => {
+    const stale = kb.docs.filter((d) => (d.indexed ?? 0) < (d.sections ?? 0));
+    if (!embeddings || started.current || !stale.length) return;
+    started.current = true;
+    const t = setTimeout(() => void buildIndex(stale), 0);
+    return () => clearTimeout(t);
+    // Once per screen; `buildIndex` reads the current knowledge base.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [embeddings, kb.docs]);
+
   const upload = async (files: File[]) => {
     for (const file of files) {
       const id = ++counter.current;
@@ -596,14 +609,14 @@ function Documents({ kb, embeddings, onChanged }: { kb: Kb; embeddings: string |
                   <p className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-[13px] text-graphite">
                     {indexing?.docId === d.id && !indexing.error ? (
                       <span role="status">
-                        <span>{A.semantic.working}</span> <span className="font-mono">{d.indexed ?? 0}/{d.passages}</span>
+                        <span>{A.semantic.working}</span> <span className="font-mono">{d.indexed ?? 0}/{d.sections ?? d.passages}</span>
                       </span>
-                    ) : (d.indexed ?? 0) >= d.passages ? (
+                    ) : (d.indexed ?? 0) >= (d.sections ?? d.passages) ? (
                       <span>{A.semantic.ready}</span>
                     ) : (
                       <>
                         <span>
-                          <span>{A.semantic.partial}</span> <span className="font-mono">{d.indexed ?? 0}/{d.passages}</span>
+                          <span>{A.semantic.partial}</span> <span className="font-mono">{d.indexed ?? 0}/{d.sections ?? d.passages}</span>
                         </span>
                         <button disabled={Boolean(indexing && !indexing.error)} onClick={() => buildIndex([d])} className="rounded-lg border border-edge px-2.5 py-1 text-[13px] font-medium text-primary disabled:opacity-40">
                           {A.semantic.build}
@@ -896,7 +909,12 @@ export function AdminApp() {
 
         {page === "envs" && master && <Environments />}
 
-        {page === "conversations" && <Conversations />}
+        {page === "conversations" && (
+          <>
+            <CallTraces />
+            <Conversations />
+          </>
+        )}
 
         {page === "quality" && (
           <>

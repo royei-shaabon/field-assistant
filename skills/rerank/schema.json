@@ -1,0 +1,6 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["order"],
+  "properties": { "order": { "type": "array", "items": { "type": "integer" } } }
+}

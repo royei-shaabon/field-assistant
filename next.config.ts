@@ -30,6 +30,7 @@ const nextConfig: NextConfig = {
   outputFileTracingIncludes: {
     "/api/conversation": ["./knowledge/**/*", "./skills/*/prompt.md", "./skills/*/schema.json", "./skills/*/examples.yaml"],
     "/api/voice/look": ["./skills/look/prompt.md", "./skills/look/schema.json"],
+    "/api/voice/lookup": ["./skills/rerank/prompt.md", "./skills/rerank/schema.json"],
     "/api/admin/kbs/[kbId]/docs": ["./node_modules/unpdf/dist/**/*", "./node_modules/mammoth/**/*"],
   },
   partialPrefetching: true,

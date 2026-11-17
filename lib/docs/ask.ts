@@ -11,6 +11,7 @@ import { HAZARD_TOPICS } from "../safety";
 import type { DocMeta } from "../store/types";
 import { agentSkills, cleanQueries, runSearch } from "./agent-skills";
 import type { Embedder } from "./embed";
+import { vectorModel } from "./chunk";
 import { imageSize, type Size } from "./image-size";
 import type { Hit, SearchIndex } from "./search";
 
@@ -350,7 +351,7 @@ const PLAN_SCHEMA = {
 // hand and usually answers in one call. Any failure here just means no head start.
 async function firstSearch(client: ModelClient, index: SearchIndex, context: string, input: AskInput, timing: AskTiming): Promise<{ queries: string[]; hits: Hit[] } | null> {
   const embedder = input.embedder;
-  const byMeaning = Boolean(embedder && input.question && index.hasVectors(embedder.model));
+  const byMeaning = Boolean(embedder && input.question && index.hasVectors(vectorModel(embedder.model)));
   const mode: FirstSearchMode = byMeaning ? (input.firstSearch ?? "parallel") : "sequential";
   if (mode === "meaning") {
     const searchStarted = Date.now();
@@ -400,7 +401,7 @@ function contextOf(input: AskInput, index: SearchIndex, frameSizes: (Size | null
     history: input.history.slice(-4).map((h) => ({ technician: h.said ?? "(sent media)", assistant: describeResult(h.result) })),
     attached: input.images.length ? `${input.images.length} ${input.media === "video" ? "video frames" : "photo(s)"}` : "nothing",
     technician: input.question ?? "(no text, only the attached media)",
-    search: input.embedder && index.hasVectors(input.embedder.model) ? "keywords and meaning" : "keywords",
+    search: input.embedder && index.hasVectors(vectorModel(input.embedder.model)) ? "keywords and meaning" : "keywords",
     suggested_checks: input.ideas === false ? "off: this knowledge base answers from its documents only, return an empty `checks` list" : "allowed",
   };
   return JSON.stringify(context, null, 1);

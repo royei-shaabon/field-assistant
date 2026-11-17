@@ -57,13 +57,19 @@ export type DayMetrics = {
   // Careful looks at a picture in a video call.
   looks?: number;
   lookMs?: number;
+  lookOutcome?: Record<string, number>;
 };
+
+// One line of a call's record. `t`: milliseconds since the call started.
+export type CallEvent = { t: number; type: string; name?: string; text?: string; ms?: number };
+export type CallTrace = { id: string; at: string; kbId: string; kind: string; conversationId?: string; events: CallEvent[] };
 
 export const emptyDay = (date: string): DayMetrics => ({ date, questions: 0, byKind: {}, byChannel: {}, timed: 0, totalMs: 0, firstStepMs: 0, slow: 0, lookups: 0, lookupMs: 0, calls: 0, errors: 0, helpful: 0, unhelpful: 0 });
 
 export const SLOW_MS = 15_000;
 const DAY = /^\d{4}-\d{2}-\d{2}$/;
 const CONVERSATION = /^[a-z0-9-]{4,40}$/;
+const CALL = /^[a-z0-9-]{6,40}$/;
 const clip = (text: unknown, max: number) => (typeof text === "string" ? text.slice(0, max) : "");
 
 export const dayOf = (at: Date) => at.toISOString().slice(0, 10);
@@ -136,6 +142,49 @@ export class Activity {
       }
     }
     return out;
+  }
+
+  // The record of one call (what was heard and said, every tool call and its result), kept
+  // in pieces as the phone sends them:  trace/<day>/<callId>/<time>.json
+  async trace(callId: string, meta: { kbId: string; kind: string; conversationId?: string }, events: CallEvent[], now = new Date()): Promise<boolean> {
+    if (!CALL.test(callId) || !events.length) return false;
+    const clean = events.slice(0, 200).map((e) => ({ t: Math.max(0, Math.round(Number(e.t) || 0)), type: clip(e.type, 20), ...(e.name ? { name: clip(e.name, 40) } : {}), ...(e.text ? { text: clip(e.text, 1500) } : {}), ...(Number.isFinite(e.ms) ? { ms: Math.round(e.ms!) } : {}) }));
+    await this.driver.write(`trace/${dayOf(now)}/${callId}/${String(now.getTime()).padStart(14, "0")}.json`, Buffer.from(JSON.stringify({ at: now.toISOString(), kbId: clip(meta.kbId, 60), kind: clip(meta.kind, 10), conversationId: meta.conversationId && CONVERSATION.test(meta.conversationId) ? meta.conversationId : undefined, events: clean })));
+    return true;
+  }
+
+  // The calls of the given days, newest first, each with its events in order.
+  async calls(days: string[], limit = 20): Promise<CallTrace[]> {
+    const out: CallTrace[] = [];
+    for (const day of [...days].reverse()) {
+      if (!DAY.test(day)) continue;
+      const byCall = new Map<string, string[]>();
+      for (const key of (await this.driver.list(`trace/${day}`)).sort()) {
+        const id = key.split("/").at(-2)!;
+        byCall.set(id, [...(byCall.get(id) ?? []), key]);
+      }
+      const today: CallTrace[] = [];
+      for (const [id, keys] of byCall) {
+        const call: CallTrace = { id, at: "", kbId: "", kind: "", events: [] };
+        for (const key of keys) {
+          try {
+            const piece = JSON.parse((await this.driver.read(key))!.toString("utf8")) as { at: string; kbId: string; kind: string; conversationId?: string; events: CallEvent[] };
+            call.at ||= piece.at;
+            call.kbId ||= piece.kbId;
+            call.kind ||= piece.kind;
+            call.conversationId ??= piece.conversationId;
+            call.events.push(...piece.events);
+          } catch {
+            // A damaged piece is skipped.
+          }
+        }
+        call.events.sort((a, b) => a.t - b.t);
+        today.push(call);
+      }
+      out.push(...today.sort((a, b) => b.at.localeCompare(a.at)));
+      if (out.length >= limit) break;
+    }
+    return out.slice(0, limit);
   }
 
   async day(date: string): Promise<DayMetrics> {

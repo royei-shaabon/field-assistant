@@ -1,6 +1,7 @@
 // Search over the passages of one knowledge base, two ways: by keywords (BM25), where the model
 // writes the queries in the language of the documents, and by meaning (vectors), when the
 // documents have a meaning index. The two are combined in lib/docs/agent-skills.ts.
+import { sectionKey, sections } from "./chunk";
 import type { StoredDoc } from "../store/types";
 
 export type Hit = {
@@ -11,7 +12,10 @@ export type Hit = {
   origin: StoredDoc["meta"]["origin"];
   unit: StoredDoc["meta"]["unit"];
   n: number;
+  // The whole page (or part): what answers cite and quotes are checked against.
   text: string;
+  // The section of the page that matched best: what the question is about.
+  focus?: string;
   score: number;
 };
 
@@ -38,10 +42,13 @@ export function tokens(text: string): string[] {
   return (text.toLowerCase().match(/[\p{L}\p{N}]+/gu) ?? []).filter((w) => w.length > 1 && !STOP.has(w)).map(stem);
 }
 
-type Entry = { hit: Omit<Hit, "score">; tf: Map<string, number>; length: number; vec?: Float32Array; model?: string };
+// One section of a page. Search scores sections; results are given per page, with the best
+// section as its `focus`.
+type Entry = { hit: Omit<Hit, "score" | "focus">; section: string; tf: Map<string, number>; length: number; vec?: Float32Array; model?: string };
 
 export class SearchIndex {
   private entries: Entry[] = [];
+  private pages = new Map<string, Omit<Hit, "score" | "focus">>();
   private df = new Map<string, number>();
   private avgLength = 1;
   private languages = new Map<string, "Hebrew" | "English" | "other">();
@@ -54,15 +61,15 @@ export class SearchIndex {
       const latin = (sample.match(/[a-z]/gi) ?? []).length;
       this.languages.set(meta.id, hebrew > latin ? "Hebrew" : latin > 0 ? "English" : "other");
       for (const p of passages) {
-        const words = tokens(p.text);
-        const tf = new Map<string, number>();
-        for (const w of words) tf.set(w, (tf.get(w) ?? 0) + 1);
-        for (const w of tf.keys()) this.df.set(w, (this.df.get(w) ?? 0) + 1);
-        this.entries.push({
-          hit: { ref: `${meta.id}:${p.n}`, docId: meta.id, docName: meta.name, origin: meta.origin, unit: meta.unit, n: p.n, text: p.text },
-          tf,
-          length: words.length,
-          ...(vectors?.byN.has(p.n) ? { vec: vectors.byN.get(p.n), model: vectors.model } : {}),
+        const hit = { ref: `${meta.id}:${p.n}`, docId: meta.id, docName: meta.name, origin: meta.origin, unit: meta.unit, n: p.n, text: p.text };
+        this.pages.set(hit.ref, hit);
+        sections(p.text).forEach((section, c) => {
+          const words = tokens(section);
+          const tf = new Map<string, number>();
+          for (const w of words) tf.set(w, (tf.get(w) ?? 0) + 1);
+          for (const w of tf.keys()) this.df.set(w, (this.df.get(w) ?? 0) + 1);
+          const vec = vectors?.byN.get(sectionKey(p.n, c));
+          this.entries.push({ hit, section, tf, length: words.length, ...(vec ? { vec, model: vectors!.model } : {}) });
         });
       }
     }
@@ -73,12 +80,29 @@ export class SearchIndex {
     return this.languages.get(docId) ?? "other";
   }
 
+  // How many pages (or parts) can be searched.
   get size(): number {
-    return this.entries.length;
+    return this.pages.size;
   }
 
-  get(ref: string): Omit<Hit, "score"> | undefined {
-    return this.entries.find((e) => e.hit.ref === ref)?.hit;
+  get(ref: string): Omit<Hit, "score" | "focus"> | undefined {
+    return this.pages.get(ref);
+  }
+
+  // The sections of one page, in their order.
+  sectionsOf(ref: string): string[] {
+    return this.entries.filter((e) => e.hit.ref === ref).map((e) => e.section);
+  }
+
+  // Scored sections become page results: each page once, with its best section as the focus.
+  private byPage(scored: { entry: Entry; score: number }[], limit: number): Hit[] {
+    const best = new Map<string, Hit>();
+    for (const { entry, score } of scored.sort((a, b) => b.score - a.score)) {
+      if (best.has(entry.hit.ref)) continue;
+      best.set(entry.hit.ref, { ...entry.hit, focus: entry.section, score });
+      if (best.size >= limit) break;
+    }
+    return [...best.values()];
   }
 
   // True when some passages can be searched by meaning with this embedding model.
@@ -86,17 +110,17 @@ export class SearchIndex {
     return this.entries.some((e) => e.model === model);
   }
 
-  // The passages closest in meaning to the query vector. Vectors are unit length, so the dot
+  // The pages whose sections are closest in meaning to the query vector. Vectors are unit length, so the dot
   // product is the cosine similarity.
   semantic(query: Float32Array, model: string, limit = 5): Hit[] {
-    const scored: Hit[] = [];
+    const scored: { entry: Entry; score: number }[] = [];
     for (const e of this.entries) {
       if (e.model !== model || !e.vec || e.vec.length !== query.length) continue;
       let dot = 0;
       for (let i = 0; i < query.length; i++) dot += e.vec[i] * query[i];
-      if (dot > 0) scored.push({ ...e.hit, score: dot });
+      if (dot > 0) scored.push({ entry: e, score: dot });
     }
-    return scored.sort((a, b) => b.score - a.score).slice(0, limit);
+    return this.byPage(scored, limit);
   }
 
   search(query: string, limit = 5): Hit[] {
@@ -104,7 +128,7 @@ export class SearchIndex {
     const N = this.entries.length;
     const k1 = 1.4;
     const b = 0.75;
-    const scored: Hit[] = [];
+    const scored: { entry: Entry; score: number }[] = [];
     for (const e of this.entries) {
       let score = 0;
       for (const t of terms) {
@@ -114,9 +138,9 @@ export class SearchIndex {
         const idf = Math.log(1 + (N - df + 0.5) / (df + 0.5));
         score += (idf * f * (k1 + 1)) / (f + k1 * (1 - b + (b * e.length) / this.avgLength));
       }
-      if (score > 0) scored.push({ ...e.hit, score });
+      if (score > 0) scored.push({ entry: e, score });
     }
-    return scored.sort((a, b2) => b2.score - a.score).slice(0, limit);
+    return this.byPage(scored, limit);
   }
 }
 

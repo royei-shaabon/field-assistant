@@ -1,5 +1,7 @@
 import { envStore } from "@/lib/server/env";
+import { vectorModel } from "@/lib/docs/chunk";
 import { embedder } from "@/lib/docs/embed";
+import { sectionList } from "@/lib/docs/semantic";
 import { forbidden, isAdmin, isMaster } from "@/lib/server/admin-auth";
 import { currentEnv, currentEnvId, MAIN_ENV } from "@/lib/server/env";
 import { envView } from "@/lib/store/envs";
@@ -16,8 +18,10 @@ export async function GET() {
       const docs = await Promise.all(
         (await store.listDocs(kb.id)).map(async (doc) => {
           // How many passages of the document can be searched by meaning with the current model.
+          // and how many sections there are to index (the document is cut the way search cuts it).
           const info = using ? await store.vectorInfo(kb.id, doc.id) : null;
-          return { ...doc, indexed: using && info && info.model === using.model ? info.count : 0 };
+          const total = using ? sectionList((await store.getPassages(kb.id, doc.id))?.passages ?? []).length : 0;
+          return { ...doc, indexed: using && info && info.model === vectorModel(using.model) ? Math.min(info.count, total) : 0, sections: total };
         }),
       );
       return { ...kb, docs, usage: await store.getUsage(kb.id) };

@@ -6,6 +6,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import type { ToolDef } from "../llm";
+import { vectorModel } from "./chunk";
 import type { Embedder } from "./embed";
 import type { Hit, SearchIndex } from "./search";
 
@@ -39,7 +40,7 @@ export type SearchOptions = {
 
 export async function runSearch(index: SearchIndex, queries: string[], opts: SearchOptions = {}): Promise<Hit[]> {
   const embedder = opts.embedder;
-  if (!embedder || !index.hasVectors(embedder.model)) return keywordSearch(index, queries);
+  if (!embedder || !index.hasVectors(vectorModel(embedder.model))) return keywordSearch(index, queries);
   const also = opts.also?.trim();
   const texts = [...(opts.embedQueries === false ? [] : queries), ...(also && !opts.alsoVector ? [also] : [])];
   if (!texts.length && !opts.alsoVector) return keywordSearch(index, queries);
@@ -54,7 +55,7 @@ export async function runSearch(index: SearchIndex, queries: string[], opts: Sea
     return keywordSearch(index, queries);
   }
   // Short lists: the tail of a ranked list is noise, and fusing it in would dilute the top.
-  const lists = [...queries.map((q) => index.search(q, PER_QUERY)), ...vectors.map((v) => index.semantic(v, embedder.model, PER_QUERY))];
+  const lists = [...queries.map((q) => index.search(q, PER_QUERY)), ...vectors.map((v) => index.semantic(v, vectorModel(embedder.model), PER_QUERY))];
   const fused = new Map<string, Hit>();
   for (const list of lists) {
     list.forEach((h, rank) => {

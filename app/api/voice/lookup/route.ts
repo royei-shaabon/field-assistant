@@ -1,4 +1,6 @@
 import { embedder } from "@/lib/docs/embed";
+import { modelReranker } from "@/lib/docs/rerank";
+import { AnthropicModelClient } from "@/lib/llm";
 import { currentEnvId } from "@/lib/server/env";
 import { log } from "@/lib/server/log";
 import { activity } from "@/lib/store";
@@ -6,6 +8,8 @@ import { needsCode, technicianAllowed } from "@/lib/server/access";
 import { loadDocKb } from "@/lib/server/kbs";
 import { allow, clientKey, LIMITS, tooLarge, tooMany } from "@/lib/server/rate-limit";
 import { liveLookup } from "@/lib/voice/lookup";
+
+let client: AnthropicModelClient | undefined;
 
 // The live call's tool: a fast search over the machine's documents (lib/voice/lookup.ts).
 export async function POST(request: Request) {
@@ -19,7 +23,8 @@ export async function POST(request: Request) {
   if (!question) return Response.json({ error: "no question" }, { status: 400 });
   const envId = await currentEnvId();
   const started = Date.now();
-  const result = { ...(await liveLookup(kb.index, question, embedder(), typeof body?.english === "string" ? body.english : undefined)), general_checks_allowed: kb.meta.ideas !== false };
+  client ??= new AnthropicModelClient();
+  const result = { ...(await liveLookup(kb.index, question, embedder(), typeof body?.english === "string" ? body.english : undefined, modelReranker(client))), general_checks_allowed: kb.meta.ideas !== false };
   const ms = Date.now() - started;
   log.info("live.lookup", { env: envId, kb: kb.meta.id, ms, passages: result.passages.length, caution: Boolean(result.caution) });
   if (ms > 3000) log.warn("live.lookup_slow", { env: envId, kb: kb.meta.id, ms });

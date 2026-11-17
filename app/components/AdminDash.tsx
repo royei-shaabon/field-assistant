@@ -3,7 +3,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import type { DayMetrics, QaRecord } from "@/lib/store/activity";
+import type { CallTrace, DayMetrics, QaRecord } from "@/lib/store/activity";
 import type { EnvView } from "@/lib/store/envs";
 import { T } from "@/lib/ui-text";
 import { CheckIcon, PlusIcon } from "./icons";
@@ -423,5 +423,67 @@ export function Conversations() {
         </li>
       ))}
     </ul>
+  );
+}
+
+// The records of live calls: a timeline per call, for seeing where a call went wrong (a
+// misheard sentence, a search that missed, a look that found nothing, a long wait).
+export function CallTraces() {
+  const [calls, setCalls] = useState<CallTrace[] | null>(null);
+  useEffect(() => {
+    let alive = true;
+    void fetch("/api/admin/trace?days=7")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => alive && setCalls((d as { calls: CallTrace[] } | null)?.calls ?? []))
+      .catch(() => {});
+    return () => {
+      alive = false;
+    };
+  }, []);
+  const C = A.calls;
+  const types = C.type as Record<string, string>;
+  const clock = (ms: number) => `${Math.floor(ms / 60000)}:${String(Math.floor(ms / 1000) % 60).padStart(2, "0")}`;
+  return (
+    <section className="flex flex-col gap-2">
+      <div>
+        <h2 className="text-[17px] font-bold">{C.title}</h2>
+        <p className="text-[14px] text-stone">{C.lead}</p>
+      </div>
+      {!calls ? (
+        <p className="text-[15px] text-stone">{D.loading}</p>
+      ) : !calls.length ? (
+        <p className="text-[15px] text-stone">{C.none}</p>
+      ) : (
+        <ul className="flex flex-col gap-2">
+          {calls.map((call) => (
+            <li key={call.id} className="rounded-[12px] border border-rule bg-paper">
+              <details>
+                <summary className="flex cursor-pointer flex-wrap items-center gap-x-3 px-4 py-3 text-[14px]">
+                  <span className="font-medium">{(C.kind as Record<string, string>)[call.kind] ?? call.kind}</span>
+                  <bdi className="text-stone">{call.kbId}</bdi>
+                  <span className="font-mono text-[13px] text-stone">{call.at && new Date(call.at).toLocaleString("he-IL", { dateStyle: "short", timeStyle: "short" })}</span>
+                  <span className="font-mono text-[13px] text-stone">{call.events.length}</span>
+                </summary>
+                <ol className="flex flex-col border-t border-rule-soft px-4 py-2 text-[14px] leading-[21px]">
+                  {call.events.map((e, i) => (
+                    <li key={i} className="flex gap-3 border-b border-rule-soft py-1.5 last:border-b-0">
+                      <span className="w-10 shrink-0 font-mono text-[13px] text-stone">{clock(e.t)}</span>
+                      <span className={`w-24 shrink-0 text-[13px] ${e.type === "error" ? "text-danger-ink" : e.type === "heard" ? "text-primary" : "text-graphite"}`}>
+                        {types[e.type] ?? e.type}
+                        {e.name && <span dir="ltr" className="block font-mono text-stone">{e.name}</span>}
+                      </span>
+                      <span dir="auto" className="min-w-0 flex-1 break-words">
+                        {e.text}
+                        {e.ms !== undefined && <span className="ps-2 font-mono text-[13px] text-stone">{seconds(e.ms)} {D.seconds}</span>}
+                      </span>
+                    </li>
+                  ))}
+                </ol>
+              </details>
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
   );
 }

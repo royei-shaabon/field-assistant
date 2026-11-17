@@ -8,7 +8,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { Progress } from "@/lib/conversation";
 import type { Screen } from "@/lib/screen";
-import { LiveCall, type VideoTool, type VideoToolResult } from "@/lib/client/live";
+import { LiveCall, type TraceEvent, type VideoTool, type VideoToolResult } from "@/lib/client/live";
 import { locate, LOST, templateAt, toGray, type Gray, type Template } from "@/lib/client/track";
 import { listenForSpeech, voicePlayer } from "@/lib/client/voice";
 import { forVoice } from "@/lib/speech";
@@ -224,6 +224,24 @@ export function CallView({
     const t = setTimeout(() => setNotice(false), NOTICE_MS);
     return () => clearTimeout(t);
   }, []);
+  // The call's record: sent to the server every few seconds and when the call ends, so a call
+  // can be read afterwards (what was heard, what was said, what each tool returned).
+  const traced = useRef<TraceEvent[]>([]);
+  const flushTrace = useRef<(last?: boolean) => void>(() => {});
+  const [callId] = useState(() => `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`);
+  useEffect(() => {
+    const send = (last = false) => {
+      const events = traced.current.splice(0);
+      if (!events.length) return;
+      void fetch("/api/voice/trace", { method: "POST", keepalive: last, headers: { "Content-Type": "application/json" }, body: JSON.stringify({ callId, kbId, kind, conversationId, events }) }).catch(() => {});
+    };
+    flushTrace.current = send;
+    const timer = setInterval(send, 4000);
+    return () => {
+      clearInterval(timer);
+      send(true);
+    };
+  }, [callId, kbId, kind, conversationId]);
   // Whether anything was asked in this call: only then is the short survey worth showing.
   const asked = useRef(0);
   // The still picture of the last checked answer can be closed.
@@ -273,18 +291,19 @@ export function CallView({
   useEffect(() => {
     videoTool.current = async ({ name, args }) => {
       const ring = touchedRef.current;
-      const image = frame(ring ?? undefined, 1024);
+      const image = frame(ring ?? undefined);
       const seen = FOLLOW_MARKS ? smallRef.current() : null;
       if (!image) return { result: { ok: false, note: "no picture" }, quiet: true };
       const marking = name === "mark_on_picture";
       const pointing = marking && args.pointing === true;
       const label = typeof args.label === "string" ? args.label.trim() : "";
+      const english = typeof args.english === "string" ? args.english : undefined;
       const question = typeof args.question === "string" ? args.question : "";
       const state: MarkState = args.state === "checked" || args.state === "caution" ? args.state : "current";
       const res = await fetch("/api/voice/look", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ kbId, image, ring: Boolean(ring), ...(marking ? (pointing || !label ? { pointing: true } : { find: label }) : { question }) }),
+        body: JSON.stringify({ kbId, image, ring: Boolean(ring), ...(marking ? (pointing || !label ? { pointing: true } : { find: label, english }) : { question }) }),
       }).catch(() => null);
       const look = res?.ok ? ((await res.json()) as { visible: boolean; quality: string; name: string; seen: string; box?: QuickMark["box"] }) : null;
       if (!look) return { result: { ok: false, note: "could not look at the picture" }, quiet: false };
@@ -292,7 +311,7 @@ export function CallView({
       if (shown && look.box) addMark({ label: pointing || ring ? look.name || label : label || look.name, state, box: look.box }, seen);
       if (marking) {
         // Found and marked: nothing to say about it, unless the model asked what the finger points at.
-        return { result: { marked: Boolean(shown), name: look.name, quality: look.quality, ...(look.seen ? { seen: look.seen } : {}) }, quiet: Boolean(shown) && !pointing };
+        return { result: { marked: Boolean(shown), name: look.name, quality: look.quality, ...(look.seen ? { seen: look.seen } : {}) }, quiet: Boolean(shown) && !pointing && !look.seen };
       }
       return { result: { seen: look.seen || (look.visible ? look.name : ""), visible: look.visible, quality: look.quality }, quiet: false };
     };
@@ -389,6 +408,7 @@ export function CallView({
       // Two things at once: the fast search the model speaks from (a second or two), and the
       // full checked answer, which lands in the chat with its pages.
       onVideoTool: (tool) => videoTool.current(tool),
+      onTrace: (event) => void traced.current.push(event),
       onTool: async (question, english) => {
         asked.current++;
         const picture = frame();
@@ -431,6 +451,8 @@ export function CallView({
       cancelled = true;
       call.stop();
       liveCall.current = null;
+      // The last lines of the record (what was being said, "ended") go out now.
+      flushTrace.current(true);
     };
     // Runs once per call; `frame` and `kbId` do not change during it.
     // eslint-disable-next-line react-hooks/exhaustive-deps

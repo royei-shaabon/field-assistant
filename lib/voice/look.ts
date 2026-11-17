@@ -12,6 +12,8 @@ import type { ModelClient } from "../llm";
 export type LookRequest = {
   image: { data: string; mediaType: "image/jpeg" | "image/png" | "image/webp" };
   find?: string;
+  // The part's name in English, when the live model gave one: manuals and the eye know it better.
+  english?: string;
   pointing?: boolean;
   question?: string;
   // The technician touched the picture: a ring is drawn there, and the part asked about is in it.
@@ -57,7 +59,8 @@ export function checkedLook(raw: unknown, size: { width: number; height: number 
 
 export async function lookAtPicture(client: ModelClient, request: LookRequest): Promise<Look> {
   const { prompt, schema } = skill();
-  const ask = request.pointing ? "pointing" : request.find ? `find: ${request.find.slice(0, 80)}` : `question: ${(request.question ?? "").slice(0, 300)}`;
+  const english = request.english?.trim() ? ` (${request.english.trim().slice(0, 80)})` : "";
+  const ask = request.pointing ? "pointing" : request.find ? `find: ${request.find.slice(0, 80)}${english}` : `question: ${(request.question ?? "").slice(0, 300)}`;
   const reference = request.passages?.length ? `\n\nPassages from the machine's manual (reference only):\n${request.passages.map((p) => `<passage source="${p.source}">\n${p.text}\n</passage>`).join("\n")}` : "";
   const size = imageSize(request.image.data, request.image.mediaType);
   const response = await client.complete({
@@ -67,9 +70,10 @@ export async function lookAtPicture(client: ModelClient, request: LookRequest): 
       { type: "image", mediaType: request.image.mediaType, data: request.image.data },
       { type: "text", text: `${size ? `The picture is ${size.width} by ${size.height} pixels.\n` : ""}${request.language ? `Write name and seen in ${request.language}.\n` : ""}${request.ring ? "ring: the technician touched the picture and an orange ring is drawn at that spot.\n" : ""}${ask}${reference}` },
     ],
-    // A question about the picture is waited for in silence, so it runs on the small, quick
-    // model. Finding where a part is needs the main model's eye, and nobody waits for a mark.
-    ...(request.question && !request.find && !request.pointing ? { fast: true } : { direct: true }),
+    // Always the main model: what is in the picture and where is the whole point. A mark is
+    // not waited for, so finding a part may think first; an answer the technician waits for
+    // in silence (a question, a pointing finger) is given at once.
+    ...(request.find && !request.pointing ? {} : { direct: true }),
   });
   try {
     return checkedLook(JSON.parse(response.text ?? ""), size);
