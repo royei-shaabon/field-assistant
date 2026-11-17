@@ -205,10 +205,15 @@ export function CallView({
   );
   // The safety warning of the last answer: shown by the app, whatever the model says aloud.
   const [caution, setCaution] = useState<string | null>(null);
-  // Dismissed warnings are not shown again in this call.
-  const dismissed = useRef(new Set<string>());
+  // Each warning is shown once in a call. A warning is known by its topic, not by its wording:
+  // the fast search and the checked answer word the same warning differently.
+  const warned = useRef(new Set<string>());
   const warn = useCallback((text: string | null | undefined) => {
-    if (text && !dismissed.current.has(text)) setCaution(text);
+    if (!text) return;
+    const topic = Object.values(T.doc.topics).find((t) => text.includes(t)) ?? text;
+    if (warned.current.has(topic)) return;
+    warned.current.add(topic);
+    setCaution(text);
   }, []);
   // The camera's light, where the phone lets a page switch it; and how far the picture is zoomed.
   const [torch, setTorch] = useState<"none" | "off" | "on">("none");
@@ -657,18 +662,14 @@ export function CallView({
           </div>
         )}
 
-        {(caution || quick.length > 0) && (
+        {caution && (
           <div className="mb-auto flex flex-col gap-2">
             {caution && (
               <div role="alert" className="flex items-start gap-2.5 rounded-2xl border-2 border-[#ff6b5e] bg-night/90 py-1.5 pe-1 ps-3">
                 <WarningIcon className="mt-2.5 h-6 w-6 shrink-0 text-[#ff6b5e]" />
                 <p className="min-w-0 flex-1 py-2 text-[15px] leading-[22px]">{caution}</p>
-                {/* Read and closed: the same warning does not come back in this call. */}
                 <button
-                  onClick={() => {
-                    dismissed.current.add(caution);
-                    setCaution(null);
-                  }}
+                  onClick={() => setCaution(null)}
                   aria-label={T.header.close}
                   className="grid h-12 w-12 shrink-0 place-items-center rounded-full active:bg-white/10"
                 >
@@ -676,24 +677,25 @@ export function CallView({
                 </button>
               </div>
             )}
-            {quick.length > 0 && (
-              // What each number on the picture is, in words: the colour is never the only sign.
-              <div role="status" className="anim-rise flex flex-col gap-1.5 rounded-2xl bg-night/85 p-3">
-                {!FOLLOW_MARKS && <p className="text-sm text-signal">{T.call.liveNote}</p>}
-                <p className="text-sm text-white/75">{T.call.marksLegend}</p>
-                <ol className="flex flex-col gap-1.5">
-                  {quick.map((m) => (
-                    <li key={m.id} className="flex items-center gap-2.5 text-[16px]">
-                      <span aria-hidden className={`grid h-7 w-7 shrink-0 place-items-center rounded-full font-mono text-sm font-medium ${MARK_TONE[m.state].fill} ${MARK_TONE[m.state].ink}`}>
-                        {m.n}
-                      </span>
-                      <span className="min-w-0 flex-1">{m.label}</span>
-                      {m.state !== "current" && <span className="shrink-0 text-[13px] text-white/75">{T.call.markState[m.state]}</span>}
-                    </li>
-                  ))}
-                </ol>
-              </div>
-            )}
+          </div>
+        )}
+        {quick.length > 0 && (
+          // What each number on the picture is, in words: the colour is never the only sign.
+          // Low on the screen, with the captions: the picture above stays clear for the marks.
+          <div role="status" className="anim-rise flex flex-col gap-1 rounded-2xl bg-night/85 px-3 py-2">
+            {!FOLLOW_MARKS && <p className="text-sm text-signal">{T.call.liveNote}</p>}
+            <p className="text-sm text-white/75">{T.call.marksLegend}</p>
+            <ol className="flex flex-col gap-1.5">
+              {quick.map((m) => (
+                <li key={m.id} className="flex items-center gap-2.5 text-[16px]">
+                  <span aria-hidden className={`grid h-7 w-7 shrink-0 place-items-center rounded-full font-mono text-sm font-medium ${MARK_TONE[m.state].fill} ${MARK_TONE[m.state].ink}`}>
+                    {m.n}
+                  </span>
+                  <span className="min-w-0 flex-1">{m.label}</span>
+                  {m.state !== "current" && <span className="shrink-0 text-[13px] text-white/75">{T.call.markState[m.state]}</span>}
+                </li>
+              ))}
+            </ol>
           </div>
         )}
         {visual && !busy && closedFor !== speech.answer && (
