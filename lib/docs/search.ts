@@ -1,6 +1,6 @@
 // Search over the passages of one knowledge base, two ways: by keywords (BM25), where the model
 // writes the queries in the language of the documents, and by meaning (vectors), when the
-// documents have a meaning index. The two are combined in lib/docs/agent-skills.ts.
+// documents have a meaning index. The two are combined in lib/docs/agent-tools.ts.
 import { span } from "../server/log";
 import { sectionKey, sections } from "./chunk";
 import type { StoredDoc } from "../store/types";

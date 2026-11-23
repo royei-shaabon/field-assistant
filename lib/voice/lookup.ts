@@ -8,7 +8,7 @@
 // the screen is.
 
 import { hazardTopic } from "../docs/ask";
-import { runSearch } from "../docs/agent-skills";
+import { runSearch } from "../docs/agent-tools";
 import type { Embedder } from "../docs/embed";
 import type { Reranker } from "../docs/rerank";
 import type { SearchIndex } from "../docs/search";

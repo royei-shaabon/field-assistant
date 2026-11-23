@@ -1,11 +1,11 @@
-// The only things the agent can do. The model has no abilities of its own: it can ask for a
-// skill by name, and the code here decides whether that skill exists and runs it.
-// A skill is declared in skills/agent/<name>/skill.json (what the model is told, and its
-// access level) and implemented below. Every skill is read-only: nothing here can write to a
-// knowledge base, reach the network, or act outside the knowledge base the technician is in.
-import fs from "node:fs";
-import path from "node:path";
+// The chat agent's tools: the only things it can do. The model has no abilities of its own: it
+// can ask for a tool by name, and the code here decides whether that tool exists and runs it.
+// A tool is one specific action. It is declared in tools/<name>/tool.json (what the model is
+// told, and its access level), given to the chat agent by a skill in skills/registry.json, and
+// implemented below. Every tool is read-only: nothing here can write to a knowledge base, reach
+// the network, or act outside the knowledge base the technician is in.
 import type { ToolDef } from "../llm";
+import { agentTools, type ToolDecl } from "../skills/registry";
 import { vectorModel } from "./chunk";
 import type { Embedder } from "./embed";
 import type { Hit, SearchIndex } from "./search";
@@ -13,9 +13,9 @@ import type { Hit, SearchIndex } from "./search";
 const PER_QUERY = 4;
 const PER_SEARCH = 8;
 
-export type SkillContext = { index: SearchIndex; seen: Map<string, Hit>; embedder?: Embedder | null };
-export type SkillOutcome = { hits: Hit[]; note?: string; label?: string };
-type Handler = (ctx: SkillContext, input: unknown) => SkillOutcome | Promise<SkillOutcome>;
+export type ToolContext = { index: SearchIndex; seen: Map<string, Hit>; embedder?: Embedder | null };
+export type ToolOutcome = { hits: Hit[]; note?: string; label?: string };
+type Handler = (ctx: ToolContext, input: unknown) => ToolOutcome | Promise<ToolOutcome>;
 
 function keywordSearch(index: SearchIndex, queries: string[]): Hit[] {
   const merged = new Map<string, Hit>();
@@ -91,25 +91,20 @@ const HANDLERS: Record<string, Handler> = {
   },
 };
 
-export type AgentSkill = ToolDef & { access: "read"; run: Handler };
+export type AgentTool = ToolDef & { access: "read"; run: Handler };
 
-// Loads the declared skills. A declaration without code, or with any access other than
-// "read", stops the server from answering rather than giving the agent an undefined power.
-export function loadAgentSkills(dir: string = path.resolve("skills", "agent")): AgentSkill[] {
-  return fs
-    .readdirSync(/*turbopackIgnore: true*/ dir)
-    .sort()
-    .map((name) => {
-      const decl = JSON.parse(fs.readFileSync(path.join(/*turbopackIgnore: true*/ dir, name, "skill.json"), "utf8")) as ToolDef & { access?: string };
-      if (decl.name !== name) throw new Error(`agent skill ${name}: the folder name and "name" differ`);
-      if (decl.access !== "read") throw new Error(`agent skill ${name}: only "read" access is allowed`);
-      const run = HANDLERS[name];
-      if (!run) throw new Error(`agent skill ${name}: declared but not implemented`);
-      return { name: decl.name, description: decl.description, input_schema: decl.input_schema, access: "read" as const, run };
-    });
+// Binds declarations to their code. A declaration without code stops the server from answering
+// rather than giving the agent an undefined power (loadTools already refused anything but "read").
+export function bindTools(decls: ToolDecl[]): AgentTool[] {
+  return decls.map((decl) => {
+    const run = HANDLERS[decl.name];
+    if (!run) throw new Error(`tool ${decl.name}: declared but not implemented`);
+    return { name: decl.name, description: decl.description, input_schema: decl.input_schema, access: "read" as const, run };
+  });
 }
 
-let loaded: AgentSkill[] | undefined;
-export function agentSkills(): AgentSkill[] {
-  return (loaded ??= loadAgentSkills());
+// What the chat agent is given: the tools its skills name, nothing else.
+let loaded: AgentTool[] | undefined;
+export function chatTools(): AgentTool[] {
+  return (loaded ??= bindTools(agentTools("chat")));
 }

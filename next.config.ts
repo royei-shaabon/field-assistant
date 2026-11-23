@@ -28,9 +28,11 @@ const nextConfig: NextConfig = {
   },
   // The KB and skill prompts are read from disk at runtime by the API route.
   outputFileTracingIncludes: {
-    "/api/conversation": ["./knowledge/**/*", "./skills/*/prompt.md", "./skills/*/schema.json", "./skills/*/examples.yaml"],
-    "/api/voice/look": ["./skills/look/prompt.md", "./skills/look/schema.json"],
-    "/api/voice/lookup": ["./skills/rerank/prompt.md", "./skills/rerank/schema.json"],
+    "/api/conversation": ["./knowledge/**/*", "./jobs/*/prompt.md", "./jobs/*/schema.json", "./jobs/*/examples.yaml", "./tools/*/tool.json", "./skills/registry.json", "./skills/*/SKILL.md"],
+    "/api/voice/look": ["./jobs/look/prompt.md", "./jobs/look/schema.json"],
+    "/api/admin/diagnose": ["./tools/*/tool.json", "./skills/registry.json", "./skills/*/SKILL.md"],
+    "/api/voice/live": ["./tools/*/tool.json", "./skills/registry.json", "./skills/*/SKILL.md"],
+    "/api/voice/lookup": ["./jobs/rerank/prompt.md", "./jobs/rerank/schema.json"],
     "/api/admin/kbs/[kbId]/docs": ["./node_modules/unpdf/dist/**/*", "./node_modules/mammoth/**/*"],
   },
   partialPrefetching: true,

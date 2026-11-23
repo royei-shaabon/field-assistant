@@ -11,7 +11,7 @@ export type Reranker = (question: string, candidates: Candidate[]) => Promise<nu
 
 let files: { prompt: string; schema: Record<string, unknown> } | undefined;
 function skill() {
-  const dir = path.join(/*turbopackIgnore: true*/ process.cwd(), "skills", "rerank");
+  const dir = path.join(/*turbopackIgnore: true*/ process.cwd(), "jobs", "rerank");
   return (files ??= { prompt: fs.readFileSync(path.join(dir, "prompt.md"), "utf8"), schema: JSON.parse(fs.readFileSync(path.join(dir, "schema.json"), "utf8")) });
 }
 

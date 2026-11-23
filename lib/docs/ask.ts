@@ -1,5 +1,5 @@
 // Answers a technician's question from the documents of one knowledge base.
-// The model can act only through the agent skills (lib/docs/agent-skills.ts), and it only
+// The model can act only through its tools (lib/docs/agent-tools.ts), and it only
 // drafts; the code decides what reaches the technician:
 // every step must cite a passage that was really retrieved and quote text that is really in
 // it, and an answer on a hazard topic always carries a warning the model cannot remove.
@@ -9,7 +9,7 @@ import Ajv from "ajv";
 import { imageBlock, type AgentMessage, type ModelClient, type SkillContent } from "../llm";
 import { HAZARD_TOPICS } from "../safety";
 import type { DocMeta } from "../store/types";
-import { agentSkills, cleanQueries, runSearch } from "./agent-skills";
+import { chatTools, cleanQueries, runSearch } from "./agent-tools";
 import type { Embedder } from "./embed";
 import { vectorModel } from "./chunk";
 import { imageSize, type Size } from "./image-size";
@@ -97,7 +97,7 @@ type Draft = {
   hazard: "none" | HazardTopic;
 };
 
-const SKILL_DIR = path.resolve("skills", "ask");
+const SKILL_DIR = path.resolve("jobs", "ask");
 let files: { prompt: string; schema: Record<string, unknown> } | undefined;
 function skill() {
   files ??= {
@@ -421,10 +421,10 @@ export type AskTiming = {
   search: number;
   // Rendering the found pages as pictures for the main model.
   images: number;
-  // One entry per call to the main model: until its first text, its whole length, and whether it asked for a skill.
-  turns: { firstText: number | null; total: number; skill: boolean; usage?: { cached: number; written: number; fresh: number; output: number } }[];
-  // Skills the agent asked for during the loop.
-  skills: number;
+  // One entry per call to the main model: until its first text, its whole length, and whether it asked for a tool.
+  turns: { firstText: number | null; total: number; tool: boolean; usage?: { cached: number; written: number; fresh: number; output: number } }[];
+  // Tools the agent asked for during the loop.
+  tools: number;
   // From the start until the first verified step was sent to the phone.
   firstStep: number | null;
   total: number;
@@ -443,14 +443,14 @@ export async function askDocuments(
   onPartial: (p: PartialAnswer) => void = () => {},
 ): Promise<AskRun> {
   const { prompt, schema } = skill();
-  const skills = agentSkills();
+  const tools = chatTools();
   const validate = new Ajv().compile<Draft>(schema);
   const seen = new Map<string, Hit>();
   const shots = new Map<string, PageShot>();
   const searches: string[][] = [];
   const errors: string[] = [];
   const started = Date.now();
-  const timing: AskTiming = { plan: 0, search: 0, images: 0, turns: [], skills: 0, firstStep: null, total: 0 };
+  const timing: AskTiming = { plan: 0, search: 0, images: 0, turns: [], tools: 0, firstStep: null, total: 0 };
   const done = (result: DocResult): AskRun => ({ result, searches, errors, timing: { ...timing, total: Date.now() - started } });
   const frameSizes = input.images.map((i) => imageSize(i.data, i.mediaType));
   const context = contextOf(input, index, frameSizes);
@@ -505,26 +505,26 @@ export async function askDocuments(
       }
       turnStarted = Date.now();
       turnFirstText = null;
-      const reply = await client.turn({ system: prompt, messages, tools: skills.map(({ name, description, input_schema }) => ({ name, description, input_schema })), schema }, onText);
-      timing.turns.push({ firstText: turnFirstText, total: Date.now() - turnStarted, skill: reply.toolCalls.length > 0, ...(reply.usage ? { usage: reply.usage } : {}) });
+      const reply = await client.turn({ system: prompt, messages, tools: tools.map(({ name, description, input_schema }) => ({ name, description, input_schema })), schema }, onText);
+      timing.turns.push({ firstText: turnFirstText, total: Date.now() - turnStarted, tool: reply.toolCalls.length > 0, ...(reply.usage ? { usage: reply.usage } : {}) });
 
       if (reply.toolCalls.length) {
         messages.push(reply.assistant);
         const results = [];
         for (const call of reply.toolCalls) {
-          // The agent can only use a declared skill. Anything else is refused, and nothing runs.
-          const used = skills.find((s) => s.name === call.name);
+          // The agent can only use a tool one of its skills gives it. Anything else is refused, and nothing runs.
+          const used = tools.find((s) => s.name === call.name);
           if (!used) {
-            results.push({ type: "tool_result" as const, tool_use_id: call.id, is_error: true, content: `There is no skill named "${call.name}". Your skills: ${skills.map((s) => s.name).join(", ")}.` });
+            results.push({ type: "tool_result" as const, tool_use_id: call.id, is_error: true, content: `There is no tool named "${call.name}". Your tools: ${tools.map((s) => s.name).join(", ")}.` });
             continue;
           }
           if (searches.length >= MAX_SEARCHES) {
-            results.push({ type: "tool_result" as const, tool_use_id: call.id, content: "Skill limit reached. Answer from the passages you already have." });
+            results.push({ type: "tool_result" as const, tool_use_id: call.id, content: "Tool limit reached. Answer from the passages you already have." });
             continue;
           }
           const skillStarted = Date.now();
           const outcome = await used.run({ index, seen, embedder: input.embedder }, call.input);
-          timing.skills += Date.now() - skillStarted;
+          timing.tools += Date.now() - skillStarted;
           searches.push(cleanQueries((call.input as { queries?: unknown })?.queries));
           progress({ stage: "searching", detail: outcome.label });
           for (const h of outcome.hits) seen.set(h.ref, h);

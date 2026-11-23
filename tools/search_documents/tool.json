@@ -1,13 +1,23 @@
 {
   "name": "search_documents",
   "access": "read",
+  "answered_by": "lib/docs/agent-tools.ts",
+  "calls_model": false,
   "description": "Search over the passages of this knowledge base. Every query is matched by keywords, and also by meaning when the input says `search` is \"keywords and meaning\". Returns the best matching passages with their reference, document name and page. Write keyword queries in the language of the documents; when search by meaning is on, one query may be a short natural-language description of the fault or the part.",
   "input_schema": {
     "type": "object",
     "additionalProperties": false,
-    "required": ["queries"],
+    "required": [
+      "queries"
+    ],
     "properties": {
-      "queries": { "type": "array", "items": { "type": "string" }, "description": "2 to 4 short queries." }
+      "queries": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        },
+        "description": "2 to 4 short queries."
+      }
     }
   }
 }

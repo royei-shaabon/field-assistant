@@ -1,6 +1,6 @@
 # SAMPLE eval fixtures for interpret. Generic checks, no NMAX knowledge.
 # Acceptance (docs/spec.md): at least 27 of 30 correct, including slang.
-# Must not overlap with skills/interpret/examples.yaml.
+# Must not overlap with jobs/interpret/examples.yaml.
 sample: true
 checks:
   light: "SAMPLE האם נורית החיווי דולקת?"

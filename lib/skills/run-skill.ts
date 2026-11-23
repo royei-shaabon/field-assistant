@@ -1,5 +1,5 @@
 // Shared runner for product skills (docs/spec.md, "סקילים"): one model call, output validated
-// against skills/<name>/schema.json, one retry, then a fixed fallback. Never continues on
+// against jobs/<name>/schema.json, one retry, then a fixed fallback. Never continues on
 // broken output.
 import fs from "node:fs";
 import path from "node:path";
@@ -7,7 +7,8 @@ import Ajv from "ajv";
 import YAML from "yaml";
 import type { ModelClient, SkillContent } from "../llm";
 
-export const SKILLS_DIR = path.resolve("skills");
+// A job is one call to a model with a fixed prompt and output schema (jobs/<name>/).
+export const SKILLS_DIR = path.resolve("jobs");
 export const MAX_ATTEMPTS = 2;
 
 export type SkillFiles = {
@@ -40,7 +41,7 @@ export async function runSkill<T>(opts: {
   client: ModelClient;
   files: SkillFiles;
   content: SkillContent[];
-  // Schema sent to the API; may narrow skills/<name>/schema.json (e.g. an enum of ids).
+  // Schema sent to the API; may narrow jobs/<name>/schema.json (e.g. an enum of ids).
   requestSchema?: Record<string, unknown>;
   // Checks the schema cannot express. Returns an error message or null.
   check?: (output: T) => string | null;

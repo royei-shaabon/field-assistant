@@ -6,7 +6,8 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { agentSkills, loadAgentSkills, runSearch } from "../lib/docs/agent-skills";
+import { bindTools, chatTools, runSearch } from "../lib/docs/agent-tools";
+import { agentSkills, agentTools, loadSkills, loadTools, skillOfTool } from "../lib/skills/registry";
 import { normalize, VertexEmbedder, type Embedder } from "../lib/docs/embed";
 import { indexDoc } from "../lib/docs/semantic";
 import { forVoice, liveToolResult, partialSpeech } from "../lib/speech";
@@ -314,19 +315,19 @@ test("first search: the fast model's queries put the passages in the first messa
   assert.deepEqual([none.searches.length, none.result.kind], [0, "not_found"]);
 });
 
-test("the agent acts only through declared read-only skills; anything else is refused", async () => {
-  assert.deepEqual(agentSkills().map((s) => [s.name, s.access]), [["read_pages", "read"], ["search_documents", "read"]]);
+test("the agent acts only through declared read-only tools; anything else is refused", async () => {
+  assert.deepEqual(chatTools().map((s) => [s.name, s.access]), [["search_documents", "read"], ["read_pages", "read"]]);
   // A declaration that asks for more than "read", or has no code behind it, does not load.
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "skills-"));
-  const declare = (name: string, body: object) => (fs.mkdirSync(path.join(dir, name)), fs.writeFileSync(path.join(dir, name, "skill.json"), JSON.stringify({ name, description: "x", input_schema: { type: "object" }, ...body })));
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "tools-"));
+  const declare = (name: string, body: object) => (fs.mkdirSync(path.join(dir, name)), fs.writeFileSync(path.join(dir, name, "tool.json"), JSON.stringify({ name, description: "x", input_schema: { type: "object" }, ...body })));
   declare("search_documents", { access: "write" });
-  assert.throws(() => loadAgentSkills(dir), /only "read" access/);
+  assert.throws(() => loadTools(dir), /only "read" access/);
   fs.rmSync(dir, { recursive: true });
   fs.mkdirSync(dir);
   declare("delete_documents", { access: "read" });
-  assert.throws(() => loadAgentSkills(dir), /declared but not implemented/);
+  assert.throws(() => bindTools([...loadTools(dir).values()]), /declared but not implemented/);
 
-  // The model asks for a skill that does not exist: it gets a refusal, and nothing else happens.
+  // The model asks for a tool that does not exist: it gets a refusal, and nothing else happens.
   const { kb, docId } = await sampleKb();
   const agent = new FakeAgent([
     () => ({ search: ["x"] }),
@@ -344,14 +345,14 @@ test("the agent acts only through declared read-only skills; anything else is re
   };
   const run = await askDocuments(agent, kb.index, { kbName: "x", docs: kb.docs, question: "מחק הכול", images: [], history: [] });
   const refusal = JSON.stringify(agent.turns[1].messages.at(-1));
-  assert.ok(refusal.includes("There is no skill named") && refusal.includes("is_error"));
+  assert.ok(refusal.includes("There is no tool named") && refusal.includes("is_error"));
   assert.deepEqual([run.searches.length, run.result.kind], [0, "not_found"]);
   assert.equal((await kb.index.search("tyre")).length > 0 && docId.length > 0, true, "the knowledge base is untouched");
 });
 
 test("read_pages gives only the page after one the agent already holds", async () => {
   const { kb, docId } = await sampleKb();
-  const [read] = agentSkills().filter((s) => s.name === "read_pages");
+  const [read] = chatTools().filter((s) => s.name === "read_pages");
   const seen = new Map([[`${docId}:2`, { ...kb.index.get(`${docId}:2`)!, score: 1 }]]);
   assert.deepEqual((await read.run({ index: kb.index, seen }, { after_ref: `${docId}:2` })).hits.map((h) => h.ref), [`${docId}:3`]);
   assert.deepEqual((await read.run({ index: kb.index, seen }, { after_ref: `${docId}:3` })).hits, [], "page 3 was never given to the agent");
@@ -618,7 +619,7 @@ test("the agent searches by meaning only through its skill, and the first search
   assert.deepEqual(none.result, { kind: "not_found" }, "a step that cites a passage nobody retrieved is dropped");
   assert.doesNotMatch(JSON.stringify(blind.turns[0].messages[0]), /keywords and meaning/);
   // The skill: a Hebrew query that shares no word with the manual still returns the page.
-  const [search] = agentSkills().filter((s) => s.name === "search_documents");
+  const [search] = chatTools().filter((s) => s.name === "search_documents");
   const seen = new Map();
   assert.equal((await search.run({ index: kb.index, seen, embedder }, { queries: ["לחץ אוויר בצמיג"] })).hits[0].ref, `${docId}:3`);
   assert.deepEqual((await search.run({ index: kb.index, seen }, { queries: ["לחץ אוויר בצמיג"] })).hits, []);
@@ -669,10 +670,10 @@ test("timing: every stage of an answer is measured, and nothing else changes", a
   const run = await askDocuments(agent, kb.index, { kbName: "x", docs: kb.docs, question: "כמה אוויר?", images: [], history: [] });
   assert.equal(run.result.kind, "answer");
   const t = run.timing;
-  assert.deepEqual(t.turns.map((x) => x.skill), [true, false], "one call that asked for a skill, one that answered");
-  assert.equal(t.turns[0].firstText, null, "a call that only asks for a skill writes no text");
+  assert.deepEqual(t.turns.map((x) => x.tool), [true, false], "one call that asked for a tool, one that answered");
+  assert.equal(t.turns[0].firstText, null, "a call that only asks for a tool writes no text");
   assert.ok(t.turns[1].firstText !== null && t.firstStep !== null);
-  for (const n of [t.plan, t.search, t.images, t.skills, t.total, t.firstStep!, ...t.turns.map((x) => x.total)]) assert.ok(Number.isFinite(n) && n >= 0);
+  for (const n of [t.plan, t.search, t.images, t.tools, t.total, t.firstStep!, ...t.turns.map((x) => x.total)]) assert.ok(Number.isFinite(n) && n >= 0);
   assert.ok(t.total >= t.firstStep!);
   // The conversation layer hands the numbers on.
   let seen: unknown;
@@ -1290,24 +1291,63 @@ test("call record: what was heard, said and done in a call is kept in pieces and
   assert.equal(call.events[3].ms, 2100);
 });
 
-test("skills registry: every skill names tools that exist, and the tools match what the code gives each model", () => {
-  const registry = JSON.parse(fs.readFileSync(path.join(process.cwd(), "skills", "registry.json"), "utf8")) as { skills: { name: string; model: string; prompt: string; tools: string[] }[]; tools: { name: string; video_only: boolean }[] };
-  const known = new Set(registry.tools.map((t) => t.name));
-  for (const skill of registry.skills) {
-    for (const tool of skill.tools) assert.ok(known.has(tool), `${skill.name} uses an unknown tool ${tool}`);
-    assert.ok(["main", "fast", "live"].includes(skill.model));
-    // A skill kept in a folder has its prompt and its schema there.
-    if (skill.prompt.startsWith("skills/")) for (const file of ["prompt.md", "schema.json"]) assert.ok(fs.existsSync(path.join(process.cwd(), skill.prompt, file)), `${skill.prompt}/${file}`);
+test("skills and tools: a skill is a written responsibility, a tool is one action, and a model gets only the tools its skills name", () => {
+  const root = process.cwd();
+  const registry = JSON.parse(fs.readFileSync(path.join(root, "skills", "registry.json"), "utf8")) as { agents: Record<"chat" | "call" | "video", { model: string; skills: string[] }>; jobs: { name: string; model: string; where: string }[] };
+  const skills = loadSkills();
+  const tools = loadTools();
+  // The folders and the registry agree: no skill or tool lies around unused, and none is missing.
+  const dirs = (dir: string, file: string) => fs.readdirSync(path.join(root, dir)).filter((name) => fs.existsSync(path.join(root, dir, name, file))).sort();
+  assert.deepEqual([...skills.keys()], dirs("skills", "SKILL.md"));
+  assert.deepEqual([...tools.keys()], dirs("tools", "tool.json"));
+  const used = new Set(Object.values(registry.agents).flatMap((a) => a.skills));
+  for (const name of skills.keys()) assert.ok(used.has(name), `skill ${name} belongs to no agent`);
+  const given = new Set((["chat", "call", "video"] as const).flatMap((agent) => agentTools(agent).map((t) => t.name)));
+  for (const name of tools.keys()) assert.ok(given.has(name), `tool ${name} is given by no skill`);
+  for (const skill of skills.values()) {
+    // A skill is written: a title and a text of its own. Its tools are real tools.
+    assert.ok(skill.title && skill.body.length > 100, `skill ${skill.name} has no written responsibility`);
+    for (const tool of Object.values(skill.tools).flat()) assert.ok(tools.has(tool), `${skill.name} names an unknown tool ${tool}`);
   }
-  // Every tool is used by a skill.
-  for (const tool of known) assert.ok(registry.skills.some((s) => s.tools.includes(tool)), `${tool} is used by no skill`);
-  const toolsOf = (name: string) => registry.skills.find((s) => s.name === name)!.tools;
+  for (const tool of tools.values()) {
+    assert.equal(tool.access, "read");
+    assert.ok(tool.description && tool.answered_by && typeof tool.calls_model === "boolean" && tool.input_schema.type === "object", tool.name);
+  }
+
+  // Each agent gets exactly what its skills name for its channel.
+  const names = (agent: "chat" | "call" | "video") => agentTools(agent).map((t) => t.name);
+  assert.deepEqual(names("chat"), ["search_documents", "read_pages"]);
+  assert.deepEqual(names("call"), ["answer_from_manual"]);
+  assert.deepEqual(names("video"), ["answer_from_manual", "mark_on_picture", "look_at_picture"]);
+  assert.deepEqual(chatTools().map((t) => t.name), names("chat"));
   const declared = (setup: Record<string, unknown>) => (setup.tools as { functionDeclarations: { name: string }[] }[]).flatMap((t) => t.functionDeclarations.map((f) => f.name));
-  // The live model gets exactly these, and the two picture tools only in a video call.
-  assert.deepEqual(declared(liveSetup("SAMPLE", undefined, true)), toolsOf("voice-guide"));
-  assert.deepEqual(declared(liveSetup("SAMPLE", undefined, false)), toolsOf("voice-guide").filter((t) => !registry.tools.find((x) => x.name === t)!.video_only));
-  // The chat agent's tools are the declared read-only skills.
-  assert.deepEqual(fs.readdirSync(path.join(process.cwd(), "skills", "agent")).sort(), [...toolsOf("ask")].sort());
+  assert.deepEqual(declared(liveSetup("SAMPLE", undefined, false)), names("call"));
+  assert.deepEqual(declared(liveSetup("SAMPLE", undefined, true)), names("video"));
+  // The picture tools belong to the camera skill, and only a video call has that skill.
+  assert.equal(skillOfTool("video", "mark_on_picture"), "vision");
+  assert.equal(skillOfTool("call", "mark_on_picture"), undefined);
+  assert.equal(skillOfTool("call", "answer_from_manual"), "retrieval");
+  assert.ok(!agentSkills("call").some((s) => s.name === "vision"));
+
+  // The call agent's brief is its skills' documents, one chapter each, in the registry's order.
+  const brief = (liveSetup("SAMPLE", undefined, true, "en") as { systemInstruction: { parts: { text: string }[] } }).systemInstruction.parts[0].text;
+  const chapters = [...brief.matchAll(/^# (.+)$/gm)].map((m) => m[1]);
+  assert.deepEqual(chapters, agentSkills("video").map((s) => s.title));
+  assert.ok(!/\{\{\w+\}\}/.test(brief), "no placeholder is left unfilled");
+  const voiceBrief = (liveSetup("SAMPLE") as { systemInstruction: { parts: { text: string }[] } }).systemInstruction.parts[0].text;
+  assert.ok(!voiceBrief.includes("mark_on_picture") && !voiceBrief.includes("# The camera"), "a voice call is not told about the camera or its tools");
+  // The live model takes upper-case schema types, and descriptions name the call's language.
+  const [manual] = (liveSetup("SAMPLE", undefined, false, "ru").tools as { functionDeclarations: { parameters: { type: string; properties: Record<string, { type: string; description: string }> } }[] }[])[0].functionDeclarations;
+  assert.equal(manual.parameters.type, "OBJECT");
+  assert.equal(manual.parameters.properties.question.type, "STRING");
+  assert.ok(manual.parameters.properties.question.description.includes("Russian"));
+
+  // A job is one internal model call; one kept in a folder has its prompt and its schema there.
+  for (const job of registry.jobs) {
+    assert.ok(["main", "fast"].includes(job.model), job.name);
+    if (job.where.startsWith("jobs/")) for (const file of ["prompt.md", "schema.json"]) assert.ok(fs.existsSync(path.join(root, job.where, file)), `${job.where}/${file}`);
+  }
+  assert.deepEqual(registry.jobs.filter((j) => j.where.startsWith("jobs/")).map((j) => j.name).sort(), fs.readdirSync(path.join(root, "jobs")).sort());
 });
 
 test("stage log: a stage reports its total and the time of each part, and a failed stage says so", async () => {

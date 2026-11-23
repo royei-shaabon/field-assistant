@@ -70,7 +70,7 @@ export async function POST(request: Request) {
               timing = t;
               // Each stage of the answer, in milliseconds: the small model's plan, the first
               // search, the page pictures, every turn of the main model, and the skills it ran.
-              log.info("ask.timing", { env: envId, kb: kbId, ms: t.total, firstStepMs: t.firstStep, planMs: t.plan, searchMs: t.search, imagesMs: t.images, skillsMs: t.skills, turns: t.turns.length, turnMs: t.turns.map((x) => x.total), firstTextMs: t.turns.map((x) => x.firstText), cached: t.turns.reduce((n, x) => n + (x.usage?.cached ?? 0), 0), fresh: t.turns.reduce((n, x) => n + (x.usage?.fresh ?? 0), 0), output: t.turns.reduce((n, x) => n + (x.usage?.output ?? 0), 0) });
+              log.info("ask.timing", { env: envId, kb: kbId, ms: t.total, firstStepMs: t.firstStep, planMs: t.plan, searchMs: t.search, imagesMs: t.images, toolsMs: t.tools, turns: t.turns.length, turnMs: t.turns.map((x) => x.total), firstTextMs: t.turns.map((x) => x.firstText), cached: t.turns.reduce((n, x) => n + (x.usage?.cached ?? 0), 0), fresh: t.turns.reduce((n, x) => n + (x.usage?.fresh ?? 0), 0), output: t.turns.reduce((n, x) => n + (x.usage?.output ?? 0), 0) });
               if (t.total > 15_000) log.warn("ask.slow", { env: envId, kb: kbId, ms: t.total });
               send({ timing: t });
             },
@@ -90,7 +90,7 @@ export async function POST(request: Request) {
             const t = timing;
             // The answer's own parts: the small model's plan, the first search, page pictures, the
             // main model's turns, the skills it ran. They add up to "answer" above.
-            if (t) for (const [name, ms] of [["plan", t.plan], ["search", t.search], ["images", t.images], ["model", t.turns.reduce((n, x) => n + x.total, 0)], ["skills", t.skills]] as const) stage?.add(`answer.${name}`, ms);
+            if (t) for (const [name, ms] of [["plan", t.plan], ["search", t.search], ["images", t.images], ["model", t.turns.reduce((n, x) => n + x.total, 0)], ["tools", t.tools]] as const) stage?.add(`answer.${name}`, ms);
             stage?.end({ kind: event.result.kind, steps: event.result.kind === "answer" ? event.result.steps.length : 0, firstStepMs: t?.firstStep ?? null, turns: t?.turns.length ?? 0 });
           } else stage?.end({ kind: "none" });
           send({ result });

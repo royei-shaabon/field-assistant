@@ -1,0 +1,19 @@
+{
+  "name": "look_at_picture",
+  "access": "read",
+  "answered_by": "POST /api/voice/look (the look job)",
+  "calls_model": true,
+  "description": "Looks carefully at the current camera picture and answers a question about what is visible in it (lamps, displays, switch positions, condition of a part).",
+  "input_schema": {
+    "type": "object",
+    "required": [
+      "question"
+    ],
+    "properties": {
+      "question": {
+        "type": "string",
+        "description": "What to look for."
+      }
+    }
+  }
+}

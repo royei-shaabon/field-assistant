@@ -2,7 +2,7 @@
 // resolution and misplaces what it points at, so it does not point by itself: it names the
 // part (or asks a question about the picture), and this looks at the full picture with the
 // main model and answers where the part is, or what is visible. Looking is not instructing:
-// the prompt (skills/look/prompt.md) allows a description and a box, nothing else.
+// the prompt (jobs/look/prompt.md) allows a description and a box, nothing else.
 import fs from "node:fs";
 import path from "node:path";
 import { imageSize } from "../docs/image-size";
@@ -37,7 +37,7 @@ const NOTHING: Look = { visible: false, quality: "ok", name: "", seen: "" };
 
 let files: { prompt: string; schema: Record<string, unknown> } | undefined;
 function skill() {
-  const dir = path.join(/*turbopackIgnore: true*/ process.cwd(), "skills", "look");
+  const dir = path.join(/*turbopackIgnore: true*/ process.cwd(), "jobs", "look");
   return (files ??= { prompt: fs.readFileSync(path.join(dir, "prompt.md"), "utf8"), schema: JSON.parse(fs.readFileSync(path.join(dir, "schema.json"), "utf8")) });
 }
 

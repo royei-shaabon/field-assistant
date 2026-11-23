@@ -1,0 +1,36 @@
+{
+  "name": "mark_on_picture",
+  "access": "read",
+  "answered_by": "POST /api/voice/look (the look job)",
+  "calls_model": true,
+  "description": "Circles a part on the technician's camera picture. You give the part's name; a careful look at the full picture finds it. Returns whether it was found.",
+  "input_schema": {
+    "type": "object",
+    "required": [
+      "state"
+    ],
+    "properties": {
+      "label": {
+        "type": "string",
+        "description": "The part's name in {{language}}, two or three words. With pointing true: leave empty."
+      },
+      "english": {
+        "type": "string",
+        "description": "The part's name in English, as a manual would call it."
+      },
+      "state": {
+        "type": "string",
+        "enum": [
+          "current",
+          "checked",
+          "caution"
+        ],
+        "description": "current: being discussed now. checked: confirmed fine. caution: keep away or take care."
+      },
+      "pointing": {
+        "type": "boolean",
+        "description": "True when the technician points at something with a finger."
+      }
+    }
+  }
+}

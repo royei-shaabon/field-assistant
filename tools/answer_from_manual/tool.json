@@ -1,0 +1,23 @@
+{
+  "name": "answer_from_manual",
+  "access": "read",
+  "answered_by": "POST /api/voice/lookup (search, then the rerank job)",
+  "calls_model": true,
+  "description": "Searches the machine's manuals for the technician's question and returns the sections that answer it, with their sources.",
+  "input_schema": {
+    "type": "object",
+    "required": [
+      "question"
+    ],
+    "properties": {
+      "question": {
+        "type": "string",
+        "description": "The technician's question in {{language}}, complete on its own."
+      },
+      "english": {
+        "type": "string",
+        "description": "The same question in plain English, with the words a manual would use."
+      }
+    }
+  }
+}

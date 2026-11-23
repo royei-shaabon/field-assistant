@@ -1,6 +1,6 @@
 ---
 name: skill-eval
-description: Run the identify and interpret product skills against the fixed fixtures with the real model and report accuracy against the acceptance thresholds in docs/spec.md. Use after changing skills/*/prompt.md, examples.yaml, schema.json, lib/skills/ or lib/llm.ts.
+description: Run the identify and interpret product skills against the fixed fixtures with the real model and report accuracy against the acceptance thresholds in docs/spec.md. Use after changing jobs/*/prompt.md, examples.yaml, schema.json, lib/skills/ or lib/llm.ts.
 ---
 
 # skill-eval
