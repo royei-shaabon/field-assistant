@@ -1,5 +1,5 @@
 import { currentEnvId, envStore } from "@/lib/server/env";
-import { log } from "@/lib/server/log";
+import { log, span } from "@/lib/server/log";
 import { channelOf, recordTurn } from "@/lib/server/record";
 import { activity } from "@/lib/store";
 import type { AskTiming } from "@/lib/docs/ask";
@@ -41,8 +41,9 @@ export async function POST(request: Request) {
   const envId = await currentEnvId();
   const store = await envStore();
   const meta = { conversationId: typeof raw?.conversationId === "string" ? raw.conversationId : undefined, channel: channelOf(raw?.channel) };
-  const started = Date.now();
-  if (asks) log.info("ask.start", { env: envId, kb: kbId, channel: meta.channel });
+  // One stage per question: loading the knowledge base, the answer (with the parts the answer
+  // engine measures itself), and writing it down. Looking at a saved conversation is not timed.
+  const stage = asks ? span("ask", { env: envId, kb: kbId, channel: meta.channel }) : null;
 
   const stream = new ReadableStream({
     async start(controller) {
@@ -50,10 +51,14 @@ export async function POST(request: Request) {
       try {
         if (kbId === SAMPLE_KB_ID && sampleKbVisible()) {
           sample ??= loadKnowledgeBase();
-          send({ result: await handleConversation(sample, client!, body, (p) => send({ progress: p })) });
+          const result = await handleConversation(sample, client!, body, (p) => send({ progress: p }));
+          stage?.part("answer");
+          stage?.end({ kind: "fault_tree" });
+          send({ result });
         } else {
           let timing: AskTiming | undefined;
           const kb = await loadDocKb(kbId);
+          stage?.part("load");
           if (!kb) throw new BadRequest("unknown knowledge base");
           const result = await handleDocConversation(kb, client!, body, (p) => send({ progress: p.stage === "reading" ? "pages" : p.stage, detail: p.detail }), request.signal, {
             // Each verified step goes to the phone as soon as it is written.
@@ -65,7 +70,7 @@ export async function POST(request: Request) {
               timing = t;
               // Each stage of the answer, in milliseconds: the small model's plan, the first
               // search, the page pictures, every turn of the main model, and the skills it ran.
-              log.info("ask.timing", { env: envId, kb: kbId, ms: t.total, firstStepMs: t.firstStep, planMs: t.plan, searchMs: t.search, imagesMs: t.images, skillsMs: t.skills, turns: t.turns.length, turnMs: t.turns.map((x) => x.total), cached: t.turns.reduce((n, x) => n + (x.usage?.cached ?? 0), 0) });
+              log.info("ask.timing", { env: envId, kb: kbId, ms: t.total, firstStepMs: t.firstStep, planMs: t.plan, searchMs: t.search, imagesMs: t.images, skillsMs: t.skills, turns: t.turns.length, turnMs: t.turns.map((x) => x.total), firstTextMs: t.turns.map((x) => x.firstText), cached: t.turns.reduce((n, x) => n + (x.usage?.cached ?? 0), 0), fresh: t.turns.reduce((n, x) => n + (x.usage?.fresh ?? 0), 0), output: t.turns.reduce((n, x) => n + (x.usage?.output ?? 0), 0) });
               if (t.total > 15_000) log.warn("ask.slow", { env: envId, kb: kbId, ms: t.total });
               send({ timing: t });
             },
@@ -75,19 +80,27 @@ export async function POST(request: Request) {
             },
           });
           // A new turn was added: count it, write it down, and log how it ended.
+          stage?.part("answer");
           const before = Array.isArray(body?.events) ? body.events.length : 0;
           if (result.events.length > before) {
             const event = result.events.at(-1)!;
             await store.recordUsage(kbId, event.result.kind).catch(() => {});
             await recordTurn(envId, { id: kbId, name: kb.meta.name }, event, meta, timing);
-            log.info("ask.done", { env: envId, kb: kbId, channel: meta.channel, kind: event.result.kind, ms: Date.now() - started, steps: event.result.kind === "answer" ? event.result.steps.length : 0 });
-          }
+            stage?.part("record");
+            const t = timing;
+            // The answer's own parts: the small model's plan, the first search, page pictures, the
+            // main model's turns, the skills it ran. They add up to "answer" above.
+            if (t) for (const [name, ms] of [["plan", t.plan], ["search", t.search], ["images", t.images], ["model", t.turns.reduce((n, x) => n + x.total, 0)], ["skills", t.skills]] as const) stage?.add(`answer.${name}`, ms);
+            stage?.end({ kind: event.result.kind, steps: event.result.kind === "answer" ? event.result.steps.length : 0, firstStepMs: t?.firstStep ?? null, turns: t?.turns.length ?? 0 });
+          } else stage?.end({ kind: "none" });
           send({ result });
         }
       } catch (e) {
-        if (e instanceof BadRequest) log.warn("ask.rejected", { env: envId, kb: kbId, reason: e.message });
-        else {
-          log.error("ask.failed", e, { env: envId, kb: kbId, ms: Date.now() - started });
+        if (e instanceof BadRequest) {
+          log.warn("ask.rejected", { env: envId, kb: kbId, reason: e.message });
+          stage?.end({ kind: "rejected" });
+        } else {
+          stage?.fail(e);
           await activity(envId).measure((day) => void day.errors++).catch(() => {});
         }
         send({ error: e instanceof BadRequest ? e.message : "server error" });

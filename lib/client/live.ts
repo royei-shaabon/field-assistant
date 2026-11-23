@@ -40,7 +40,7 @@ export type VideoToolResult = { result: unknown; quiet: boolean };
 const ANSWER_TOOL = "answer_from_manual";
 
 // `t`: milliseconds since the call started.
-export type TraceEvent = { t: number; type: "heard" | "said" | "said_cut" | "tool" | "tool_result" | "tap" | "state" | "error"; name?: string; text?: string; ms?: number };
+export type TraceEvent = { t: number; type: "heard" | "said" | "said_cut" | "tool" | "tool_result" | "response" | "tap" | "state" | "error"; name?: string; text?: string; ms?: number };
 
 export type LiveEvents = {
   onState: (s: "connecting" | "listening" | "speaking" | "ended") => void;
@@ -256,6 +256,8 @@ export class LiveCall {
         this.events.onHeard(c.inputTranscription.text);
         this.dropUntilTurn = false;
         this.heard += c.inputTranscription.text;
+        this.lastHeardAt = Date.now();
+        this.waiting = true;
       }
       if (c.outputTranscription?.text) {
         // The model began to answer: what was heard until now is one utterance.
@@ -265,6 +267,14 @@ export class LiveCall {
       if (c.outputTranscription?.text && !this.dropUntilTurn) {
         this.events.onSaid(c.outputTranscription.text, this.newTurn);
         this.newTurn = false;
+      }
+      const sound = (c.modelTurn?.parts ?? []).some((part) => part.inlineData?.data);
+      if (sound && this.waiting) {
+        // What the technician feels: from the last word heard to the first sound back. `tools`
+        // says how much of it was spent waiting for tools, the rest is the model itself.
+        this.waiting = false;
+        this.trace({ type: "response", ms: Date.now() - this.lastHeardAt, text: `tools ${this.toolMs}ms` });
+        this.toolMs = 0;
       }
       for (const part of c.modelTurn?.parts ?? []) if (part.inlineData?.data && !this.dropUntilTurn) this.play(part.inlineData.data);
       if (c.turnComplete) {
@@ -286,6 +296,9 @@ export class LiveCall {
   // tool call with what came back and how long it took.
   private heard = "";
   private said = "";
+  private lastHeardAt = 0;
+  private waiting = false;
+  private toolMs = 0;
   private trace(event: Omit<TraceEvent, "t">) {
     this.events.onTrace?.({ ...event, t: Date.now() - this.startedAt });
   }
@@ -314,6 +327,8 @@ export class LiveCall {
       quiet = answer.quiet;
     }
     this.trace({ type: "tool_result", name: call.name, ms: Date.now() - began, text: JSON.stringify(result).slice(0, 1500) });
+    // Only tools the model waits for count toward the technician's wait.
+    if (!quiet) this.toolMs = Math.max(this.toolMs, Date.now() - began);
     // Said as soon as the model finishes what it is saying now; a mark needs no words.
     this.send({ toolResponse: { functionResponses: [{ id: call.id, name: call.name, response: { result, scheduling: quiet ? "SILENT" : "WHEN_IDLE" } }] } });
   }

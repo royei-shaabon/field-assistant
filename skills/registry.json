@@ -1,0 +1,19 @@
+{
+  "about": "Every skill of the product, the model that runs it, and the tools it may use. A skill is a prompt and an output schema for one job. A tool is something a model may ask for; code decides whether it exists and runs it. All tools are read-only. tests/docs.test.ts checks this file against the code.",
+  "skills": [
+    { "name": "plan-queries", "job": "Writes the search queries for the first search of a chat answer.", "model": "fast", "runs": "chat", "prompt": "lib/docs/ask.ts (PLAN_SYSTEM)", "tools": [] },
+    { "name": "ask", "job": "Writes the checked answer in the chat: steps with a page and a quote each, suggested checks, a hazard flag, figures.", "model": "main", "runs": "chat", "prompt": "skills/ask", "tools": ["search_documents", "read_pages"] },
+    { "name": "voice-guide", "job": "Leads the live call: listens, speaks, walks the technician through one step at a time.", "model": "live", "runs": "call", "prompt": "lib/voice/live.ts (liveInstructions)", "tools": ["answer_from_manual", "mark_on_picture", "look_at_picture"] },
+    { "name": "rerank", "job": "Orders the sections a search found by how well they answer the question, and drops the rest.", "model": "fast", "runs": "call", "prompt": "skills/rerank", "tools": [] },
+    { "name": "look", "job": "Looks at one camera picture: finds a named part, what a finger points at, or answers what is visible.", "model": "main", "runs": "call", "prompt": "skills/look", "tools": [] },
+    { "name": "identify", "job": "Sample fault trees: classifies a fault from a picture or a description.", "model": "main", "runs": "chat", "prompt": "skills/identify", "tools": [] },
+    { "name": "interpret", "job": "Sample fault trees: reads a free-text reply as yes, no or unclear.", "model": "main", "runs": "chat", "prompt": "skills/interpret", "tools": [] }
+  ],
+  "tools": [
+    { "name": "search_documents", "does": "Searches the knowledge base by keywords and meaning.", "answered_by": "lib/docs/agent-skills.ts", "calls_model": false, "video_only": false },
+    { "name": "read_pages", "does": "Returns the page after one the agent already has.", "answered_by": "lib/docs/agent-skills.ts", "calls_model": false, "video_only": false },
+    { "name": "answer_from_manual", "does": "Searches the manual for the technician's question and returns the sections that answer it, with the hazard caution.", "answered_by": "POST /api/voice/lookup (search, then the rerank skill)", "calls_model": true, "video_only": false },
+    { "name": "mark_on_picture", "does": "Circles a named part, or what a finger points at, on the live picture.", "answered_by": "POST /api/voice/look (the look skill)", "calls_model": true, "video_only": true },
+    { "name": "look_at_picture", "does": "Answers a question about what the camera picture shows.", "answered_by": "POST /api/voice/look (the look skill)", "calls_model": true, "video_only": true }
+  ]
+}

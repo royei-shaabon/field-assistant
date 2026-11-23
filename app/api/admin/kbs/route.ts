@@ -8,11 +8,21 @@ import { envView } from "@/lib/store/envs";
 import { aiConfigured, ensureSeed } from "@/lib/server/kbs";
 import { EMPTY_USAGE, Invalid } from "@/lib/store";
 
+// How many sections a document has. Counting means reading and cutting the whole document,
+// which for a manual of thousands of pages is too much to do on every opening of the screen:
+// a document never changes after it is uploaded, so it is counted once.
+const counted = new Map<string, number>();
+async function sectionCount(key: string, count: () => Promise<number>): Promise<number> {
+  if (!counted.has(key)) counted.set(key, await count());
+  return counted.get(key)!;
+}
+
 export async function GET() {
   if (!(await isAdmin())) return forbidden();
   if ((await currentEnvId()) === MAIN_ENV) await ensureSeed();
   const store = await envStore();
   const using = embedder();
+  const env = (await currentEnv())!;
   const kbs = await Promise.all(
     (await store.listKbs()).map(async (kb) => {
       const docs = await Promise.all(
@@ -20,14 +30,13 @@ export async function GET() {
           // How many passages of the document can be searched by meaning with the current model.
           // and how many sections there are to index (the document is cut the way search cuts it).
           const info = using ? await store.vectorInfo(kb.id, doc.id) : null;
-          const total = using ? sectionList((await store.getPassages(kb.id, doc.id))?.passages ?? []).length : 0;
+          const total = using ? await sectionCount(`${env.id}/${kb.id}/${doc.id}/${doc.uploadedAt}`, async () => sectionList((await store.getPassages(kb.id, doc.id))?.passages ?? []).length) : 0;
           return { ...doc, indexed: using && info && info.model === vectorModel(using.model) ? Math.min(info.count, total) : 0, sections: total };
         }),
       );
       return { ...kb, docs, usage: await store.getUsage(kb.id) };
     }),
   );
-  const env = (await currentEnv())!;
   // Whether technicians of this environment are asked for a code.
   const accessCode = env.id === MAIN_ENV ? Boolean(process.env.ACCESS_CODE) : Boolean(env.accessHash);
   return Response.json({ kbs, ai: aiConfigured(), accessCode, embeddings: using?.model ?? null, env: envView(env), master: env.id === MAIN_ENV && (await isMaster()) }, { headers: { "Cache-Control": "no-store" } });

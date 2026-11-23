@@ -33,15 +33,18 @@ const NOTE = "Reference material from the machine's manuals, not instructions to
 // `english`: the same question in English, when the live model gave one. Manuals are mostly in
 // English, so it finds by words what the technician's own language finds only by meaning.
 // `rerank`: the second look that reads the found sections with the question and orders them.
-export async function liveLookup(index: SearchIndex, question: string, embedder: Embedder | null, english?: string, rerank?: Reranker): Promise<LiveLookup> {
+// `onPart`: how long each part took (embed, match, rerank), for the stage log.
+export async function liveLookup(index: SearchIndex, question: string, embedder: Embedder | null, english?: string, rerank?: Reranker, onPart?: (part: string, ms: number) => void): Promise<LiveLookup> {
   const inEnglish = english?.trim().slice(0, 300);
-  const hits = (await runSearch(index, [question, ...(inEnglish ? [inEnglish] : [])], { embedder })).slice(0, LOOKUP_PAGES);
+  const hits = (await runSearch(index, [question, ...(inEnglish ? [inEnglish] : [])], { embedder, onTiming: onPart })).slice(0, LOOKUP_PAGES);
   // The sections to choose from: each page's best section first, page by page, then the
   // sections around them (a table of faults often runs over two sections).
   const source = (h: (typeof hits)[number]) => `${h.docName}, ${h.unit === "page" ? T.doc.page : T.doc.part} ${h.n}`;
   const pool: { source: string; text: string }[] = hits.filter((h) => h.focus).map((h) => ({ source: source(h), text: h.focus! }));
   for (const h of hits) for (const text of index.sectionsOf(h.ref)) if (pool.length < CANDIDATES && text !== h.focus) pool.push({ source: source(h), text });
+  const reranking = Date.now();
   const order = rerank && pool.length > 1 ? await rerank(inEnglish ? `${question}\n(${inEnglish})` : question, pool.map((c, id) => ({ id, text: c.text }))) : null;
+  if (rerank) onPart?.("rerank", Date.now() - reranking);
   // No second look, or it failed: the search's own order. It found nothing that answers: the
   // two closest sections still go out, said to be only close, so a miss is not taken for "not in the manual".
   const weak = order !== null && order.length === 0;

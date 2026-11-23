@@ -1,6 +1,7 @@
 // Search over the passages of one knowledge base, two ways: by keywords (BM25), where the model
 // writes the queries in the language of the documents, and by meaning (vectors), when the
 // documents have a meaning index. The two are combined in lib/docs/agent-skills.ts.
+import { span } from "../server/log";
 import { sectionKey, sections } from "./chunk";
 import type { StoredDoc } from "../store/types";
 
@@ -80,6 +81,14 @@ export class SearchIndex {
     return this.languages.get(docId) ?? "other";
   }
 
+  get sectionCount(): number {
+    return this.entries.length;
+  }
+
+  get vectorCount(): number {
+    return this.entries.filter((e) => e.vec).length;
+  }
+
   // How many pages (or parts) can be searched.
   get size(): number {
     return this.pages.size;
@@ -150,9 +159,21 @@ const cache = new Map<string, { version: string; index: SearchIndex }>();
 export function cachedIndex(kbId: string, version: string, load: () => Promise<StoredDoc[]>): Promise<SearchIndex> {
   const hit = cache.get(kbId);
   if (hit && hit.version === version) return Promise.resolve(hit.index);
-  return load().then((docs) => {
-    const index = new SearchIndex(docs);
-    cache.set(kbId, { version, index });
-    return index;
-  });
+  // Built on the first question after the knowledge base changed (or after the server
+  // started): reading every document, then cutting and counting every section.
+  const stage = span("index.build", { kb: kbId });
+  return load().then(
+    (docs) => {
+      stage.part("read");
+      const index = new SearchIndex(docs);
+      stage.part("build");
+      cache.set(kbId, { version, index });
+      stage.end({ docs: docs.length, pages: index.size, sections: index.sectionCount, vectors: index.vectorCount });
+      return index;
+    },
+    (e) => {
+      stage.fail(e);
+      throw e;
+    },
+  );
 }

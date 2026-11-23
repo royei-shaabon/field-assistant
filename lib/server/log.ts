@@ -31,3 +31,44 @@ export async function timed<T>(event: string, fields: Fields, work: () => Promis
     throw e;
   }
 }
+
+// A stage of work, timed from its start to its end with every part inside it. Two lines are
+// written: "<event>.start" when it begins (so a stage that never finishes is visible), and
+// "<event>" when it ends, with the total and the time of each part:
+//   {"event":"live.lookup","ms":2140,"parts":{"load":3,"search":410,"rerank":1690,"record":37}}
+// A part is everything between two `part()` calls; calling the same name twice adds up.
+export type Span = {
+  part(name: string): void;
+  // Adds a time measured elsewhere (inside a library call, or on parallel work).
+  add(name: string, ms: number): void;
+  end(extra?: Fields): number;
+  fail(error: unknown, extra?: Fields): number;
+};
+
+export function span(event: string, fields: Fields = {}): Span {
+  const started = Date.now();
+  let last = started;
+  const parts: Record<string, number> = {};
+  log.info(`${event}.start`, fields);
+  const close = () => Date.now() - started;
+  return {
+    part(name) {
+      const now = Date.now();
+      parts[name] = (parts[name] ?? 0) + now - last;
+      last = now;
+    },
+    add(name, ms) {
+      parts[name] = (parts[name] ?? 0) + Math.round(ms);
+    },
+    end(extra = {}) {
+      const ms = close();
+      log.info(event, { ...fields, ...extra, ms, parts });
+      return ms;
+    },
+    fail(error, extra = {}) {
+      const ms = close();
+      log.error(event, error, { ...fields, ...extra, ms, parts });
+      return ms;
+    },
+  };
+}

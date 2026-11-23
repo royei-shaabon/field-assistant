@@ -286,7 +286,7 @@ export const T = {
       title: "מהלך שיחות קול ווידאו",
       lead: "מה נשמע, מה נאמר, ואילו כלים הופעלו. לניתוח איכות המענה.",
       none: "עדיין אין שיחות מתועדות.",
-      type: { heard: "הטכנאי", said: "העוזר", said_cut: "העוזר (נקטע)", tool: "כלי", tool_result: "תוצאה", tap: "נגיעה בתמונה", state: "מצב", error: "תקלה" },
+      type: { response: "זמן תגובה", heard: "הטכנאי", said: "העוזר", said_cut: "העוזר (נקטע)", tool: "כלי", tool_result: "תוצאה", tap: "נגיעה בתמונה", state: "מצב", error: "תקלה" },
       kind: { voice: "שיחת קול", video: "שיחת וידאו" },
     },
     talks: {

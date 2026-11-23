@@ -1289,3 +1289,54 @@ test("call record: what was heard, said and done in a call is kept in pieces and
   assert.equal(call.events[3].text!.length, 1500, "long results are cut");
   assert.equal(call.events[3].ms, 2100);
 });
+
+test("skills registry: every skill names tools that exist, and the tools match what the code gives each model", () => {
+  const registry = JSON.parse(fs.readFileSync(path.join(process.cwd(), "skills", "registry.json"), "utf8")) as { skills: { name: string; model: string; prompt: string; tools: string[] }[]; tools: { name: string; video_only: boolean }[] };
+  const known = new Set(registry.tools.map((t) => t.name));
+  for (const skill of registry.skills) {
+    for (const tool of skill.tools) assert.ok(known.has(tool), `${skill.name} uses an unknown tool ${tool}`);
+    assert.ok(["main", "fast", "live"].includes(skill.model));
+    // A skill kept in a folder has its prompt and its schema there.
+    if (skill.prompt.startsWith("skills/")) for (const file of ["prompt.md", "schema.json"]) assert.ok(fs.existsSync(path.join(process.cwd(), skill.prompt, file)), `${skill.prompt}/${file}`);
+  }
+  // Every tool is used by a skill.
+  for (const tool of known) assert.ok(registry.skills.some((s) => s.tools.includes(tool)), `${tool} is used by no skill`);
+  const toolsOf = (name: string) => registry.skills.find((s) => s.name === name)!.tools;
+  const declared = (setup: Record<string, unknown>) => (setup.tools as { functionDeclarations: { name: string }[] }[]).flatMap((t) => t.functionDeclarations.map((f) => f.name));
+  // The live model gets exactly these, and the two picture tools only in a video call.
+  assert.deepEqual(declared(liveSetup("SAMPLE", undefined, true)), toolsOf("voice-guide"));
+  assert.deepEqual(declared(liveSetup("SAMPLE", undefined, false)), toolsOf("voice-guide").filter((t) => !registry.tools.find((x) => x.name === t)!.video_only));
+  // The chat agent's tools are the declared read-only skills.
+  assert.deepEqual(fs.readdirSync(path.join(process.cwd(), "skills", "agent")).sort(), [...toolsOf("ask")].sort());
+});
+
+test("stage log: a stage reports its total and the time of each part, and a failed stage says so", async () => {
+  const { span } = await import("../lib/server/log");
+  const lines: Record<string, unknown>[] = [];
+  const saved = { log: console.log, error: console.error };
+  console.log = (line: string) => void lines.push(JSON.parse(line));
+  console.error = (line: string) => void lines.push(JSON.parse(line));
+  try {
+    const stage = span("sample.stage", { env: "main" });
+    await new Promise((r) => setTimeout(r, 15));
+    stage.part("first");
+    stage.add("inner", 7);
+    stage.part("second");
+    const ms = stage.end({ outcome: "ok" });
+    const [start, end] = lines as { event: string; ms?: number; parts?: Record<string, number>; outcome?: string; env: string }[];
+    assert.equal(start.event, "sample.stage.start");
+    assert.equal(end.event, "sample.stage");
+    assert.equal(end.env, "main");
+    assert.equal(end.outcome, "ok");
+    assert.ok(end.ms === ms && ms >= 15);
+    assert.ok(end.parts!.first >= 14 && end.parts!.inner === 7 && "second" in end.parts!);
+    span("sample.broken").fail(new Error("SAMPLE failure"));
+    const failed = lines.at(-1) as { severity: string; error: string; ms: number };
+    assert.equal(failed.severity, "ERROR");
+    assert.equal(failed.error, "SAMPLE failure");
+    assert.ok(failed.ms >= 0);
+  } finally {
+    console.log = saved.log;
+    console.error = saved.error;
+  }
+});

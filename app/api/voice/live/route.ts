@@ -1,5 +1,5 @@
 import { currentEnvId, envStore } from "@/lib/server/env";
-import { log } from "@/lib/server/log";
+import { log, span } from "@/lib/server/log";
 import { activity } from "@/lib/store";
 import { createLiveToken, liveLanguage, liveSetup, liveSocketUrl, LIVE_MODEL } from "@/lib/voice/live";
 import { needsCode, technicianAllowed } from "@/lib/server/access";
@@ -19,10 +19,11 @@ export async function POST(request: Request) {
   const kb = typeof body?.kbId === "string" ? await loadDocKb(body.kbId) : null;
   if (!kb) return Response.json({ error: "unknown knowledge base" }, { status: 400 });
   const envId = await currentEnvId();
-  const started = Date.now();
+  const stage = span("live.token", { env: envId, kb: kb.meta.id, video: body?.video === true });
   try {
     // The voice and the language the implementer chose in /admin.
     const settings = await (await envStore()).getSettings();
+    stage.part("settings");
     const language = liveLanguage(settings.language);
     const setup = (hints: boolean) => liveSetup(kb.meta.name, settings.liveVoice, body?.video === true, language, hints);
     // If the model refuses the speech recognition hints, the call still starts, without them.
@@ -30,11 +31,12 @@ export async function POST(request: Request) {
       log.warn("live.hints_refused", { env: envId, error: (e as Error).message.slice(0, 200) });
       return createLiveToken(key, setup(false));
     });
-    log.info("live.token", { env: envId, kb: kb.meta.id, language, video: body?.video === true, ms: Date.now() - started });
+    stage.part("token");
+    stage.end({ language, voice: settings.liveVoice ?? "default" });
     await activity(envId).measure((day) => void day.calls++).catch(() => {});
     return Response.json({ url: liveSocketUrl(token), model: LIVE_MODEL(), language }, { headers: { "Cache-Control": "no-store" } });
   } catch (e) {
-    log.error("live.token_failed", e, { env: envId, kb: kb.meta.id, ms: Date.now() - started });
+    stage.fail(e);
     // The provider's message (never the key) for the implementer; technicians get the fallback.
     return Response.json({ error: "live_failed", ...((await isAdmin()) ? { detail: (e as Error).message } : {}) }, { status: 502 });
   }

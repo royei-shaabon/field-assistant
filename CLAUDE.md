@@ -29,6 +29,12 @@
   `ask.start`, `ask.timing` (כל שלב באלפיות שנייה), `ask.done`, `ask.slow` (מעל 15 שניות), `ask.failed`, `ask.rate_limited`, `live.token`,
   `live.lookup`, `live.lookup_slow` (מעל 3 שניות), `live.hints_refused`, `live.look`, `live.look_slow` (מעל 6 שניות), `survey.done`, `upload.done`, `index.step`, `auth.ok`, `auth.failed`, `env.created`, `env.updated`.
   לא כותבים ללוג סיסמאות, קודים, מפתחות, תוכן שאלות, תמונות או קול. קוד חדש כותב דרך `log`, לא `console.log`.
+- **מדידת שלבים (`span` ב-`lib/server/log.ts`, באישור המשתמש):** כל שלב עבודה כותב שורת `<event>.start` כשהוא מתחיל ושורת `<event>` כשהוא נגמר,
+  עם `ms` ועם `parts`: הזמן של כל חלק בתוכו. השלבים: `upload` (read, extract, duplicate_check, store), `index.step` (load, embed, store,
+  ו-`msPerSection`), `index.build` (read, build; בשאלה הראשונה אחרי שינוי או אחרי עליית השרת), `ask` (load, answer, record, ו-`answer.plan` /
+  `answer.search` / `answer.images` / `answer.model` / `answer.skills`), `live.token` (settings, token), `live.lookup` (load, embed, match, rerank,
+  record), `live.look` (load, manual, settings, model). בשיחה חיה הטלפון רושם גם `response`: מהמילה האחרונה של הטכנאי עד הצליל הראשון
+  שחזר, וכמה מזה היה המתנה לכלים. route חדש שעושה עבודה של ממש נמדד ב-`span`.
 
 ## עקרון היסוד
 המודל מנסח או מסווג. הקוד מחליט מה מוצג.
@@ -147,6 +153,9 @@
   `GEMINI_API_KEY` (שיחה חיה), `GEMINI_LIVE_MODEL`, `GEMINI_LIVE_VOICE` (ברירת מחדל `Orus`). פריסה: ראו `README.md`.
 
 ## סקילי המוצר (`skills/`, `lib/skills/`)
+- **`skills/registry.json` הוא הרשימה המחייבת:** כל סקיל, המודל שמריץ אותו (`main`, `fast`, `live`) והכלים שמותרים לו; וכל כלי, מי עונה לו
+  והאם הוא קורא למודל. בדיקה ב-`tests/docs.test.ts` משווה את הקובץ לקוד (הכלים שהמודל החי מקבל, הסקילים שב-`skills/agent/`).
+  סקיל או כלי חדש נכנסים קודם לקובץ הזה.
 - כל קריאה למודל עוברת דרך `lib/llm.ts`. מודל: `claude-sonnet-5-5`, פלט JSON דרך structured outputs.
   `complete` (בלי כלים) משמש את `identify` ו-`interpret`. `turn` (סבב אחד בלולאת כלים) משמש את `ask`.
 - ה-API לא מקבל `temperature`, ולכן הפלט מקובע בסכמה וב-effort נמוך במקום ב-`temperature: 0`.
