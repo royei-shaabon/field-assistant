@@ -7,7 +7,8 @@
   "input_schema": {
     "type": "object",
     "required": [
-      "question"
+      "question",
+      "english"
     ],
     "properties": {
       "question": {

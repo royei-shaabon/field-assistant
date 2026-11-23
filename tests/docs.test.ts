@@ -675,6 +675,7 @@ test("timing: every stage of an answer is measured, and nothing else changes", a
   assert.ok(t.turns[1].firstText !== null && t.firstStep !== null);
   for (const n of [t.plan, t.search, t.images, t.tools, t.total, t.firstStep!, ...t.turns.map((x) => x.total)]) assert.ok(Number.isFinite(n) && n >= 0);
   assert.ok(t.total >= t.firstStep!);
+  assert.equal(t.written, (run.result as Extract<DocResult, { kind: "answer" }>).steps.length, "every step written was shown: none failed the source check");
   // The conversation layer hands the numbers on.
   let seen: unknown;
   await handleDocConversation(kb, new FakeAgent([{ final: draft({ kind: "not_found" }) }]), { events: [], input: { kind: "ask", text: "שאלה" } }, undefined, undefined, { onTiming: (x) => (seen = x) });
@@ -1202,6 +1203,44 @@ test("live call tool: the best pages come whole, so a line at the bottom of a lo
   const found = await liveLookup(index, "המכשיר לא נדלק", null, "the unit will not turn on");
   assert.equal(found.kind, "passages");
   assert.match(found.passages[0].text, /plugged into the outlet/, "the whole page, to its last line");
+
+  // The live model gave no English: the small model writes it, and the search uses it.
+  const asked: string[] = [];
+  const parts: string[] = [];
+  const translated = await liveLookup(index, "המכשיר לא נדלק", null, undefined, undefined, (part) => parts.push(part), async (q) => (asked.push(q), "the unit will not turn on"));
+  assert.equal(translated.kind, "passages");
+  assert.deepEqual([asked, parts.includes("english")], [["המכשיר לא נדלק"], true], "asked once, and timed");
+  // Not asked when the English came with the question, or when the question is already in Latin letters.
+  await liveLookup(index, "המכשיר לא נדלק", null, "the unit will not turn on", undefined, undefined, async (q) => (asked.push(q), null));
+  await liveLookup(index, "unit will not turn on", null, undefined, undefined, undefined, async (q) => (asked.push(q), null));
+  assert.equal(asked.length, 1);
+  // The translation failed: the search goes on with the question alone.
+  assert.equal((await liveLookup(index, "המכשיר לא נדלק", null, undefined, undefined, undefined, async () => null)).kind, "not_found");
+});
+
+test("live call warning: decided by what was asked and by the best section, not by every section found", async () => {
+  const store = await tempStore();
+  const meta = await store.createKb({ name: "SAMPLE warn" });
+  const pages = [
+    "SAMPLE Spark plug\nSAMPLE The spark plug type is SAMPLE-X1. Replace it at the SAMPLE interval.",
+    "SAMPLE Specifications\nSAMPLE spark plug gap table. SAMPLE note: check the brakes before every ride.",
+    "SAMPLE Overheating\nSAMPLE The engine is overheating when the SAMPLE lamp is on. Stop and let it cool.",
+  ];
+  const { doc, passages } = await ingest("sample.pdf", makePdf(pages));
+  await store.addDoc(meta.id, { ...doc, origin: "manufacturer" }, passages, makePdf(pages));
+  const index = new SearchIndex(await store.loadDocs(meta.id));
+  // The best section is about the spark plug; a later section mentions brakes in passing.
+  const plug = await liveLookup(index, "איזה מצת?", null, "spark plug type");
+  assert.ok(plug.passages.length >= 2 && /brakes/.test(plug.passages.map((p) => p.text).join(" ")), "the passing mention was found too");
+  assert.equal(plug.caution, undefined, "no warning for a passing mention");
+  // The best section itself is about a hazard topic.
+  assert.ok((await liveLookup(index, "מה בודקים לפני רכיבה?", null, "check before every ride")).caution);
+  // The English form of the question names the hazard, whatever was found.
+  assert.ok((await liveLookup(index, "איזה מצת?", null, "spark plug near the fuel tank")).caution);
+  // An overheating engine brings the hot coolant warning.
+  assert.match((await liveLookup(index, "המנוע מתחמם", null, "engine overheating")).caution ?? "", /קירור/);
+  assert.equal(hazardTopic("x", { hazard: "none", steps: [{ text: "", ref: "", quote: "The high coolant temperature indicator is on." }] }), "hot_coolant");
+  assert.equal(hazardTopic("x", { hazard: "none", steps: [{ text: "", ref: "", quote: "Do not overheat the food." }] }), null, "only an engine");
 });
 
 test("live call: the manual comes before looking, basic things first, and general checks only when allowed and marked", () => {
@@ -1216,7 +1255,7 @@ test("live call: the manual comes before looking, basic things first, and genera
   assert.match(video, /never a repair/);
   const tool = (liveSetup("SAMPLE").tools as { functionDeclarations: { name: string; parameters: { properties: Record<string, unknown>; required: string[] } }[] }[])[0].functionDeclarations[0];
   assert.deepEqual(Object.keys(tool.parameters.properties), ["question", "english"]);
-  assert.deepEqual(tool.parameters.required, ["question"], "the English form is a help, not a condition");
+  assert.deepEqual(tool.parameters.required, ["question", "english"], "an English manual is found by words only through the English form");
 });
 
 test("sections: a long page is cut where something new begins, nothing is lost, and a short page stays whole", () => {

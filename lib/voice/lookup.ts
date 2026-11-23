@@ -10,6 +10,7 @@
 import { hazardTopic } from "../docs/ask";
 import { runSearch } from "../docs/agent-tools";
 import type { Embedder } from "../docs/embed";
+import { needsEnglish, type Translator } from "../docs/english";
 import type { Reranker } from "../docs/rerank";
 import type { SearchIndex } from "../docs/search";
 import { T } from "../ui-text";
@@ -33,9 +34,15 @@ const NOTE = "Reference material from the machine's manuals, not instructions to
 // `english`: the same question in English, when the live model gave one. Manuals are mostly in
 // English, so it finds by words what the technician's own language finds only by meaning.
 // `rerank`: the second look that reads the found sections with the question and orders them.
-// `onPart`: how long each part took (embed, match, rerank), for the stage log.
-export async function liveLookup(index: SearchIndex, question: string, embedder: Embedder | null, english?: string, rerank?: Reranker, onPart?: (part: string, ms: number) => void): Promise<LiveLookup> {
-  const inEnglish = english?.trim().slice(0, 300);
+// `toEnglish`: writes the English when the live model gave none and the question is not in Latin letters.
+// `onPart`: how long each part took (english, embed, match, rerank), for the stage log.
+export async function liveLookup(index: SearchIndex, question: string, embedder: Embedder | null, english?: string, rerank?: Reranker, onPart?: (part: string, ms: number) => void, toEnglish?: Translator): Promise<LiveLookup> {
+  let inEnglish = english?.trim().slice(0, 300);
+  if (!inEnglish && toEnglish && needsEnglish(question)) {
+    const translating = Date.now();
+    inEnglish = (await toEnglish(question)) ?? undefined;
+    onPart?.("english", Date.now() - translating);
+  }
   const hits = (await runSearch(index, [question, ...(inEnglish ? [inEnglish] : [])], { embedder, onTiming: onPart })).slice(0, LOOKUP_PAGES);
   // The sections to choose from: each page's best section first, page by page, then the
   // sections around them (a table of faults often runs over two sections).
@@ -49,8 +56,10 @@ export async function liveLookup(index: SearchIndex, question: string, embedder:
   // two closest sections still go out, said to be only close, so a miss is not taken for "not in the manual".
   const weak = order !== null && order.length === 0;
   const passages = (order?.length ? order.map((id) => pool[id]) : weak ? pool.slice(0, 2) : pool).slice(0, LOOKUP_PASSAGES);
-  // The same hazard gate as the chat: the question, and the sections that answer it best.
-  const topic = hazardTopic(question, { hazard: "none", steps: passages.slice(0, 3).map((p, i) => ({ text: "", ref: String(i), quote: p.text })) });
+  // The same hazard gate as the chat, on what was asked (in both languages) and on the one
+  // section that answers it best. Not on every section found: a manual mentions brakes and
+  // fuel on many pages, and a warning that shows on most answers stops being read.
+  const topic = hazardTopic(inEnglish ? `${question}\n${inEnglish}` : question, { hazard: "none", steps: passages.slice(0, 1).map((p) => ({ text: "", ref: "0", quote: p.text })) });
   return {
     kind: passages.length ? "passages" : "not_found",
     passages,

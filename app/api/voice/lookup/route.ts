@@ -1,4 +1,5 @@
 import { embedder } from "@/lib/docs/embed";
+import { modelTranslator } from "@/lib/docs/english";
 import { modelReranker } from "@/lib/docs/rerank";
 import { AnthropicModelClient } from "@/lib/llm";
 import { currentEnvId } from "@/lib/server/env";
@@ -28,7 +29,7 @@ export async function POST(request: Request) {
   }
   client ??= new AnthropicModelClient();
   // embed, match and rerank are timed inside the lookup; what is left here is glue.
-  const found = await liveLookup(kb.index, question, embedder(), typeof body?.english === "string" ? body.english : undefined, modelReranker(client), (part, ms) => stage.add(part, ms)).catch((e) => {
+  const found = await liveLookup(kb.index, question, embedder(), typeof body?.english === "string" ? body.english : undefined, modelReranker(client), (part, ms) => stage.add(part, ms), modelTranslator(client)).catch((e) => {
     stage.fail(e);
     throw e;
   });

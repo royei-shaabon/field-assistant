@@ -50,6 +50,12 @@
       "where": "jobs/rerank"
     },
     {
+      "name": "english",
+      "does": "Writes the technician's question in English when the live model gave none, so an English manual is found by words too.",
+      "model": "fast",
+      "where": "jobs/english"
+    },
+    {
       "name": "look",
       "does": "Looks at one camera picture: finds a named part, what a finger points at, or says what is visible.",
       "model": "main",

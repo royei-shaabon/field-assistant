@@ -1,0 +1,409 @@
+{
+ "note": "Drafted from the manuals by the assistant; not yet real technician questions. pages = PDF pages that answer.",
+ "sets": [
+  {
+   "env": "main",
+   "kb": "honda-rebel-500-2024",
+   "questions": [
+    {
+     "he": "המנוע לא מניע, הסטרטר מסתובב",
+     "en": "engine will not start, starter motor operates",
+     "pages": [
+      94,
+      44
+     ]
+    },
+    {
+     "he": "לוחץ על הסטרטר וכלום לא קורה",
+     "en": "starter motor does not operate",
+     "pages": [
+      94
+     ]
+    },
+    {
+     "he": "כמה אוויר בצמיגים?",
+     "en": "tire pressure",
+     "pages": [
+      132,
+      71
+     ]
+    },
+    {
+     "he": "איזה שמן מנוע לשים?",
+     "en": "recommended engine oil",
+     "pages": [
+      133,
+      66
+     ]
+    },
+    {
+     "he": "איך בודקים גובה שמן מנוע?",
+     "en": "checking the engine oil level",
+     "pages": [
+      79
+     ]
+    },
+    {
+     "he": "נדלקה נורית לחץ שמן",
+     "en": "low oil pressure indicator on",
+     "pages": [
+      96,
+      38
+     ]
+    },
+    {
+     "he": "המנוע מתחמם, נורית טמפרטורה דולקת",
+     "en": "overheating high coolant temperature indicator",
+     "pages": [
+      95
+     ]
+    },
+    {
+     "he": "איך בודקים נוזל קירור?",
+     "en": "checking the coolant level reserve tank",
+     "pages": [
+      81
+     ]
+    },
+    {
+     "he": "נורית ABS דולקת",
+     "en": "ABS indicator stays on",
+     "pages": [
+      97,
+      38
+     ]
+    },
+    {
+     "he": "כמה רפיון צריך להיות בשרשרת?",
+     "en": "drive chain slack",
+     "pages": [
+      87,
+      133
+     ]
+    },
+    {
+     "he": "איך מכוונים את המהלך החופשי של ידית המצמד?",
+     "en": "adjusting the clutch lever freeplay",
+     "pages": [
+      89,
+      90,
+      88
+     ]
+    },
+    {
+     "he": "כמה מהלך חופשי במצערת?",
+     "en": "throttle freeplay",
+     "pages": [
+      91
+     ]
+    },
+    {
+     "he": "איך מחליפים פיוז שרוף?",
+     "en": "blown fuse replace",
+     "pages": [
+      101,
+      102,
+      65
+     ]
+    },
+    {
+     "he": "איפה הפיוז הראשי?",
+     "en": "main fuse location",
+     "pages": [
+      103,
+      25
+     ]
+    },
+    {
+     "he": "המצבר התרוקן, מה עושים?",
+     "en": "battery goes dead",
+     "pages": [
+      100,
+      64
+     ]
+    },
+    {
+     "he": "איך מוציאים את המצבר?",
+     "en": "battery removal",
+     "pages": [
+      73,
+      74
+     ]
+    },
+    {
+     "he": "איזה דלק לתדלק?",
+     "en": "recommended fuel octane",
+     "pages": [
+      18,
+      46,
+      122
+     ]
+    },
+    {
+     "he": "איך פותחים את מכסה הדלק?",
+     "en": "opening the fuel fill cap",
+     "pages": [
+      46
+     ]
+    },
+    {
+     "he": "איך נועלים את הכידון?",
+     "en": "steering lock",
+     "pages": [
+      42
+     ]
+    },
+    {
+     "he": "איך מכוונים את השעון?",
+     "en": "set the clock",
+     "pages": [
+      35,
+      34,
+      27
+     ]
+    },
+    {
+     "he": "איך מאפסים את מד המרחק היומי?",
+     "en": "reset the tripmeter",
+     "pages": [
+      31,
+      32
+     ]
+    },
+    {
+     "he": "איך עוברים מקילומטרים למיילים?",
+     "en": "changing speed and mileage unit",
+     "pages": [
+      36
+     ]
+    },
+    {
+     "he": "איך בודקים את רפידות הבלמים?",
+     "en": "inspecting the brake pads",
+     "pages": [
+      84
+     ]
+    },
+    {
+     "he": "איך בודקים נוזל בלמים?",
+     "en": "checking brake fluid",
+     "pages": [
+      83,
+      67
+     ]
+    },
+    {
+     "he": "המנוע כבה כשמשלבים הילוך עם הרגלית למטה",
+     "en": "side stand ignition cut-off system",
+     "pages": [
+      108,
+      86
+     ]
+    },
+    {
+     "he": "יש לי פנצ'ר, מה עושים?",
+     "en": "tire puncture",
+     "pages": [
+      99
+     ]
+    },
+    {
+     "he": "איזה מצת מתאים?",
+     "en": "spark plug",
+     "pages": [
+      132
+     ]
+    },
+    {
+     "he": "מה מהירות הסרק?",
+     "en": "idle speed",
+     "pages": [
+      132
+     ]
+    },
+    {
+     "he": "איך מכוונים את הבולם האחורי?",
+     "en": "adjusting the rear suspension",
+     "pages": [
+      92
+     ]
+    },
+    {
+     "he": "מה המשקל המקסימלי שמותר להעמיס?",
+     "en": "maximum weight capacity",
+     "pages": [
+      20,
+      131,
+      21
+     ]
+    },
+    {
+     "he": "איך מורידים את המושב?",
+     "en": "seat removal",
+     "pages": [
+      77
+     ]
+    },
+    {
+     "he": "מד הדלק מהבהב",
+     "en": "fuel gauge failure indication",
+     "pages": [
+      98
+     ]
+    },
+    {
+     "he": "איך מאחסנים את האופנוע לחורף?",
+     "en": "storing your vehicle",
+     "pages": [
+      112,
+      113
+     ]
+    },
+    {
+     "he": "איך שוטפים את האופנוע?",
+     "en": "washing the vehicle",
+     "pages": [
+      109,
+      110
+     ]
+    },
+    {
+     "he": "כל כמה זמן מחליפים שמן?",
+     "en": "maintenance schedule engine oil replace",
+     "pages": [
+      53,
+      54,
+      55,
+      56
+     ]
+    },
+    {
+     "he": "מה עושים אם נורית PGM-FI דולקת?",
+     "en": "PGM-FI malfunction indicator lamp on",
+     "pages": [
+      96,
+      38
+     ]
+    }
+   ]
+  },
+  {
+   "env": "ninja",
+   "kb": "ninja",
+   "questions": [
+    {
+     "he": "המכשיר לא נדלק",
+     "en": "the unit does not turn on, display not illuminated",
+     "pages": [
+      8,
+      4,
+      5
+     ]
+    },
+    {
+     "he": "כתוב Add Food על המסך",
+     "en": "Add Food appears on the display",
+     "pages": [
+      8,
+      5
+     ]
+    },
+    {
+     "he": "כתוב Shut Lid",
+     "en": "Shut Lid appears on the display",
+     "pages": [
+      8
+     ]
+    },
+    {
+     "he": "כתוב Add Pot",
+     "en": "Add Pot appears on the display",
+     "pages": [
+      8
+     ]
+    },
+    {
+     "he": "מופיעה האות E על המסך",
+     "en": "E appears on the control panel display",
+     "pages": [
+      8
+     ]
+    },
+    {
+     "he": "כמה זמן לוקח חימום מוקדם?",
+     "en": "how long does preheating take",
+     "pages": [
+      5
+     ]
+    },
+    {
+     "he": "אפשר לדלג על החימום המוקדם?",
+     "en": "can I skip or cancel preheating",
+     "pages": [
+      8,
+      6,
+      7
+     ]
+    },
+    {
+     "he": "האוכל עף בפנים בזמן טיגון באוויר",
+     "en": "food blowing around when air frying",
+     "pages": [
+      8
+     ]
+    },
+    {
+     "he": "איך מנקים את הגריל?",
+     "en": "cleaning the grill",
+     "pages": [
+      7
+     ]
+    },
+    {
+     "he": "איך מוציאים את מגן ההתזה?",
+     "en": "removing the splatter guard",
+     "pages": [
+      5
+     ]
+    },
+    {
+     "he": "איזה חלקים אפשר לשים במדיח?",
+     "en": "which parts are dishwasher safe",
+     "pages": [
+      4,
+      7
+     ]
+    },
+    {
+     "he": "איך מייבשים פירות?",
+     "en": "dehydrate function",
+     "pages": [
+      7
+     ]
+    },
+    {
+     "he": "באיזו טמפרטורה לצלות סטייק?",
+     "en": "grill temperature setting for steaks",
+     "pages": [
+      5
+     ]
+    },
+    {
+     "he": "המכשיר נכבה לבד",
+     "en": "unit powers off by itself standby mode",
+     "pages": [
+      4,
+      8
+     ]
+    },
+    {
+     "he": "יוצא עשן בזמן הצלייה",
+     "en": "smoke during cooking",
+     "pages": [
+      5
+     ]
+    }
+   ]
+  }
+ ]
+}

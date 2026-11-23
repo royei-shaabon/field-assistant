@@ -32,7 +32,7 @@ const nextConfig: NextConfig = {
     "/api/voice/look": ["./jobs/look/prompt.md", "./jobs/look/schema.json"],
     "/api/admin/diagnose": ["./tools/*/tool.json", "./skills/registry.json", "./skills/*/SKILL.md"],
     "/api/voice/live": ["./tools/*/tool.json", "./skills/registry.json", "./skills/*/SKILL.md"],
-    "/api/voice/lookup": ["./jobs/rerank/prompt.md", "./jobs/rerank/schema.json"],
+    "/api/voice/lookup": ["./jobs/rerank/prompt.md", "./jobs/rerank/schema.json", "./jobs/english/prompt.md", "./jobs/english/schema.json"],
     "/api/admin/kbs/[kbId]/docs": ["./node_modules/unpdf/dist/**/*", "./node_modules/mammoth/**/*"],
   },
   partialPrefetching: true,

@@ -32,7 +32,7 @@
 - **מדידת שלבים (`span` ב-`lib/server/log.ts`, באישור המשתמש):** כל שלב עבודה כותב שורת `<event>.start` כשהוא מתחיל ושורת `<event>` כשהוא נגמר,
   עם `ms` ועם `parts`: הזמן של כל חלק בתוכו. השלבים: `upload` (read, extract, duplicate_check, store), `index.step` (load, embed, store,
   ו-`msPerSection`), `index.build` (read, build; בשאלה הראשונה אחרי שינוי או אחרי עליית השרת), `ask` (load, answer, record, ו-`answer.plan` /
-  `answer.search` / `answer.images` / `answer.model` / `answer.tools`), `live.token` (settings, token), `live.lookup` (load, embed, match, rerank,
+  `answer.search` / `answer.images` / `answer.model` / `answer.tools`; `stepsWritten` מול `steps`: כמה שלבים המודל כתב וכמה עברו את בדיקת המקור), `live.token` (settings, token), `live.lookup` (load, english, embed, match, rerank,
   record), `live.look` (load, manual, settings, model). בשיחה חיה הטלפון רושם גם `response`: מהמילה האחרונה של הטכנאי עד הצליל הראשון
   שחזר, וכמה מזה היה המתנה לכלים. route חדש שעושה עבודה של ממש נמדד ב-`span`.
 
@@ -145,6 +145,9 @@
 - `npm run kb:validate`: ולידציה של המאגר (רצה גם ב-CI).
 - `npm test`: בדיקות (node:test דרך tsx), כולל המשימות מול מודל מדומה. לא פונה לרשת.
 - `npm run skill-eval`: מריץ את `identify` ו-`interpret` מול המודל האמיתי על הקבועים ב-`tests/fixtures/`. דורש מפתח API ועולה כסף. ראו `.claude/skills/skill-eval/`.
+- `npm run rag-eval -- https://<service>`: מודד את החיפוש בשירות פרוס על סט השאלות ב-`tests/eval/rag-questions.json` (לכל שאלה העמודים שעונים
+  עליה): האם העמוד הנכון חזר ובאיזה מקום, וכמה זמן לקח. `--hebrew-only` בלי הצורה האנגלית. דורש `RAG_EVAL_PASSWORD`. מריצים לפני ואחרי כל
+  שינוי בחיפוש, בחיתוך לקטעים, באינדקס המשמעות או במבט השני. השאלות נרשמות ביומן השיחות תחת `eval-rag`.
 - `npm run dev` / `npm run build` / `npm run lint`.
 - משתני סביבה: `ANTHROPIC_API_KEY`, `ADMIN_PASSWORD`, `ACCESS_CODE`, `SESSION_SECRET`, `DAILY_QUESTION_LIMIT`, `DATA_DIR`, `HIDE_SAMPLE_KB`,
   `EMBEDDINGS` (`vertex` מפעיל חיפוש לפי משמעות), `EMBED_MODEL`, `EMBED_LOCATION`, `EMBED_BATCH`, `FIRST_SEARCH`,
@@ -159,7 +162,7 @@
     `safety` (אזהרות), `vision` (המצלמה, רק בשיחת וידאו).
   - **כלי** (`tools/<name>/tool.json`): פעולה אחת שהקוד מריץ כשמודל מבקש אותה: שם, תיאור, סכמת קלט, מי עונה (`answered_by`), והאם קוראת למודל.
     הכלים: `search_documents`, `read_pages`, `answer_from_manual`, `mark_on_picture`, `look_at_picture`. כולם `read`.
-  - **משימה** (`jobs/<name>/`): קריאה פנימית אחת למודל עם פרומפט וסכמת פלט קבועים (`ask`, `rerank`, `look`, `identify`, `interpret`).
+  - **משימה** (`jobs/<name>/`): קריאה פנימית אחת למודל עם פרומפט וסכמת פלט קבועים (`ask`, `rerank`, `english`, `look`, `identify`, `interpret`).
     משימה היא מה שעונה לכלי או מנסח תשובה; היא לא סקיל ואין לה כלים משלה (חוץ מ-`ask`, שמקבל את כלי סוכן הצ'אט).
 - **`skills/registry.json` הוא הרשימה המחייבת:** לכל סוכן (`chat`, `call`, `video`) המודל והסקילים שלו, לפי הסדר; ורשימת המשימות.
   סוכן מקבל רק את הכלים שהסקילים שלו נותנים לו (`agentTools`), ואין דרך אחרת שכלי יגיע למודל. ההנחיה של המודל החי נבנית ממסמכי
@@ -236,8 +239,10 @@
   `settings.json`, `liveVoice`; הדוגמה היא המודל החי עצמו, `liveSample`). ברירת המחדל: גבר, `Orus`, או `GEMINI_LIVE_VOICE`.
   לכלי היחיד של המודל, `answer_from_manual`, עונה חיפוש מהיר (`lib/voice/lookup.ts`, `POST /api/voice/lookup`): חיפוש היברידי בלי מודל שפה,
   ואחריו מבט שני של המודל הקטן שמסדר את הקטעים (שתיים-שלוש שניות; האיכות קודמת לחצי שנייה). מוחזרים עד שישה קטעים עם המקור,
-  ואזהרת הסכנה (אותו `hazardTopic`). כשהמבט השני לא מצא קטע שעונה, שני הקרובים ביותר יוצאים עם הערה שהם רק קרובים. המודל מוסר גם את השאלה באנגלית
-  (`english`), כדי שמדריך באנגלית יימצא גם לפי מילים. כשהמדריך לא מכסה את התקלה והמאגר מתיר הצעות (`ideas`), המודל רשאי להציע עד
+  ואזהרת הסכנה (אותו `hazardTopic`), שנקבעת לפי מה שנשאל (בשתי השפות) ולפי הקטע האחד שעונה הכי טוב, לא לפי כל קטע שנמצא: מדריך
+  מזכיר בלמים ודלק בעמודים רבים, ואזהרה שמופיעה ברוב התשובות מפסיקים לקרוא. כשהמבט השני לא מצא קטע שעונה, שני הקרובים ביותר יוצאים עם הערה שהם רק קרובים. המודל מוסר גם את השאלה באנגלית
+  (`english`, חובה בכלי), כדי שמדריך באנגלית יימצא גם לפי מילים. כשהיא חסרה והשאלה לא באותיות לטיניות, המודל הקטן כותב אותה
+  (`lib/docs/english.ts`, `jobs/english/`; רק מתרגם, ומה שכתב רק נכנס לחיפוש). כשהמדריך לא מכסה את התקלה והמאגר מתיר הצעות (`ideas`), המודל רשאי להציע עד
   שלוש בדיקות מידע מקצועי כללי, אחרי שאמר שזה לא מהמדריך: בדיקות בלבד, מהבסיסית והמהירה, בלי תיקון ובלי מספרים מהזיכרון. המודל אומר מה כתוב בקטעים (באישור המשתמש, בשביל מהירות),
   שלב אחד בכל פעם, כשאלה או כהוראה קצרה, ומחכה לתשובה לפני השלב הבא (באישור המשתמש: שיחה, לא הקראה).
   במקביל מנוע התשובות המאומת רץ על אותה שאלה דרך `/api/conversation` (`onLiveAsk` ב-`TechnicianApp`), והתשובה נכנסת לצ'אט עם המקורות.

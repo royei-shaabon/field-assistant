@@ -137,7 +137,8 @@ export function quoteInPassage(quote: string, passage: string): boolean {
 const HAZARD_EN: { topic: HazardTopic; pattern: RegExp }[] = [
   { topic: "brakes", pattern: /\bbrakes?\b|\babs\b/i },
   { topic: "fuel", pattern: /\bfuel (system|line|hose|pump|filter|injector|tank|leak)|\b(gasoline|petrol)\b/i },
-  { topic: "hot_coolant", pattern: /\bradiator cap\b|\bcoolant\b[^.]*\bhot\b|\bhot\b[^.]*\bcoolant\b/i },
+  // An overheating engine is the moment someone opens the cooling system hot.
+  { topic: "hot_coolant", pattern: /\bradiator cap\b|\bcoolant\b[^.]*\bhot\b|\bhot\b[^.]*\bcoolant\b|\bhigh coolant temperature\b|\bengine\b[^.]*\boverheat|\boverheat[^.]*\bengine\b/i },
   { topic: "running_engine", pattern: /\bengine (is )?running\b|\bwith the engine (running|on)\b/i },
 ];
 const HEBREW_TOPIC: Record<string, HazardTopic> = { brakes: "brakes", fuel: "fuel", coolant: "hot_coolant", "running-engine": "running_engine" };
@@ -427,6 +428,8 @@ export type AskTiming = {
   tools: number;
   // From the start until the first verified step was sent to the phone.
   firstStep: number | null;
+  // Steps the model wrote in its final draft. More than were shown means some failed the source check.
+  written?: number;
   total: number;
 };
 
@@ -551,6 +554,7 @@ export async function askDocuments(
         errors.push(`schema: ${new Ajv().errorsText(validate.errors)}`);
         break;
       }
+      timing.written = draft.steps.length;
       return done(verifyDraft(draft, seen, input.question, frameSizes, shots, input.ideas !== false));
     }
     if (!errors.length) errors.push("too many turns");

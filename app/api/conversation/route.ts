@@ -91,7 +91,7 @@ export async function POST(request: Request) {
             // The answer's own parts: the small model's plan, the first search, page pictures, the
             // main model's turns, the skills it ran. They add up to "answer" above.
             if (t) for (const [name, ms] of [["plan", t.plan], ["search", t.search], ["images", t.images], ["model", t.turns.reduce((n, x) => n + x.total, 0)], ["tools", t.tools]] as const) stage?.add(`answer.${name}`, ms);
-            stage?.end({ kind: event.result.kind, steps: event.result.kind === "answer" ? event.result.steps.length : 0, firstStepMs: t?.firstStep ?? null, turns: t?.turns.length ?? 0 });
+            stage?.end({ kind: event.result.kind, steps: event.result.kind === "answer" ? event.result.steps.length : 0, stepsWritten: t?.written ?? null, firstStepMs: t?.firstStep ?? null, turns: t?.turns.length ?? 0 });
           } else stage?.end({ kind: "none" });
           send({ result });
         }
