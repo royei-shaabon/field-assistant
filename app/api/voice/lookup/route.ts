@@ -7,6 +7,7 @@ import { log, span } from "@/lib/server/log";
 import { activity } from "@/lib/store";
 import { isMeasuring } from "@/lib/store/activity";
 import { needsCode, technicianAllowed } from "@/lib/server/access";
+import { measuringRun } from "@/lib/server/admin-auth";
 import { loadDocKb } from "@/lib/server/kbs";
 import { sameQuestionKey } from "@/lib/same-question";
 import { Recent } from "@/lib/server/recent";
@@ -21,7 +22,7 @@ const recent = new Recent<LiveLookup>(300, 10 * 60_000);
 // The live call's tool: a fast search over the machine's documents (lib/voice/lookup.ts).
 export async function POST(request: Request) {
   if (!(await technicianAllowed())) return needsCode();
-  if (!allow(`lookup:${clientKey(request)}`, LIMITS.lookup)) return tooMany();
+  if (!(await measuringRun(request)) && !allow(`lookup:${clientKey(request)}`, LIMITS.lookup)) return tooMany();
   if (tooLarge(request, 4000)) return Response.json({ error: "too large" }, { status: 413 });
   const body = (await request.json().catch(() => null)) as { kbId?: unknown; question?: unknown; english?: unknown; conversationId?: unknown; video?: unknown } | null;
   const question = typeof body?.question === "string" ? body.question.trim().slice(0, 500) : "";

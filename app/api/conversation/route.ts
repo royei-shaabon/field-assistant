@@ -10,6 +10,7 @@ import { embedder } from "@/lib/docs/embed";
 import { pageImage } from "@/lib/docs/page-image";
 import { AnthropicModelClient } from "@/lib/llm";
 import { needsCode, technicianAllowed } from "@/lib/server/access";
+import { measuringRun } from "@/lib/server/admin-auth";
 import { loadDocKb, SAMPLE_KB_ID, sampleKbVisible } from "@/lib/server/kbs";
 import { allow, clientKey, LIMITS, tooLarge, tooMany } from "@/lib/server/rate-limit";
 import { isMeasuring } from "@/lib/store/activity";
@@ -29,7 +30,7 @@ export async function POST(request: Request) {
   const kbId = typeof raw?.kbId === "string" ? raw.kbId : "";
   // Looking at a saved conversation is free; anything else may call the model.
   const asks = (raw?.input as { kind?: unknown } | undefined)?.kind !== "view";
-  if (asks && (!allow(`ask:${clientKey(request)}`, LIMITS.ask) || !allow("ask:all", LIMITS.askDaily))) {
+  if (asks && !(await measuringRun(request)) && (!allow(`ask:${clientKey(request)}`, LIMITS.ask) || !allow("ask:all", LIMITS.askDaily))) {
     log.warn("ask.rate_limited", { env: await currentEnvId(), kb: kbId });
     return tooMany();
   }

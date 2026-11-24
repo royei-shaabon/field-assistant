@@ -1610,3 +1610,15 @@ test("the chat agent's brief is built from its skills: one chapter each, with it
   assert.ok(!(liveSetup("SAMPLE") as { systemInstruction: { parts: { text: string }[] } }).systemInstruction.parts[0].text.includes("search_documents"));
   assert.ok(!brief.includes("answer_from_manual"));
 });
+
+test("a measuring run is free of the question limits only with the implementer's session; the header alone does nothing", () => {
+  const auth = fs.readFileSync(path.join(process.cwd(), "lib", "server", "admin-auth.ts"), "utf8");
+  const rule = auth.slice(auth.indexOf("export async function measuringRun"));
+  assert.match(rule, /x-ridd-measuring/);
+  assert.match(rule, /\(await adminState\(\)\) === "ok"/, "a real session, not the open state of a server without a password");
+  for (const route of ["conversation/route.ts", "voice/lookup/route.ts"]) {
+    const code = fs.readFileSync(path.join(process.cwd(), "app", "api", route), "utf8");
+    assert.match(code, /!\(await measuringRun\(request\)\) && \(?!allow\(/, `${route}: the limit still applies to everyone else`);
+    assert.ok(code.indexOf("technicianAllowed()") < code.indexOf("measuringRun(request)"), `${route}: access is checked first`);
+  }
+});

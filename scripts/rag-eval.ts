@@ -42,7 +42,7 @@ async function askChat(cookie: string, set: QuestionSet, q: { he: string }): Pro
     started = Date.now();
     res = await fetch(`${base}/api/conversation`, {
       method: "POST",
-      headers: { "Content-Type": "application/json", Cookie: cookie, "x-ridd-env": set.env, ...(firstSearch ? { "x-first-search": firstSearch } : {}), ...(noPageImages ? { "x-page-images": "off" } : {}) },
+      headers: { "Content-Type": "application/json", Cookie: cookie, "x-ridd-env": set.env, "x-ridd-measuring": "1", ...(firstSearch ? { "x-first-search": firstSearch } : {}), ...(noPageImages ? { "x-page-images": "off" } : {}) },
       body: JSON.stringify({ kbId: set.kb, events: [], input: { kind: "ask", text: q.he }, conversationId: "eval-rag-chat", channel: "chat" }),
     });
     if (res.status !== 429 || attempt >= 8) break;
@@ -132,7 +132,7 @@ async function main() {
         started = Date.now();
         res = await fetch(`${base}/api/voice/lookup`, {
           method: "POST",
-          headers: { "Content-Type": "application/json", Cookie: cookie, "x-ridd-env": set.env },
+          headers: { "Content-Type": "application/json", Cookie: cookie, "x-ridd-env": set.env, "x-ridd-measuring": "1" },
           body: JSON.stringify({ kbId: set.kb, question: q.he, conversationId: "eval-rag", ...(hebrewOnly ? {} : { english: q.en }) }),
         });
         if (res.status !== 429 || attempt >= 12) break;

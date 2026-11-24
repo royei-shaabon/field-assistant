@@ -44,3 +44,11 @@ export async function isAdmin(): Promise<boolean> {
 }
 
 export const forbidden = () => Response.json({ error: "unauthorized" }, { status: 401 });
+
+// A measuring script (npm run rag-eval) asks hundreds of questions in a row. Signed in as the
+// implementer and saying so in a header, it is not held to the limits that bound a phone: the
+// limits exist against strangers and runaway cost, and this caller is neither. Without the
+// implementer's session the header does nothing.
+export async function measuringRun(request: Request): Promise<boolean> {
+  return request.headers.get("x-ridd-measuring") === "1" && (await adminState()) === "ok";
+}
