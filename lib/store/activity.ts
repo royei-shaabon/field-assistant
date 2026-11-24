@@ -72,6 +72,10 @@ const CONVERSATION = /^[a-z0-9-]{4,40}$/;
 const CALL = /^[a-z0-9-]{6,40}$/;
 const clip = (text: unknown, max: number) => (typeof text === "string" ? text.slice(0, max) : "");
 
+// A question asked by a measuring script (npm run rag-eval), not by a technician: it is answered
+// like any other, but it is not written to the log, not counted, and not shown.
+export const isMeasuring = (conversationId?: string) => Boolean(conversationId?.startsWith("eval-"));
+
 export const dayOf = (at: Date) => at.toISOString().slice(0, 10);
 
 export function lastDays(n: number, now = new Date()): string[] {
@@ -131,9 +135,11 @@ export class Activity {
     for (const day of [...days].reverse()) {
       if (!DAY.test(day) || out.length >= limit) continue;
       const keys = (await this.driver.list(`log/${day}`)).sort().reverse();
-      for (const key of keys.slice(0, limit - out.length)) {
+      for (const key of keys) {
+        if (out.length >= limit) break;
         try {
           const record = JSON.parse((await this.driver.read(key))!.toString("utf8")) as QaRecord;
+          if (isMeasuring(record.conversationId)) continue;
           const gone = record.conversationId && removed.get(record.conversationId);
           out.push(gone ? { ...record, removedAt: gone } : record);
         } catch {

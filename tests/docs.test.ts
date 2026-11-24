@@ -1251,6 +1251,7 @@ test("live call: the manual comes before looking, basic things first, and genera
   assert.match(video, /Read all of them, to their end/);
   assert.match(video, /most basic thing the sections say to check/);
   assert.match(video, /Call it again whenever the subject moves/);
+  assert.match(video, /The camera is a help, not a condition/, "a problem is answered also when the machine is not in the picture");
   assert.match(video, /only when the tool's result says general_checks_allowed/);
   assert.match(video, /this is not from the manual/);
   assert.match(video, /never a repair/);
@@ -1517,4 +1518,22 @@ test("what the manuals did not answer: unanswered questions are grouped, the mos
     ["SAMPLE יש ריח דלק", 1, ["hazard"]],
   ]);
   assert.equal(list[0].lastAt, "2026-11-03T10:00:00Z");
+});
+
+test("a measuring script's questions are answered but never written down, counted or shown", async () => {
+  const { Activity, isMeasuring, lastDays } = await import("../lib/store/activity");
+  const { recordTurn } = await import("../lib/server/record");
+  const { activity } = await import("../lib/store");
+  assert.deepEqual([isMeasuring("eval-rag"), isMeasuring("abc-123"), isMeasuring(undefined)], [true, false, false]);
+  const now = new Date(Date.UTC(2026, 10, 20, 10));
+  const book = new Activity(new FsDriver(fs.mkdtempSync(path.join(os.tmpdir(), "measuring-"))));
+  // Records written before this rule existed are hidden when read, and do not use up the limit.
+  await book.record({ kbId: "kb", channel: "voice", question: "SAMPLE מדידה", kind: "spoken", conversationId: "eval-rag" }, now);
+  await book.record({ kbId: "kb", channel: "chat", question: "SAMPLE שאלה אמיתית", kind: "answer", conversationId: "abc-123" }, new Date(now.getTime() - 1000));
+  await book.record({ kbId: "kb", channel: "voice", question: "SAMPLE מדידה 2", kind: "spoken", conversationId: "eval-rag" }, new Date(now.getTime() + 1000));
+  assert.deepEqual((await book.recent(lastDays(1, now), 1)).map((r) => r.question), ["SAMPLE שאלה אמיתית"]);
+  // A new one is not written at all.
+  const before = (await activity("main").recent(lastDays(1), 500)).length;
+  await recordTurn("main", { id: "kb", name: "SAMPLE" }, { type: "DOC_TURN", said: "SAMPLE מדידה", result: { kind: "not_found" } }, { conversationId: "eval-rag-chat", channel: "chat" });
+  assert.equal((await activity("main").recent(lastDays(1), 500)).length, before);
 });

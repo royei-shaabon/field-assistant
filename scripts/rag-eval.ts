@@ -6,7 +6,7 @@
 // Usage: RAG_EVAL_PASSWORD=<admin password of the main environment> npm run rag-eval -- https://<service-url> [--hebrew-only]
 // --hebrew-only leaves out the English form of each question (the harder case: the service
 // writes the English itself). The questions are written to the service's conversation log,
-// under the conversation id "eval-rag".
+// under the conversation id "eval-rag", which the service answers but does not write to its log or count.
 import fs from "node:fs";
 import path from "node:path";
 

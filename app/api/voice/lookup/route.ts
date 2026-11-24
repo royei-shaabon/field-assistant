@@ -5,6 +5,7 @@ import { AnthropicModelClient } from "@/lib/llm";
 import { currentEnvId } from "@/lib/server/env";
 import { log, span } from "@/lib/server/log";
 import { activity } from "@/lib/store";
+import { isMeasuring } from "@/lib/store/activity";
 import { needsCode, technicianAllowed } from "@/lib/server/access";
 import { loadDocKb } from "@/lib/server/kbs";
 import { sameQuestionKey } from "@/lib/same-question";
@@ -47,13 +48,17 @@ export async function POST(request: Request) {
   const result = { ...found, general_checks_allowed: kb.meta.ideas !== false };
   stage.part("lookup");
   // What was asked in the call, and that the live model answered it from these pages.
+  // A measuring script's question is answered and timed in the log line, and not written down.
+  const conversationId = typeof body?.conversationId === "string" ? body.conversationId.slice(0, 80) : undefined;
+  const measuring = isMeasuring(conversationId);
   const book = activity(envId);
-  await book
-    .record({ kbId: kb.meta.id, kbName: kb.meta.name, conversationId: typeof body?.conversationId === "string" ? body.conversationId : undefined, channel: body?.video === true ? "video" : "voice", question, kind: result.kind === "passages" ? "spoken" : "not_found", sources: result.passages.map((p) => p.source) })
-    .catch((e) => log.error("record.failed", e, { env: envId }));
+  if (!measuring)
+    await book
+      .record({ kbId: kb.meta.id, kbName: kb.meta.name, conversationId, channel: body?.video === true ? "video" : "voice", question, kind: result.kind === "passages" ? "spoken" : "not_found", sources: result.passages.map((p) => p.source) })
+      .catch((e) => log.error("record.failed", e, { env: envId }));
   stage.part("record");
-  const ms = stage.end({ cached: Boolean(cached), passages: result.passages.length, caution: Boolean(result.caution), chars: result.passages.reduce((n, p) => n + p.text.length, 0) });
+  const ms = stage.end({ measuring, cached: Boolean(cached), passages: result.passages.length, caution: Boolean(result.caution), chars: result.passages.reduce((n, p) => n + p.text.length, 0) });
   if (ms > 3000) log.warn("live.lookup_slow", { env: envId, kb: kb.meta.id, ms });
-  await book.measure((day) => ((day.lookups += 1), void (day.lookupMs += ms))).catch(() => {});
+  if (!measuring) await book.measure((day) => ((day.lookups += 1), void (day.lookupMs += ms))).catch(() => {});
   return Response.json(result, { headers: { "Cache-Control": "no-store" } });
 }

@@ -3,12 +3,13 @@
 import type { DocEvent } from "../docs/conversation";
 import type { AskTiming } from "../docs/ask";
 import { activity } from "../store";
-import { bump, SLOW_MS, type Channel } from "../store/activity";
+import { bump, isMeasuring, SLOW_MS, type Channel } from "../store/activity";
 import { log } from "./log";
 
 export const channelOf = (value: unknown): Channel => (value === "voice" || value === "video" ? value : "chat");
 
 export async function recordTurn(envId: string, kb: { id: string; name: string }, event: DocEvent, meta: { conversationId?: string; channel: Channel }, timing?: AskTiming): Promise<void> {
+  if (isMeasuring(meta.conversationId)) return;
   const r = event.result;
   const source = (s: { docName: string; unit: string; n: number }) => `${s.docName} · ${s.n}`;
   try {

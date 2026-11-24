@@ -12,6 +12,7 @@ import { AnthropicModelClient } from "@/lib/llm";
 import { needsCode, technicianAllowed } from "@/lib/server/access";
 import { loadDocKb, SAMPLE_KB_ID, sampleKbVisible } from "@/lib/server/kbs";
 import { allow, clientKey, LIMITS, tooLarge, tooMany } from "@/lib/server/rate-limit";
+import { isMeasuring } from "@/lib/store/activity";
 
 let sample: KnowledgeBase | undefined;
 let client: AnthropicModelClient | undefined;
@@ -84,7 +85,7 @@ export async function POST(request: Request) {
           const before = Array.isArray(body?.events) ? body.events.length : 0;
           if (result.events.length > before) {
             const event = result.events.at(-1)!;
-            await store.recordUsage(kbId, event.result.kind).catch(() => {});
+            if (!isMeasuring(meta.conversationId)) await store.recordUsage(kbId, event.result.kind).catch(() => {});
             await recordTurn(envId, { id: kbId, name: kb.meta.name }, event, meta, timing);
             stage?.part("record");
             const t = timing;
