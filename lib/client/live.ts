@@ -40,7 +40,7 @@ export type VideoToolResult = { result: unknown; quiet: boolean };
 const ANSWER_TOOL = "answer_from_manual";
 
 // `t`: milliseconds since the call started.
-export type TraceEvent = { t: number; type: "heard" | "said" | "said_cut" | "tool" | "tool_result" | "response" | "tap" | "state" | "error"; name?: string; text?: string; ms?: number };
+export type TraceEvent = { t: number; type: "heard" | "said" | "said_cut" | "tool" | "tool_result" | "response" | "tap" | "idle" | "state" | "error"; name?: string; text?: string; ms?: number };
 
 export type LiveEvents = {
   onState: (s: "connecting" | "listening" | "speaking" | "ended") => void;
@@ -339,6 +339,13 @@ export class LiveCall {
     this.trace({ type: "tap", text: `${Math.round(x)},${Math.round(y)}` });
     if (picture) this.send({ realtimeInput: { video: { mimeType: "image/jpeg", data: picture.slice(picture.indexOf(",") + 1) } } });
     this.send({ realtimeInput: { text: `TAP x=${Math.round(x)} y=${Math.round(y)}` } });
+  }
+
+  // A line for the model that the technician did not say: IDLE (nobody has answered for a
+  // minute) or BYE (still nobody). What the model does with each is written in its conversation skill.
+  note(line: "IDLE" | "BYE") {
+    this.trace({ type: "idle", text: line });
+    this.send({ realtimeInput: { text: line } });
   }
 
   stop() {

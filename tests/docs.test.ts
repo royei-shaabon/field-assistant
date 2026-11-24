@@ -1678,3 +1678,54 @@ test("a careful look says whether the thing is part of the machine, and the call
   assert.match(video, /Mark only parts of the machine, and one at a time/);
   assert.match(video, /at most once/);
 });
+
+test("a call nobody is on: after a minute the assistant asks, after 15 more seconds it says goodbye, and then the call ends", async () => {
+  const { IdleWatch, IDLE_ASK_MS, IDLE_END_MS } = await import("../lib/client/idle");
+  assert.deepEqual([IDLE_ASK_MS, IDLE_END_MS], [60_000, 15_000]);
+  const s = 1000;
+  let w = new IdleWatch(0);
+  assert.equal(w.tick(59 * s), null);
+  assert.equal(w.tick(60 * s), "ask");
+  assert.equal(w.tick(61 * s), null, "asked once");
+  // The assistant asks aloud; the fifteen seconds start when it has finished.
+  w.agent(true, 61 * s);
+  assert.equal(w.tick(80 * s), null, "its own speech is not the technician's silence");
+  w.agent(false, 64 * s);
+  assert.equal(w.tick(78 * s), null);
+  assert.equal(w.tick(79 * s), "bye");
+  // The goodbye is spoken to its end, and then the call closes.
+  w.agent(true, 80 * s);
+  assert.equal(w.tick(82 * s), null);
+  w.agent(false, 84 * s);
+  assert.equal(w.tick(85 * s), "end");
+  // An answer in time brings the call back to normal, and the minute starts again.
+  w = new IdleWatch(0);
+  assert.equal(w.tick(60 * s), "ask");
+  w.activity(70 * s);
+  assert.equal(w.tick(100 * s), null);
+  assert.equal(w.tick(130 * s), "ask");
+  // A long answer by the assistant does not count: silence begins when it stops talking.
+  w = new IdleWatch(0);
+  w.agent(true, 5 * s);
+  assert.equal(w.tick(200 * s), null);
+  w.agent(false, 200 * s);
+  assert.equal(w.tick(259 * s), null);
+  assert.equal(w.tick(260 * s), "ask");
+  // The goodbye never came (the line dropped): the call still closes.
+  w = new IdleWatch(0);
+  w.tick(60 * s);
+  assert.equal(w.tick(75 * s), "bye");
+  assert.equal(w.tick(86 * s), null);
+  assert.equal(w.tick(87 * s), "end");
+  // A word during the goodbye keeps the call.
+  w = new IdleWatch(0);
+  w.tick(60 * s);
+  w.tick(75 * s);
+  w.activity(77 * s);
+  assert.equal(w.tick(90 * s), null);
+  // The model is told what each line means, in the call's language, and never to say the code words.
+  const brief = (liveSetup("SAMPLE", undefined, false, "he") as { systemInstruction: { parts: { text: string }[] } }).systemInstruction.parts[0].text;
+  assert.match(brief, /IDLE means nobody has spoken or touched the screen for a minute/);
+  assert.match(brief, /BYE means there was still no answer/);
+  assert.match(brief, /Never say the words IDLE or BYE/);
+});

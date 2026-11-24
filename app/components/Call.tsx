@@ -8,6 +8,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { Progress } from "@/lib/conversation";
 import type { Screen } from "@/lib/screen";
+import { IdleWatch } from "@/lib/client/idle";
 import { LiveCall, type TraceEvent, type VideoTool, type VideoToolResult } from "@/lib/client/live";
 import { locate, LOST, templateAt, toGray, type Gray, type Template } from "@/lib/client/track";
 import { listenForSpeech, voicePlayer } from "@/lib/client/voice";
@@ -245,6 +246,13 @@ export function CallView({
     };
   }, [callId, kbId, kind, conversationId]);
   // Whether anything was asked in this call: only then is the short survey worth showing.
+  // The latest way to end the call, for effects that run once (Escape, a call nobody is on).
+  const hangUp = useRef(onHangUp);
+  useEffect(() => {
+    hangUp.current = onHangUp;
+  });
+  // Notices a call nobody is on (live calls only): see lib/client/idle.ts.
+  const idle = useRef<IdleWatch | null>(null);
   const asked = useRef(0);
   // Questions of this call that were already sent for a checked answer.
   const checked = useRef(new Set<string>());
@@ -403,9 +411,16 @@ export function CallView({
   useEffect(() => {
     if (!onLiveAsk) return;
     let cancelled = false;
+    let watching: ReturnType<typeof setInterval> | undefined;
     const call = new LiveCall({
-      onState: (s) => setState(s === "speaking" ? "speaking" : s === "listening" ? "listening" : "idle"),
-      onHeard: (text) => setHeard((now) => (now + text).slice(-200)),
+      onState: (s) => {
+        idle.current?.agent(s === "speaking", Date.now());
+        setState(s === "speaking" ? "speaking" : s === "listening" ? "listening" : "idle");
+      },
+      onHeard: (text) => {
+        idle.current?.activity(Date.now());
+        setHeard((now) => (now + text).slice(-200));
+      },
       onSaid: (text, fresh) => {
         if (fresh) setHeard("");
         setSaying((now) => (fresh || !now.length ? [text] : [now[0] + text]));
@@ -449,6 +464,15 @@ export function CallView({
         await call.start(body.url, body.model, kind === "video" ? frame : undefined);
         if (cancelled) return call.stop();
         liveCall.current = call;
+        // From here on, a minute with no word and no touch is noticed.
+        idle.current = new IdleWatch(Date.now());
+        watching = setInterval(() => {
+          const step = idle.current?.tick(Date.now());
+          if (step === "ask") call.note("IDLE");
+          else if (step === "bye") call.note("BYE");
+          // Nobody is there to answer the questions about the call.
+          else if (step === "end") hangUp.current(false);
+        }, 1000);
         setMode("live");
       } catch {
         call.stop();
@@ -459,6 +483,8 @@ export function CallView({
     // "live" must not hang up the call it just connected.
     return () => {
       cancelled = true;
+      if (watching) clearInterval(watching);
+      idle.current = null;
       call.stop();
       liveCall.current = null;
       // The last lines of the record (what was being said, "ended") go out now.
@@ -566,10 +592,6 @@ export function CallView({
 
   // A dialog: focus moves in, Escape ends the call, focus returns to where it was.
   const root = useRef<HTMLDivElement>(null);
-  const hangUp = useRef(onHangUp);
-  useEffect(() => {
-    hangUp.current = onHangUp;
-  });
   useEffect(() => {
     const opener = document.activeElement as HTMLElement | null;
     root.current?.querySelector<HTMLElement>("button")?.focus();
@@ -609,7 +631,7 @@ export function CallView({
   const clock = `${String(Math.floor(seconds / 60)).padStart(2, "0")}:${String(seconds % 60).padStart(2, "0")}`;
 
   return (
-    <div ref={root} role="dialog" aria-modal="true" aria-label={kind === "video" ? T.call.video : T.call.voice} className="on-dark fixed inset-0 z-50 mx-auto flex max-w-md flex-col overflow-hidden bg-night text-white">
+    <div ref={root} role="dialog" aria-modal="true" aria-label={kind === "video" ? T.call.video : T.call.voice} onPointerDownCapture={() => idle.current?.activity(Date.now())} className="on-dark fixed inset-0 z-50 mx-auto flex max-w-md flex-col overflow-hidden bg-night text-white">
       {kind === "video" && <video ref={video} autoPlay playsInline muted className="absolute inset-0 h-full w-full object-cover transition-transform" style={{ transform: `scale(${zoom})` }} />}
       {kind === "video" && (
         // A touch on the picture points at a part: it is ringed at once, and the live model is told where.
