@@ -2,7 +2,7 @@
 // writes the queries in the language of the documents, and by meaning (vectors), when the
 // documents have a meaning index. The two are combined in lib/docs/agent-tools.ts.
 import { span } from "../server/log";
-import { sectionKey, sections } from "./chunk";
+import { sectionKey, sectionsInContext } from "./chunk";
 import type { StoredDoc } from "../store/types";
 
 export type Hit = {
@@ -64,8 +64,9 @@ export class SearchIndex {
       for (const p of passages) {
         const hit = { ref: `${meta.id}:${p.n}`, docId: meta.id, docName: meta.name, origin: meta.origin, unit: meta.unit, n: p.n, text: p.text };
         this.pages.set(hit.ref, hit);
-        sections(p.text).forEach((section, c) => {
-          const words = tokens(section);
+        sectionsInContext(p.text).forEach(({ text: section, context }, c) => {
+          // The headings a section stands under are searched with it.
+          const words = tokens(context ? `${context}\n${section}` : section);
           const tf = new Map<string, number>();
           for (const w of words) tf.set(w, (tf.get(w) ?? 0) + 1);
           for (const w of tf.keys()) this.df.set(w, (this.df.get(w) ?? 0) + 1);

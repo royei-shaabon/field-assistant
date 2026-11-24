@@ -7,6 +7,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { bindTools, chatTools, runSearch } from "../lib/docs/agent-tools";
+import { isHeading, sectionsInContext } from "../lib/docs/chunk";
 import { agentSkills, agentTools, loadSkills, loadTools, skillOfTool } from "../lib/skills/registry";
 import { normalize, VertexEmbedder, type Embedder } from "../lib/docs/embed";
 import { indexDoc } from "../lib/docs/semantic";
@@ -1425,4 +1426,31 @@ test("version: the service says which build it runs, and nothing else", async ()
   const { BUILD } = await import("../lib/version");
   assert.match(BUILD, /^\d{4}-\d{2}-\d{2}\.\d+$/);
   assert.deepEqual(await GET().json(), { build: BUILD });
+});
+
+test("sections under their headings: a section cut from the middle of a procedure is found by the procedure's name", async () => {
+  for (const line of ["Battery Goes Dead", "TROUBLESHOOTING GUIDE", "# Charging", "Checking the Side Stand"]) assert.ok(isHeading(line), line);
+  for (const line of ["Remove the battery from the vehicle before", "battery charger.", "1. Stop the engine", "● Oil level", "42", "the SAMPLE lever is pulled in and the"]) assert.ok(!isHeading(line), line);
+
+  const filler = (word: string) => Array.from({ length: 14 }, (_, i) => `SAMPLE ${word} line number ${i} with some ordinary words in it.`).join("\n");
+  const page = `SAMPLE Electrical Trouble\nSAMPLE Blown Fuse\n${filler("first")}\n${filler("second")}\nSAMPLE Main Relay\n${filler("third")}`;
+  const cut = sectionsInContext(page);
+  assert.ok(cut.length >= 3, "the page is cut into several sections");
+  assert.equal(cut.map((c) => c.text).join("\n"), page, "nothing is lost and nothing is added to what can be quoted");
+  assert.equal(cut[0].context, "", "the first section holds its own headings");
+  assert.match(cut[1].context, /Electrical Trouble\nSAMPLE Blown Fuse/, "a later section stands under the page title and its heading");
+  assert.match(cut.at(-1)!.context, /Electrical Trouble/);
+
+  // By words: a query made of the heading finds the page, with a section from the middle of it as the best match.
+  const store = await tempStore();
+  const meta = await store.createKb({ name: "SAMPLE headings" });
+  const body = Array.from({ length: 12 }, (_, i) => `SAMPLE turn the zorbl clip number ${i} slowly and then press the next SAMPLE clip gently until it is fully seated.`).join("\n");
+  const pages = [`SAMPLE Glimp Removal\n${body}`, "SAMPLE Other\nSAMPLE nothing about it here."];
+  const { doc, passages } = await ingest("sample.pdf", makePdf(pages));
+  await store.addDoc(meta.id, { ...doc, origin: "manufacturer" }, passages, makePdf(pages));
+  const index = new SearchIndex(await store.loadDocs(meta.id));
+  assert.ok(index.sectionCount >= 3);
+  const [hit] = index.search("glimp removal zorbl clip number 11", 3);
+  assert.equal(hit.n, 1);
+  assert.ok(!/Glimp Removal/.test(hit.focus!), "the best section is from the middle of the page; its heading found it");
 });

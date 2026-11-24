@@ -4,7 +4,7 @@
 // few short calls.
 import type { KbStore } from "../store";
 import type { DocVectors, Passage } from "../store/types";
-import { sectionKey, sections, vectorModel } from "./chunk";
+import { sectionKey, sectionsInContext, vectorModel } from "./chunk";
 import type { Embedder } from "./embed";
 
 const BATCH = 32;
@@ -15,7 +15,8 @@ export type IndexTiming = { load: number; embed: number; store: number; batches:
 
 // Every section of a document with the number its vector is stored under.
 export function sectionList(passages: Passage[]): { key: number; text: string }[] {
-  return passages.flatMap((p) => sections(p.text).map((text, c) => ({ key: sectionKey(p.n, c), text })));
+  // The text that is embedded is the section under its headings; see sectionsInContext.
+  return passages.flatMap((p) => sectionsInContext(p.text).map(({ text, context }, c) => ({ key: sectionKey(p.n, c), text: context ? `${context}\n${text}` : text })));
 }
 
 export async function indexDoc(store: KbStore, embedder: Embedder, kbId: string, docId: string, budgetMs = 45_000, timing?: IndexTiming): Promise<IndexProgress> {
