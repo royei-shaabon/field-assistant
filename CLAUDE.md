@@ -113,7 +113,7 @@
   יוצא מן הכלל אחד (באישור המשתמש): ריצת מדידה (`measuringRun`: הכותרת `x-ridd-measuring` יחד עם session של מטמיע) לא נספרת במגבלות
   השאלות והחיפושים, כדי ש-`rag-eval` לא יחכה. הכותרת לבדה לא עושה כלום.
 - מזהה הקורא הוא הכתובת האחרונה ב-`X-Forwarded-For`. הראשונה נשלטת על ידי הלקוח.
-- ההגבלות בזיכרון, ולכן השירות רץ כמופע אחד (`--max-instances 1`).
+- ההגבלות בזיכרון, ולכן השירות רץ כמופע אחד (`--max-instances 1`). מופע אחד נשאר ער תמיד עם CPU מלא (`--min-instances 1`, `--no-cpu-throttling`, 2 CPU, 2Gi), כדי שהשאלה הראשונה לא תחכה לעלייה של השרת.
 - כותרות האבטחה ב-`next.config.ts`. ל-route של קובצי המקור יש מדיניות משלו: PDF בלי sandbox, כל השאר עם sandbox.
 - קטעי מסמכים נשלחים למודל עטופים ב-`<passage>` ומסומנים בפרומפט כחומר ייחוס, לא כהוראות.
 
@@ -171,7 +171,7 @@
   תיקון של אותו באג שלא הצליח אחרי שני סבבים: עוצרים ומדווחים.
 - `npm run dev` / `npm run build` / `npm run lint`.
 - משתני סביבה: `ANTHROPIC_API_KEY`, `ADMIN_PASSWORD`, `ACCESS_CODE`, `SESSION_SECRET`, `DAILY_QUESTION_LIMIT`, `DATA_DIR`, `HIDE_SAMPLE_KB`,
-  `EMBEDDINGS` (`vertex` מפעיל חיפוש לפי משמעות), `EMBED_MODEL`, `EMBED_LOCATION`, `EMBED_BATCH`, `EMBED_PARALLEL` (בקשות embedding במקביל, ברירת מחדל 4), `FIRST_SEARCH`,
+  `MODEL_HEDGE`, `EMBEDDINGS` (`vertex` מפעיל חיפוש לפי משמעות), `EMBED_MODEL`, `EMBED_LOCATION` (בשירות: `me-west1`, קרוב לשרת), `EMBED_BATCH`, `EMBED_PARALLEL` (בקשות embedding במקביל, ברירת מחדל 4), `FIRST_SEARCH`,
   `VOICE` (`google` מפעיל קול טבעי בשיחה), `TTS_VOICE`,
   `AZURE_SPEECH_KEY`, `AZURE_SPEECH_REGION`, `AZURE_VOICE`, `ELEVENLABS_API_KEY`, `ELEVENLABS_MODEL`, `ELEVENLABS_VOICE`,
   `GEMINI_API_KEY` (שיחה חיה), `GEMINI_LIVE_MODEL`, `GEMINI_LIVE_VOICE` (ברירת מחדל `Orus`). פריסה: ראו `README.md`.
@@ -194,6 +194,9 @@
   כלי מתואר רק בפרק של הסקיל שנותן אותו. סקיל של הצ'אט בלי `chat.md` מונע מהשרת לענות.
 - כל קריאה למודל עוברת דרך `lib/llm.ts`. מודל: `claude-sonnet-5-5`, פלט JSON דרך structured outputs.
   `complete` (בלי כלים) משמש את `identify` ו-`interpret`. `turn` (סבב אחד בלולאת כלים) משמש את `ask`.
+- **זמן לפני כסף (`MODEL_HEDGE`, `firstOf` ב-`lib/llm.ts`, באישור המשתמש):** כש-`MODEL_HEDGE=2`, כל קריאה למודל נשלחת פעמיים במקביל ונלקחת
+  התשובה שמגיעה ראשונה; האחרות מבוטלות. בתשובה מוזרמת, הזרם שכותב ראשון הוא היחיד שמוצג. ברירת המחדל בקוד היא 1 (כבוי); הערך נקבע
+  במשתני הסביבה של השירות.
 - ה-API לא מקבל `temperature`, ולכן הפלט מקובע בסכמה וב-effort נמוך במקום ב-`temperature: 0`.
 - פלט שלא עובר את `schema.json` מקבל ניסיון חוזר אחד, ואחריו `unknown` או `unclear`.
 - הסכמות של הסקילים חייבות להתאים ל-structured outputs: `additionalProperties: false`, בלי `minLength` ובלי `minimum`.

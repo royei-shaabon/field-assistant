@@ -1622,3 +1622,22 @@ test("a measuring run is free of the question limits only with the implementer's
     assert.ok(code.indexOf("technicianAllowed()") < code.indexOf("measuringRun(request)"), `${route}: access is checked first`);
   }
 });
+
+test("first of several: the fastest reply is used, the others are cancelled, and it fails only when all fail", async () => {
+  const { firstOf } = await import("../lib/llm");
+  const aborted: number[] = [];
+  const wait = (ms: number, signal: AbortSignal, i: number) =>
+    new Promise<number>((resolve, reject) => {
+      const timer = setTimeout(() => resolve(i), ms);
+      signal.addEventListener("abort", () => (clearTimeout(timer), aborted.push(i), reject(new Error("SAMPLE cancelled"))));
+    });
+  assert.equal(await firstOf(3, (signal, i) => wait([40, 5, 60][i], signal, i)), 1, "the fastest");
+  assert.deepEqual(aborted.sort(), [0, 2], "the slower ones are cancelled");
+  // One fails at once: the other still answers.
+  assert.equal(await firstOf(2, (signal, i) => (i === 0 ? Promise.reject(new Error("SAMPLE 529")) : wait(5, signal, i))), 1);
+  await assert.rejects(firstOf(2, () => Promise.reject(new Error("SAMPLE down"))), /SAMPLE down/);
+  // One attempt: nothing is doubled.
+  let calls = 0;
+  assert.equal(await firstOf(1, async () => ++calls), 1);
+  assert.equal(calls, 1);
+});

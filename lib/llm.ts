@@ -98,12 +98,33 @@ const QUICK = { turn: { thinking: { type: "between_tools" } }, fast: { thinking:
 type Params = Anthropic.Beta.Messages.MessageCreateParamsNonStreaming;
 const withQuick = (params: Params, kind: keyof typeof QUICK): Params => ({ ...params, ...(QUICK[kind] as unknown as Partial<Params>) });
 
+// Time before money: the same request is sent this many times at once and the first reply is
+// used (MODEL_HEDGE, default 1 = off). Reply times vary from call to call, and the fastest of
+// two is reliably quicker than one, most of all on the slow tail. The others are cancelled.
+export const hedgeCount = () => Math.min(3, Math.max(1, Math.floor(Number(process.env.MODEL_HEDGE)) || 1));
+
+// Runs `n` attempts and resolves with the first that succeeds; the rest are aborted. All failed: the first error.
+export async function firstOf<T>(n: number, attempt: (signal: AbortSignal, index: number) => Promise<T>): Promise<T> {
+  if (n <= 1) return attempt(new AbortController().signal, 0);
+  const controllers = Array.from({ length: n }, () => new AbortController());
+  const runs = controllers.map((c, i) => attempt(c.signal, i).then((value) => ({ value, i })));
+  try {
+    const won = await Promise.any(runs);
+    controllers.forEach((c, i) => i !== won.i && c.abort());
+    // A cancelled attempt rejects; nobody is waiting for it.
+    runs.forEach((r) => r.catch(() => {}));
+    return won.value;
+  } catch (e) {
+    throw e instanceof AggregateError ? e.errors[0] : e;
+  }
+}
+
 export class AnthropicModelClient implements ModelClient {
   private quick = { turn: true, fast: true, direct: true };
 
   private client: Anthropic;
 
-  constructor(client: Anthropic = new Anthropic({ timeout: 60_000, maxRetries: 1 })) {
+  constructor(client: Anthropic = new Anthropic({ timeout: 60_000, maxRetries: 1 }), private hedge: number = hedgeCount()) {
     this.client = client;
   }
 
@@ -111,13 +132,14 @@ export class AnthropicModelClient implements ModelClient {
     const base = buildMessageParams(request);
     // Which "answer at once" setting applies; each is dropped by itself if the API refuses it.
     const kind = request.fast ? "fast" : request.direct ? "direct" : null;
+    const create = (params: Params) => firstOf(this.hedge, (signal) => this.client.beta.messages.create(params, { signal }));
     let response;
     try {
-      response = await this.client.beta.messages.create(kind && this.quick[kind] ? withQuick(base, "fast") : base);
+      response = await create(kind && this.quick[kind] ? withQuick(base, "fast") : base);
     } catch (e) {
       if (!(kind && this.quick[kind] && e instanceof Anthropic.BadRequestError)) throw e;
       this.quick[kind] = false;
-      response = await this.client.beta.messages.create(base);
+      response = await create(base);
     }
     if (response.stop_reason !== "end_turn") return { text: null, stopReason: response.stop_reason };
     const text = response.content.find((b) => b.type === "text");
@@ -125,10 +147,23 @@ export class AnthropicModelClient implements ModelClient {
   }
 
   async turn(request: AgentRequest, onText?: (snapshot: string) => void): Promise<AgentTurn> {
+    // With several streams at once, the one that writes first is the one the technician reads;
+    // the others are cancelled the moment it does, and nothing of theirs is shown.
     const run = (params: Params) => {
-      const stream = this.client.beta.messages.stream(params);
-      if (onText) stream.on("text", (_delta, snapshot) => onText(snapshot));
-      return stream.finalMessage();
+      let lead: number | null = null;
+      const controllers: AbortController[] = [];
+      return firstOf(this.hedge, (signal, index) => {
+        const stream = this.client.beta.messages.stream(params, { signal });
+        controllers[index] = stream.controller;
+        stream.on("text", (_delta, snapshot) => {
+          if (lead === null) {
+            lead = index;
+            controllers.forEach((c, i) => i !== index && c?.abort());
+          }
+          if (lead === index) onText?.(snapshot);
+        });
+        return stream.finalMessage();
+      });
     };
     const base = buildTurnParams(request);
     let response;
