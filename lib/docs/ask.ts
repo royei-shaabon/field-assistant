@@ -149,13 +149,19 @@ const HAZARD_EN: { topic: HazardTopic; pattern: RegExp }[] = [
 ];
 const HEBREW_TOPIC: Record<string, HazardTopic> = { brakes: "brakes", fuel: "fuel", coolant: "hot_coolant", "running-engine": "running_engine" };
 
+// A number on the display is not work on the fuel system: "צריכת דלק" (fuel consumption) and
+// "מד הדלק" (the fuel gauge) name read-outs. They are taken out before the Hebrew topics are
+// looked for, so resetting a trip meter does not come with a fuel warning.
+const READOUTS = /(?:צריכת|תצרוכת|מד|מחוון|חיווי|חיסכון ב)\s*ה?דלק/g;
+const withoutReadouts = (text: string) => text.replace(READOUTS, " ");
+
 // The hazard decision is made here, not by the model: the model's flag can only add a warning.
 export function hazardTopic(question: string | undefined, draft: Pick<Draft, "hazard" | "steps"> & { checks?: { text: string; why?: string }[] }): HazardTopic | null {
   if (draft.hazard !== "none") return draft.hazard;
   const q = question ?? "";
   // The Hebrew topics are checked on the question and on everything the technician would read.
   const hebrewText = [q, ...draft.steps.map((s) => s.text), ...(draft.checks ?? []).flatMap((c) => [c.text, c.why ?? ""])].join("\n");
-  const hebrew = HAZARD_TOPICS.find((t) => t.pattern.test(hebrewText));
+  const hebrew = HAZARD_TOPICS.find((t) => t.pattern.test(withoutReadouts(hebrewText)));
   if (hebrew) return HEBREW_TOPIC[hebrew.topic] ?? "other";
   const text = [q, ...draft.steps.map((s) => s.quote)].join("\n");
   return HAZARD_EN.find((t) => t.pattern.test(text))?.topic ?? null;

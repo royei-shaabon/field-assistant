@@ -1602,7 +1602,7 @@ test("the chat agent's brief is built from its skills: one chapter each, with it
     "A check, not a repair",
     "specific numbers come only from the documents",
     "keep them to looking, listening,",
-    "Set it honestly even when the documents describe the procedure",
+    "Set it honestly in both directions",
     "the shortest contiguous excerpt that carries the fact of the step",
     "always in the plural imperative",
   ]) assert.equal(brief.split(rule).length - 1, 1, rule);
@@ -1640,4 +1640,21 @@ test("first of several: the fastest reply is used, the others are cancelled, and
   let calls = 0;
   assert.equal(await firstOf(1, async () => ++calls), 1);
   assert.equal(calls, 1);
+});
+
+test("a read-out is not a hazard: fuel consumption and the fuel gauge bring no fuel warning, work on fuel still does", () => {
+  const steps = (text: string) => ({ hazard: "none" as const, steps: [{ text, ref: "", quote: "SAMPLE" }] });
+  assert.equal(hazardTopic("איך מאפסים את מד המרחק היומי?", steps("SAMPLE לחצו על SEL עד שמוצגת צריכת הדלק הממוצעת.")), null);
+  assert.equal(hazardTopic("מד הדלק מהבהב", steps("SAMPLE פנו למוסך מורשה.")), null);
+  assert.equal(hazardTopic("x", steps("SAMPLE מחוון הדלק מציג את הכמות שנותרה.")), null);
+  // Work on fuel is still a hazard, also next to a read-out.
+  assert.equal(hazardTopic("איזה דלק לתדלק?", steps("SAMPLE")), "fuel");
+  assert.equal(hazardTopic("x", steps("SAMPLE בדקו את מד הדלק, ואז נתקו את צינור הדלק.")), "fuel");
+  assert.equal(hazardTopic("יש ריח דלק חזק ליד המנוע", steps("SAMPLE")), "fuel");
+  assert.equal(hazardTopic("x", { hazard: "fuel", steps: [] }), "fuel", "the model's flag still adds a warning");
+  // The chat brief tells the model to judge by what the technician does, in both directions.
+  const brief = chatBrief();
+  assert.match(brief, /Decide by what your steps and checks have them DO/);
+  assert.match(brief, /a warning on every answer is a warning nobody reads/);
+  assert.match(brief, /flag\s+it even though it is the official procedure/);
 });
