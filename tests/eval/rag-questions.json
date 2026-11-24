@@ -335,6 +335,14 @@
       "ask"
      ],
      "caution": false
+    },
+    {
+     "he": "אני רוצה לצבוע את האופנוע, איך עושים את זה?",
+     "kinds": [
+      "not_found",
+      "ideas"
+     ],
+     "caution": null
     }
    ]
   },

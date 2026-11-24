@@ -4,17 +4,31 @@
 
 let shared: AudioContext | undefined;
 
-// Must run inside the tap that starts the call, or a phone keeps the sound off.
+const newContext = (): AudioContext | undefined => {
+  const Ctx = window.AudioContext ?? (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+  return Ctx ? new Ctx() : undefined;
+};
+
+// Must run inside the tap that starts the call, or a phone keeps the sound off. Every call
+// gets a sound context of its own: one left over from the call before can be stuck after the
+// microphone was released (a phone then neither plays nor records, with no error), and its
+// microphone tap cannot be set up a second time.
 export function primeLiveAudio(): AudioContext | undefined {
   try {
-    const Ctx = window.AudioContext ?? (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
-    if (!Ctx) return undefined;
-    shared ??= new Ctx();
-    void shared.resume().catch(() => {});
+    if (shared?.state === "closed") shared = undefined;
+    shared ??= newContext();
+    void shared?.resume().catch(() => {});
     return shared;
   } catch {
     return undefined;
   }
+}
+
+// The call is over: its sound context is closed, and the next call starts with a new one.
+function releaseLiveAudio(ctx: AudioContext | undefined) {
+  if (!ctx) return;
+  if (shared === ctx) shared = undefined;
+  if (ctx.state !== "closed") void ctx.close().catch(() => {});
 }
 
 const toBase64 = (bytes: Uint8Array) => {
@@ -79,6 +93,18 @@ export class LiveCall {
     this.ctx = primeLiveAudio();
     if (!this.ctx) throw new Error("no audio");
     this.stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true, channelCount: 1 } });
+    // Sound must really be running before anyone speaks: a context that stays suspended plays
+    // nothing and hears nothing, silently. One more try with a new context, then the classic call.
+    await this.ctx.resume().catch(() => {});
+    if (this.ctx.state !== "running") {
+      releaseLiveAudio(this.ctx);
+      this.ctx = primeLiveAudio();
+      await this.ctx?.resume().catch(() => {});
+      if (this.ctx?.state !== "running") {
+        this.trace({ type: "error", text: `sound is not running: ${this.ctx?.state ?? "no context"}` });
+        throw new Error("audio not running");
+      }
+    }
     const ws = new WebSocket(url);
     // The server sends binary frames. Read them as bytes and decode at once, so the pieces of
     // sound are handled in the order they came (an async Blob read could reorder them).
@@ -359,6 +385,7 @@ export class LiveCall {
     this.node?.disconnect();
     this.stream?.getTracks().forEach((t) => t.stop());
     if (this.ws && this.ws.readyState <= WebSocket.OPEN) this.ws.close();
+    releaseLiveAudio(this.ctx);
     this.events.onState("ended");
   }
 }

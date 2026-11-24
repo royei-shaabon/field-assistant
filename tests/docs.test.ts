@@ -1729,3 +1729,14 @@ test("a call nobody is on: after a minute the assistant asks, after 15 more seco
   assert.match(brief, /BYE means there was still no answer/);
   assert.match(brief, /Never say the words IDLE or BYE/);
 });
+
+test("every live call has a sound context of its own, closed when the call ends; the briefs keep to the question and to the tool's eyes", () => {
+  const live = fs.readFileSync(path.join(process.cwd(), "lib", "client", "live.ts"), "utf8");
+  // A context left from the call before cannot be relied on: the next call must not reuse it.
+  assert.match(live, /releaseLiveAudio\(this\.ctx\);\n    this\.events\.onState\("ended"\)/, "the call closes its sound context when it ends");
+  assert.match(live, /if \(shared\?\.state === "closed"\) shared = undefined;/);
+  assert.match(live, /if \(this\.ctx\.state !== "running"\)/, "sound that is not running is noticed before the call begins");
+  assert.match(chatBrief(), /Passages about a neighbouring subject are not an answer/);
+  const video = (liveSetup("SAMPLE", undefined, true, "en") as { systemInstruction: { parts: { text: string }[] } }).systemInstruction.parts[0].text;
+  assert.match(video, /Never name or describe what is in the picture from your own view/);
+});
