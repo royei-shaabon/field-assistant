@@ -1740,3 +1740,15 @@ test("every live call has a sound context of its own, closed when the call ends;
   const video = (liveSetup("SAMPLE", undefined, true, "en") as { systemInstruction: { parts: { text: string }[] } }).systemInstruction.parts[0].text;
   assert.match(video, /Never name or describe what is in the picture from your own view/);
 });
+
+test("an answer shows its sources once: one line per document with its pages, not a tile under every step", async () => {
+  const { answerSources } = await import("../app/components/DocChat");
+  const src = (docId: string, n: number) => ({ source: { docId, docName: `SAMPLE ${docId}`, origin: "manufacturer" as const, unit: "page" as const, n } });
+  const grouped = answerSources([src("a", 74), src("a", 73), src("a", 73), src("b", 5), src("a", 74)]);
+  assert.deepEqual(grouped.map((g) => [g.source.docId, g.pages]), [["a", [73, 74]], ["b", [5]]]);
+  const view = fs.readFileSync(path.join(process.cwd(), "app", "components", "DocChat.tsx"), "utf8");
+  assert.ok(!view.includes("<SourceLink kbId={kbId} source={step.source} />"), "no source tile inside a step");
+  const brief = chatBrief();
+  assert.match(brief, /One action per step/);
+  assert.match(brief, /an English word never stands alone inside a Hebrew\s+sentence/);
+});

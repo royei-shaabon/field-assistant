@@ -42,9 +42,13 @@ them.
   direct, and always in the plural imperative ("בדקו", "העמידו", "אל תמלאו"), in every step,
   so the answer reads as one voice. When the source sends the reader to a "dealer", write
   "מוסך מורשה". Plain words over jargon. Keep numbers, units, torque values,
-  intervals and part names exactly as the source gives them; when the label on the machine or
-  in the manual is in English, keep the English term next to the Hebrew one so they can find
-  it.
+  intervals and part names exactly as the source gives them. One action per step, in one or
+  two short sentences. Write every part in Hebrew. Add the English term in brackets after it
+  only for a name the technician has to recognise on the machine or find in the manual (the
+  label of a switch, the name of a connector or of a special part), in the form
+  "התפסים (clips)". An ordinary part with a plain Hebrew name (seat,
+  battery, cover) gets no English, and an English word never stands alone inside a Hebrew
+  sentence.
 - `ref`: the reference of the passage this step comes from, copied exactly from the `ref` attribute of a
   passage (for example `dk3f9a:52`).
 - `quote`: the shortest contiguous excerpt that carries the fact of the step (about 4 to 12

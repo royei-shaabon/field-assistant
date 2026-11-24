@@ -18,10 +18,12 @@ export function sourceHref(kbId: string, s: SourceView): string {
 
 // The source is what makes an answer trustworthy. It looks like a document sent in a chat:
 // a file tile with its name and page, and a tap opens it.
-export function SourceLink({ kbId, source, dark = false }: { kbId: string; source: SourceView; dark?: boolean }) {
+export function SourceLink({ kbId, source, pages, dark = false }: { kbId: string; source: SourceView; pages?: number[]; dark?: boolean }) {
+  // One tile per document: every page the answer leans on is named in it, and a tap opens the first.
+  const list = pages?.length ? pages : [source.n];
   return (
     <a
-      href={sourceHref(kbId, source)}
+      href={sourceHref(kbId, { ...source, n: list[0] })}
       target="_blank"
       rel="noopener"
       className={`flex min-h-12 items-center gap-3 rounded-[10px] border px-2 py-1.5 text-[15px] ${dark ? "border-white/40 text-white" : "border-rule bg-paper text-ink active:bg-mist"}`}
@@ -32,7 +34,7 @@ export function SourceLink({ kbId, source, dark = false }: { kbId: string; sourc
       <span className="min-w-0 flex-1">
         <span className="block font-medium">{T.doc.openSource}</span>
         <span className={`block truncate text-[13px] ${dark ? "text-white/75" : "text-graphite"}`}>
-          <bdi>{source.docName}</bdi> <span>·</span> <span>{source.unit === "page" ? T.doc.page : T.doc.part}</span> <span className="font-mono">{source.n}</span>
+          <bdi>{source.docName}</bdi> <span>·</span> <span>{source.unit === "page" ? T.doc.page : T.doc.part}</span> <span className="font-mono">{list.join(", ")}</span>
         </span>
       </span>
       <ArrowIcon className={`h-4 w-4 shrink-0 rtl:rotate-180 ${dark ? "" : "text-stone"}`} />
@@ -40,7 +42,17 @@ export function SourceLink({ kbId, source, dark = false }: { kbId: string; sourc
   );
 }
 
-const sameSource = (a: SourceView, b: SourceView) => a.docId === b.docId && a.n === b.n;
+// The documents an answer leans on, each once, with its pages in order.
+export function answerSources(steps: { source: SourceView }[]): { source: SourceView; pages: number[] }[] {
+  const byDoc = new Map<string, { source: SourceView; pages: number[] }>();
+  for (const { source } of steps) {
+    const entry = byDoc.get(source.docId) ?? { source, pages: [] };
+    if (!entry.pages.includes(source.n)) entry.pages.push(source.n);
+    byDoc.set(source.docId, entry);
+  }
+  return [...byDoc.values()].map((e) => ({ ...e, pages: [...e.pages].sort((a, b) => a - b) }));
+}
+
 const isHebrew = (text: string) => /[֐-׿]/.test(text);
 
 export function docAnswerWords(item: Answer): number {
@@ -225,8 +237,8 @@ export function DocAnswer({
   writing?: boolean;
   time?: string;
 }) {
-  // One source for the whole answer is shown once, under the steps.
-  const single = item.steps.every((s) => sameSource(s.source, item.steps[0].source));
+  // The sources are shown once, under the steps: the steps themselves stay a clean list to follow.
+  const sources = answerSources(item.steps);
   // The manual's own wording, for every step at once: one switch, not a link under each step.
   const [quotes, setQuotes] = useState(false);
   // When each step starts typing: after the title and the steps before it.
@@ -240,7 +252,7 @@ export function DocAnswer({
           <h2 className="text-[16px] font-bold leading-[24px] tracking-[-0.01em] text-ink">
             <Reveal text={item.title} animate={animate} delay={delay} mixed />
           </h2>
-          <ol className="flex flex-col gap-2">
+          <ol className="flex flex-col gap-3">
             {item.steps.map((step, i) => {
               const marked = item.marks.flatMap((m, n) => (m.step === i ? [n + 1] : []));
               return (
@@ -262,16 +274,21 @@ export function DocAnswer({
                     {quotes && (
                       <blockquote dir="auto" lang={isHebrew(step.quote) ? "he" : "en"} className="rounded-lg bg-mist px-3 py-2 text-[15px] leading-[23px] text-graphite">
                         {step.quote}
+                        {/* Which page this line is from, when the answer leans on more than one. */}
+                        {(sources.length > 1 || sources[0].pages.length > 1) && (
+                          <span dir="rtl" lang="he" className="block pt-1 text-[13px] text-stone">
+                            {step.source.unit === "page" ? T.doc.page : T.doc.part} <span className="font-mono">{step.source.n}</span>
+                          </span>
+                        )}
                       </blockquote>
                     )}
-                    {!single && !writing && <SourceLink kbId={kbId} source={step.source} />}
                   </div>
                 </li>
               );
             })}
           </ol>
           {!writing && item.figures?.map((f, i) => <Figure key={i} kbId={kbId} figure={f} />)}
-          {!writing && single && <SourceLink kbId={kbId} source={item.steps[0].source} />}
+          {!writing && sources.map((e) => <SourceLink key={e.source.docId} kbId={kbId} source={e.source} pages={e.pages} />)}
           {!writing && (
             <button onClick={() => setQuotes((q) => !q)} aria-expanded={quotes} className="flex min-h-11 items-center gap-2 self-start text-[14px] font-medium text-primary">
               <ArrowIcon className={`h-3.5 w-3.5 transition-transform ${quotes ? "-rotate-90" : "rotate-90"}`} />
