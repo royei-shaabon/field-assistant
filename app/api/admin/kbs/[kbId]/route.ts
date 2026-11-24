@@ -7,12 +7,13 @@ type Context = { params: Promise<{ kbId: string }> };
 export async function PATCH(request: Request, { params }: Context) {
   if (!(await isAdmin())) return forbidden();
   const { kbId } = await params;
-  const body = (await request.json().catch(() => null)) as { name?: unknown; description?: unknown; ideas?: unknown } | null;
+  const body = (await request.json().catch(() => null)) as { name?: unknown; description?: unknown; ideas?: unknown; starters?: unknown } | null;
   try {
     const kb = await (await envStore()).updateKb(kbId, {
       name: typeof body?.name === "string" ? body.name : undefined,
       description: typeof body?.description === "string" ? body.description : undefined,
       ideas: typeof body?.ideas === "boolean" ? body.ideas : undefined,
+      starters: Array.isArray(body?.starters) ? (body.starters as string[]) : undefined,
     });
     return Response.json({ kb });
   } catch (e) {

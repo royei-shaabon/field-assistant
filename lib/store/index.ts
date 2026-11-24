@@ -41,6 +41,14 @@ export function slug(name: string): string {
 // `language`: the language of this environment's calls (he, en, ru, ar).
 export type Settings = { voice?: string; liveVoice?: string; language?: string };
 
+// Short, non-empty, at most three: they are buttons on a phone screen.
+export const cleanStarters = (raw: unknown): string[] =>
+  (Array.isArray(raw) ? raw : [])
+    .filter((q): q is string => typeof q === "string")
+    .map((q) => q.replace(/\s+/g, " ").trim().slice(0, 60))
+    .filter(Boolean)
+    .slice(0, 3);
+
 export class KbStore {
   constructor(private driver: BlobDriver) {}
 
@@ -71,12 +79,12 @@ export class KbStore {
     return kb;
   }
 
-  async updateKb(id: string, patch: { name?: string; description?: string; ideas?: boolean }): Promise<KbMeta> {
+  async updateKb(id: string, patch: { name?: string; description?: string; ideas?: boolean; starters?: string[] }): Promise<KbMeta> {
     const kb = await this.getKb(id);
     if (!kb) throw new NotFound("kb");
     const name = patch.name?.trim() ?? kb.name;
     if (!name || name.length > 80) throw new Invalid("name");
-    const next = { ...kb, name, description: (patch.description ?? kb.description).trim().slice(0, 400), ...(patch.ideas === undefined ? {} : { ideas: patch.ideas }), updatedAt: new Date().toISOString() };
+    const next = { ...kb, name, description: (patch.description ?? kb.description).trim().slice(0, 400), ...(patch.ideas === undefined ? {} : { ideas: patch.ideas }), ...(patch.starters === undefined ? {} : { starters: cleanStarters(patch.starters) }), updatedAt: new Date().toISOString() };
     await this.driver.write(`kbs/${id}/kb.json`, json(next));
     return next;
   }

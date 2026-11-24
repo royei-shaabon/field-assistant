@@ -10,6 +10,9 @@ export type KbMeta = {
   description: string;
   // False: answers come from the documents only, with no suggested checks from general knowledge.
   ideas?: boolean;
+  // Up to three questions the technician can start from with one tap, written by the implementer
+  // for this machine. Without them the general ones are shown.
+  starters?: string[];
   createdAt: string;
   updatedAt: string;
 };

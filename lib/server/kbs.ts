@@ -7,7 +7,7 @@ import { currentEnvId, MAIN_ENV } from "./env";
 
 export const SAMPLE_KB_ID = "sample-fault-trees";
 
-export type KbSummary = { id: string; name: string; description: string; kind: "documents" | "trees"; documents: number };
+export type KbSummary = { id: string; name: string; description: string; kind: "documents" | "trees"; documents: number; starters?: string[] };
 
 const SEED = {
   id: "honda-rebel-500-2024",
@@ -40,7 +40,7 @@ export async function listKbSummaries(): Promise<KbSummary[]> {
   const store = kbStore(envId);
   const kbs = await store.listKbs();
   const out: KbSummary[] = await Promise.all(
-    kbs.map(async (k) => ({ id: k.id, name: k.name, description: k.description, kind: "documents" as const, documents: (await store.listDocs(k.id)).length })),
+    kbs.map(async (k) => ({ id: k.id, name: k.name, description: k.description, kind: "documents" as const, documents: (await store.listDocs(k.id)).length, ...(k.starters?.length ? { starters: k.starters } : {}) })),
   );
   if (envId === MAIN_ENV && sampleKbVisible()) {
     out.push({ id: SAMPLE_KB_ID, name: "דוגמה: עצי תקלות (NMAX 155)", description: "מאגר לדוגמה של מסלולי אבחון מאושרים. תוכן SAMPLE.", kind: "trees", documents: 0 });

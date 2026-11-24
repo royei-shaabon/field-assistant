@@ -27,7 +27,7 @@
   `/api/admin/conversations`, `/api/admin/dashboard`); האדמין הראשי רואה את כל הסביבות.
 - **לוגים (`lib/server/log.ts`):** שורת JSON אחת לכל אירוע (`severity`, `event`, `env`, `ms`), ש-Cloud Logging יודע לסנן. האירועים:
   `ask.start`, `ask.timing` (כל שלב באלפיות שנייה), `ask.done`, `ask.slow` (מעל 15 שניות), `ask.failed`, `ask.rate_limited`, `live.token`,
-  `live.lookup`, `live.lookup_slow` (מעל 3 שניות), `live.hints_refused`, `live.look`, `live.look_slow` (מעל 6 שניות), `survey.done`, `upload.done`, `index.step`, `auth.ok`, `auth.failed`, `env.created`, `env.updated`.
+  `live.lookup`, `live.lookup_slow` (מעל 3 שניות), `live.hints_refused`, `live.look`, `live.look_slow` (מעל 6 שניות), `survey.done`, `upload.done`, `index.step`, `admin.try`, `admin.gaps`, `auth.ok`, `auth.failed`, `env.created`, `env.updated`.
   לא כותבים ללוג סיסמאות, קודים, מפתחות, תוכן שאלות, תמונות או קול. קוד חדש כותב דרך `log`, לא `console.log`.
 - **מדידת שלבים (`span` ב-`lib/server/log.ts`, באישור המשתמש):** כל שלב עבודה כותב שורת `<event>.start` כשהוא מתחיל ושורת `<event>` כשהוא נגמר,
   עם `ms` ועם `parts`: הזמן של כל חלק בתוכו. השלבים: `upload` (read, extract, duplicate_check, store), `index.step` (load, embed, store,
@@ -87,15 +87,21 @@
 - קובצי מדריכים של יצרנים לא נכנסים לריפו. הם עולים דרך `/admin` ונשמרים ב-`DATA_DIR`.
 
 ## אזור המטמיע (`/admin`, `app/api/admin/`)
-- כל route תחת `app/api/admin/` מתחיל ב-`isAdmin()`. הסיסמה ב-`ADMIN_PASSWORD`. בלי סיסמה: סגור בייצור, פתוח בפיתוח.
+- כל route תחת `app/api/admin/` מתחיל ב-`isAdmin()` (בדיקה ב-`tests/docs.test.ts` עוברת על כל הקבצים). הסיסמה ב-`ADMIN_PASSWORD`. בלי סיסמה: סגור בייצור, פתוח בפיתוח.
 - `POST /api/admin/diagnose` בודק את החיבור למודל ומחזיר את הודעת השגיאה של הספק, בלי המפתח.
 - קובץ שכבר נמצא במאגר (אותו שם ואותו גודל) נדחה כ-`duplicate`.
+- **בדיקת המדריכים (`TryQuestion` ב-`AdminDash.tsx`, `POST /api/admin/kbs/[kbId]/try`):** בעמוד המאגר המטמיע כותב שאלה ורואה מה החיפוש
+  מוצא (אותו חיפוש של השיחה החיה: מילים, משמעות, מבט שני), אילו עמודים ובאיזה סדר. לא נכתב ליומן השיחות.
+- **שאלות פתיחה למכונה (`starters` ב-`KbMeta`, `cleanStarters`):** האחסון וה-API (`PATCH /api/admin/kbs/[kbId]`) קיימים ונבדקים, אבל הן עוד
+  לא מוצגות: לא במסך המטמיע ולא במסך הטכנאי (שם מוצגות `T.doc.emptyIdeas`). החיבור למסך הטכנאי נעצר על שגיאת lint של React Compiler
+  ב-`TechnicianApp` (`preserve-manual-memoization` על `send`), אחרי שני ניסיונות.
 - **מה חסר במדריכים (`lib/store/gaps.ts`, `/api/admin/gaps`, `Gaps` ב-`AdminDash.tsx`):** בעמוד "איכות המענה", השאלות מ-30 הימים האחרונים
   שלא קיבלו תשובה מאומתת (לא נמצא, רק הצעות, עצירה, שגיאה), מקובצות לפי שאלה, הנשאלת ביותר ראשונה. נבנה מיומן השיחות; לא נשמר דבר חדש.
   שאלות של סקריפט מדידה (`conversationId` שמתחיל ב-`eval-`) לא נספרות.
 - מדדי שימוש: `KbStore.recordUsage` סופר כל תשובה לפי סוג ב-`usage.json`. הטקסט של השאלות והתשובות נשמר ביומן השיחות של הסביבה (ראו "סביבות").
 
 ## גישת טכנאים (`lib/server/access.ts`)
+- קישור לסביבה שלא קיימת או שכובתה: `/api/kbs` מחזיר 404 (`no_environment`), והטכנאי רואה "הקישור הזה לא פעיל" במקום בקשה לקוד.
 - עם `ACCESS_CODE`, כל route של הטכנאי (`/api/kbs`, `/api/conversation`, `/api/feedback`, קובץ המקור) מתחיל ב-`technicianAllowed()`.
   route חדש לטכנאי חייב את אותה בדיקה. מטמיע מחובר עובר גם בלי קוד.
 - הקובץ המקורי מוגש דרך `/api/kbs/[kbId]/docs/[docId]/file` עם `Content-Security-Policy: sandbox`, כדי ש-HTML שהועלה לא ירוץ כדף באתר.

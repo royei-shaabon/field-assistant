@@ -1558,3 +1558,18 @@ test("every route of the implementer's area checks the session before anything e
   assert.ok(tryRoute.includes("allow(") && tryRoute.includes("tooLarge("), "the try route bounds how often and how much");
   assert.ok(!/\.record\(|\.measure\(|recordUsage/.test(tryRoute), "the implementer's own test question is not written to the log");
 });
+
+test("starter questions: the implementer's own, cleaned and bounded, and the technician's list carries them", async () => {
+  const { cleanStarters } = await import("../lib/store");
+  assert.deepEqual(cleanStarters(["  SAMPLE   המכשיר לא נדלק ", "", 7, "SAMPLE ב", "SAMPLE ג", "SAMPLE ד"]), ["SAMPLE המכשיר לא נדלק", "SAMPLE ב", "SAMPLE ג"]);
+  assert.equal(cleanStarters(["x".repeat(200)])[0].length, 60);
+  assert.deepEqual(cleanStarters("SAMPLE"), []);
+  const store = await tempStore();
+  const kb = await store.createKb({ name: "SAMPLE גריל" });
+  assert.equal(kb.starters, undefined);
+  const saved = await store.updateKb(kb.id, { starters: ["SAMPLE כתוב E על המסך", " "] });
+  assert.deepEqual(saved.starters, ["SAMPLE כתוב E על המסך"]);
+  // Another change leaves them as they are; an empty list goes back to the general ones.
+  assert.deepEqual((await store.updateKb(kb.id, { name: "SAMPLE גריל 2" })).starters, ["SAMPLE כתוב E על המסך"]);
+  assert.deepEqual((await store.updateKb(kb.id, { starters: [] })).starters, []);
+});

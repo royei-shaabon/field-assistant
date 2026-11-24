@@ -73,7 +73,7 @@ function Login({ closed, onDone }: { closed: boolean; onDone: () => void }) {
   );
 }
 
-function KbForm({ initial, submit, onSubmit, onCancel }: { initial?: { name: string; description: string; ideas?: boolean }; submit: string; onSubmit: (v: { name: string; description: string; ideas: boolean }) => Promise<void>; onCancel: () => void }) {
+function KbForm({ initial, submit, onSubmit, onCancel }: { initial?: { name: string; description: string; ideas?: boolean; starters?: string[] }; submit: string; onSubmit: (v: { name: string; description: string; ideas: boolean; starters?: string[] }) => Promise<void>; onCancel: () => void }) {
   const [name, setName] = useState(initial?.name ?? "");
   const [description, setDescription] = useState(initial?.description ?? "");
   const [ideas, setIdeas] = useState(initial?.ideas !== false);

@@ -610,7 +610,7 @@ export function TechnicianApp() {
   // Removed conversations stay on the phone (soft delete) but are not shown.
   const all = useMemo(() => visibleConversations(parseConversations(raw)), [raw]);
   // null: loading. "error": the server could not be reached.
-  const [kbs, setKbs] = useState<KbSummary[] | "error" | null>(null);
+  const [kbs, setKbs] = useState<KbSummary[] | "error" | "missing" | null>(null);
   const [kbId, setKbId] = useState("");
   const [locked, setLocked] = useState(false);
   const [attempt, setAttempt] = useState(0);
@@ -643,7 +643,7 @@ export function TechnicianApp() {
       .catch((e: unknown) => {
         if (cancelled) return;
         if (e instanceof HttpError && e.status === 401) setLocked(true);
-        else setKbs("error");
+        else setKbs(e instanceof HttpError && e.status === 404 ? "missing" : "error");
       });
     return () => {
       cancelled = true;
@@ -904,6 +904,7 @@ export function TechnicianApp() {
       : undefined;
 
   if (locked) return <AccessCode onDone={() => window.location.reload()} />;
+  if (kbs === "missing") return <Notice text={T.doc.noEnvironment} />;
   if (kbs === "error") return <Notice text={T.doc.loadError} action={T.doc.retry} onAction={() => (setKbs(null), setAttempt((n) => n + 1))} />;
   if (kbs === null) return <main className="tech grid min-h-dvh place-items-center text-[17px] text-graphite">{T.doc.loading}</main>;
   if (kbs.length === 0) return <Notice text={T.doc.noKbs} />;
