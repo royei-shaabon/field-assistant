@@ -73,6 +73,12 @@ function Login({ closed, onDone }: { closed: boolean; onDone: () => void }) {
   );
 }
 
+// The suggested name of a manual: the file's name without its ending, as the server would name it.
+const titleOf = (fileName: string) => {
+  const dot = fileName.lastIndexOf(".");
+  return (dot > 0 ? fileName.slice(0, dot) : fileName).replace(/_+/g, " ").trim();
+};
+
 function KbForm({ initial, submit, onSubmit, onCancel }: { initial?: { name: string; description: string; ideas?: boolean; starters?: string[] }; submit: string; onSubmit: (v: { name: string; description: string; ideas: boolean; starters?: string[] }) => Promise<void>; onCancel: () => void }) {
   const [name, setName] = useState(initial?.name ?? "");
   const [description, setDescription] = useState(initial?.description ?? "");
@@ -497,12 +503,18 @@ function Documents({ kb, embeddings, onChanged }: { kb: Kb; embeddings: string |
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [embeddings, kb.docs]);
 
-  const upload = async (files: File[]) => {
-    for (const file of files) {
+  // Files that were chosen and wait for their names: nothing is uploaded until the implementer says so.
+  const [staged, setStaged] = useState<{ id: number; file: File; name: string }[]>([]);
+  const stage = (files: File[]) => setStaged((now) => [...now, ...files.map((file) => ({ id: ++counter.current, file, name: titleOf(file.name) }))]);
+
+  const upload = async (items: { file: File; name: string }[]) => {
+    setStaged([]);
+    for (const { file, name } of items) {
       const id = ++counter.current;
-      setUploads((u) => [...u, { id, name: file.name, state: "working" }]);
+      setUploads((u) => [...u, { id, name: name.trim() || file.name, state: "working" }]);
       const form = new FormData();
       form.set("file", file);
+      form.set("name", name);
       form.set("origin", origin);
       const res = await fetch(`/api/admin/kbs/${kb.id}/docs`, { method: "POST", body: form }).catch(() => null);
       const body = (await res?.json().catch(() => null)) as { error?: keyof typeof A.errors; doc?: Doc } | null;
@@ -556,7 +568,7 @@ function Documents({ kb, embeddings, onChanged }: { kb: Kb; embeddings: string |
         onDrop={(e) => {
           e.preventDefault();
           setOver(false);
-          void upload([...e.dataTransfer.files]);
+          stage([...e.dataTransfer.files]);
         }}
         className={`flex cursor-pointer flex-col items-center gap-1.5 rounded-[18px] border-2 border-dashed px-4 py-8 text-center ${over ? "border-primary bg-primary-soft" : "border-rule"}`}
       >
@@ -573,10 +585,46 @@ function Documents({ kb, embeddings, onChanged }: { kb: Kb; embeddings: string |
           onChange={(e) => {
             const files = [...(e.target.files ?? [])];
             e.target.value = "";
-            void upload(files);
+            stage(files);
           }}
         />
       </label>
+
+      {staged.length > 0 && (
+        // Each chosen file with the name technicians will see as the source; the file's own name is the suggestion.
+        <form
+          onSubmit={(e) => {
+            e.preventDefault();
+            void upload(staged);
+          }}
+          className="flex flex-col gap-3 rounded-[14px] border border-rule bg-paper p-4"
+        >
+          <p className="text-sm text-graphite">{A.docNameHint}</p>
+          <ul className="flex flex-col gap-3">
+            {staged.map((item) => (
+              <li key={item.id} className="flex flex-col gap-1.5">
+                <label className="flex flex-col gap-1.5 text-sm font-medium text-graphite">
+                  <span>{A.docName}</span>
+                  <input
+                    value={item.name}
+                    maxLength={120}
+                    dir="auto"
+                    onChange={(e) => setStaged((now) => now.map((x) => (x.id === item.id ? { ...x, name: e.target.value } : x)))}
+                    className="h-11 rounded-xl border border-edge bg-paper px-3 text-base font-normal text-ink focus:border-primary"
+                  />
+                </label>
+                <p className="flex items-center gap-2 text-[13px] text-stone">
+                  <bdi className="min-w-0 flex-1 truncate">{item.file.name}</bdi>
+                  <button type="button" onClick={() => setStaged((now) => now.filter((x) => x.id !== item.id))} className="rounded-lg px-2 py-1 text-[13px] text-graphite active:bg-mist">
+                    {A.removeStaged}
+                  </button>
+                </p>
+              </li>
+            ))}
+          </ul>
+          <button className="h-11 self-start rounded-xl bg-primary px-5 text-[15px] font-medium text-white">{A.uploadNow}</button>
+        </form>
+      )}
 
       {uploads.length > 0 && (
         <ul aria-live="polite" className="flex flex-col gap-1.5">

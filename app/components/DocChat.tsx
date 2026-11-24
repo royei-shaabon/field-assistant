@@ -21,24 +21,43 @@ export function sourceHref(kbId: string, s: SourceView): string {
 export function SourceLink({ kbId, source, pages, dark = false }: { kbId: string; source: SourceView; pages?: number[]; dark?: boolean }) {
   // One tile per document: every page the answer leans on is named in it, and a tap opens the first.
   const list = pages?.length ? pages : [source.n];
-  return (
-    <a
-      href={sourceHref(kbId, { ...source, n: list[0] })}
-      target="_blank"
-      rel="noopener"
-      className={`flex min-h-12 items-center gap-3 rounded-[10px] border px-2 py-1.5 text-[15px] ${dark ? "border-white/40 text-white" : "border-rule bg-paper text-ink active:bg-mist"}`}
-    >
-      <span className={`grid h-9 w-9 shrink-0 place-items-center rounded-[7px] ${dark ? "bg-white/15" : "bg-primary-soft text-primary"}`}>
-        <DocIcon className="h-5 w-5" />
-      </span>
-      <span className="min-w-0 flex-1">
-        <span className="block font-medium">{T.doc.openSource}</span>
-        <span className={`block truncate text-[13px] ${dark ? "text-white/75" : "text-graphite"}`}>
-          <bdi>{source.docName}</bdi> <span>·</span> <span>{source.unit === "page" ? T.doc.page : T.doc.part}</span> <span className="font-mono">{list.join(", ")}</span>
+  const where = (
+    <>
+      <bdi>{source.docName}</bdi> <span>·</span> <span>{source.unit === "page" ? T.doc.page : T.doc.part}</span> <span className="font-mono">{list.join(", ")}</span>
+    </>
+  );
+  // On the dark stop card the source is the only thing to do, so it stays a full tile.
+  if (dark) {
+    return (
+      <a href={sourceHref(kbId, { ...source, n: list[0] })} target="_blank" rel="noopener" className="flex min-h-12 items-center gap-3 rounded-[10px] border border-white/40 px-2 py-1.5 text-[15px] text-white">
+        <span className="grid h-9 w-9 shrink-0 place-items-center rounded-[7px] bg-white/15">
+          <DocIcon className="h-5 w-5" />
         </span>
+        <span className="min-w-0 flex-1">
+          <span className="block font-medium">{T.doc.openSource}</span>
+          <span className="block truncate text-[13px] text-white/75">{where}</span>
+        </span>
+        <ArrowIcon className="h-4 w-4 shrink-0 rtl:rotate-180" />
+      </a>
+    );
+  }
+  // Under an answer the source is a quiet line: which manual and which pages, and a small button that opens it.
+  return (
+    <p className="flex items-center gap-2.5 text-[13px] leading-5 text-graphite">
+      <span className="min-w-0 flex-1 truncate">
+        <span>{T.doc.sourceLabel}</span> {where}
       </span>
-      <ArrowIcon className={`h-4 w-4 shrink-0 rtl:rotate-180 ${dark ? "" : "text-stone"}`} />
-    </a>
+      <a
+        href={sourceHref(kbId, { ...source, n: list[0] })}
+        target="_blank"
+        rel="noopener"
+        aria-label={`${T.doc.openSource}: ${source.docName}`}
+        className="relative flex h-8 shrink-0 items-center gap-1.5 rounded-[7px] border border-edge px-2.5 text-[13px] font-medium text-primary active:bg-mist after:absolute after:inset-x-0 after:-inset-y-2 after:content-['']"
+      >
+        <DocIcon className="h-4 w-4" />
+        <span>{T.doc.openShort}</span>
+      </a>
+    </p>
   );
 }
 

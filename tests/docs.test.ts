@@ -1752,3 +1752,24 @@ test("an answer shows its sources once: one line per document with its pages, no
   assert.match(brief, /One action per step/);
   assert.match(brief, /an English word never stands alone inside a Hebrew\s+sentence/);
 });
+
+test("a manual's name: the implementer's own, or the file's name without its ending; the uploaded file is still known for the duplicate check", async () => {
+  const { docTitle } = await import("../lib/store");
+  assert.equal(docTitle("", "SAMPLE Rebel 500 owners manual.pdf"), "SAMPLE Rebel 500 owners manual");
+  assert.equal(docTitle("  SAMPLE   מדריך בעלים  ", "ml.remawmom.pdf"), "SAMPLE מדריך בעלים");
+  assert.equal(docTitle("", ".hidden"), ".hidden", "a name that is only an ending stays as it is");
+  assert.equal(docTitle("x".repeat(300), "a.pdf").length, 120);
+  const store = await tempStore();
+  const kb = await store.createKb({ name: "SAMPLE שמות" });
+  const { doc, passages } = await ingest("sample_manual.pdf", makePdf(PAGES));
+  const added = await store.addDoc(kb.id, { ...doc, name: docTitle("SAMPLE מדריך בעלים", doc.name), file: doc.name, origin: "manufacturer" }, passages, makePdf(PAGES));
+  assert.deepEqual([added.name, added.file], ["SAMPLE מדריך בעלים", "sample manual"]);
+  // The name is what search results carry, so it is what an answer shows as its source.
+  const index = new SearchIndex(await store.loadDocs(kb.id));
+  assert.equal(index.search("tyre pressure", 1)[0].docName, "SAMPLE מדריך בעלים");
+  // Renaming keeps the file's name, so the same file uploaded again is still recognised.
+  const renamed = await store.renameDoc(kb.id, added.id, "SAMPLE שם אחר");
+  assert.deepEqual([renamed.name, renamed.file], ["SAMPLE שם אחר", "sample manual"]);
+  const route = fs.readFileSync(path.join(process.cwd(), "app", "api", "admin", "kbs", "[kbId]", "docs", "route.ts"), "utf8");
+  assert.match(route, /\(d\.file \?\? d\.name\) === doc\.name && d\.bytes === doc\.bytes/);
+});

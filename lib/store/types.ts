@@ -22,7 +22,12 @@ export type Passage = { n: number; text: string };
 export type DocMeta = {
   id: string;
   kbId: string;
+  // The manual's name as the technician sees it beside every answer. The implementer writes it
+  // when uploading (the file's name is the suggestion) and can change it later.
   name: string;
+  // The name the upload read from the file (its name without the ending). The duplicate check
+  // goes by it, whatever the manual is called later. Absent on documents from before the two were told apart.
+  file?: string;
   origin: DocOrigin;
   // "page" for a PDF (n is the real page number), "part" for everything else.
   unit: "page" | "part";

@@ -41,6 +41,15 @@ export function slug(name: string): string {
 // `language`: the language of this environment's calls (he, en, ru, ar).
 export type Settings = { voice?: string; liveVoice?: string; language?: string };
 
+// The name a manual is shown under: what the implementer wrote, or else the uploaded file's
+// name without its ending ("Rebel 500 owners manual.pdf" -> "Rebel 500 owners manual").
+export const docTitle = (given: string, fileName: string): string => {
+  const clean = given.replace(/\s+/g, " ").trim().slice(0, 120);
+  if (clean) return clean;
+  const dot = fileName.lastIndexOf(".");
+  return (dot > 0 ? fileName.slice(0, dot) : fileName).trim().slice(0, 120) || fileName;
+};
+
 // Short, non-empty, at most three: they are buttons on a phone screen.
 export const cleanStarters = (raw: unknown): string[] =>
   (Array.isArray(raw) ? raw : [])

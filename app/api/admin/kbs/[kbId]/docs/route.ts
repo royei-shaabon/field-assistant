@@ -3,7 +3,7 @@ import { currentEnvId, envStore } from "@/lib/server/env";
 import { ingest, MAX_UPLOAD_BYTES, UnsupportedFile } from "@/lib/docs/ingest";
 import { forbidden, isAdmin } from "@/lib/server/admin-auth";
 import { allow, clientKey, LIMITS, tooLarge, tooMany } from "@/lib/server/rate-limit";
-import { NotFound } from "@/lib/store";
+import { docTitle, NotFound } from "@/lib/store";
 
 // Upload one document: read it into passages, then store the passages and the original.
 export async function POST(request: Request, { params }: { params: Promise<{ kbId: string }> }) {
@@ -30,11 +30,14 @@ export async function POST(request: Request, { params }: { params: Promise<{ kbI
     // The same file again would only make search return every page twice.
     const existing = await (await envStore()).listDocs(kbId).catch(() => []);
     stage.part("duplicate_check");
-    if (existing.some((d) => d.name === doc.name && d.bytes === doc.bytes)) {
+    if (existing.some((d) => (d.file ?? d.name) === doc.name && d.bytes === doc.bytes)) {
       stage.end({ outcome: "duplicate" });
       return Response.json({ error: "duplicate" }, { status: 409 });
     }
-    const meta = await (await envStore()).addDoc(kbId, { ...doc, origin }, passages, data);
+    // The manual's name: what the implementer wrote, or the file's name without its ending.
+    const given = form?.get("name");
+    const name = docTitle(typeof given === "string" ? given : "", doc.name);
+    const meta = await (await envStore()).addDoc(kbId, { ...doc, name, file: doc.name, origin }, passages, data);
     stage.part("store");
     stage.end({ outcome: "stored", doc: meta.id, passages: meta.passages, empty: meta.empty, chars: meta.chars });
     return Response.json({ doc: meta });
