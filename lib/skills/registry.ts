@@ -11,7 +11,8 @@ import YAML from "yaml";
 
 export type Agent = "chat" | "call" | "video";
 export type ToolDecl = { name: string; access: "read"; answered_by: string; calls_model: boolean; description: string; input_schema: { type: "object"; [key: string]: unknown } };
-export type SkillDoc = { name: string; title: string; tools: Record<Agent, string[]>; body: string };
+// `body`: the skill as the call agent is told it. `chat`: the same responsibility as the chat agent is told it (chat.md).
+export type SkillDoc = { name: string; title: string; tools: Record<Agent, string[]>; body: string; chat?: string };
 type Registry = { agents: Record<Agent, { model: string; skills: string[] }>; jobs: { name: string; where: string; model: string }[] };
 
 const ROOT = () => /*turbopackIgnore: true*/ process.cwd();
@@ -43,7 +44,9 @@ export function loadSkills(dir = path.join(ROOT(), "skills")): Map<string, Skill
     if (head.name !== name) throw new Error(`skill ${name}: the folder name and "name" differ`);
     if (!head.title) throw new Error(`skill ${name}: no title`);
     const tools = Object.fromEntries(AGENTS.map((a) => [a, list(head.tools?.[a])])) as Record<Agent, string[]>;
-    out.set(name, { name, title: head.title, tools, body: match[2].trim() });
+    const chatFile = path.join(/*turbopackIgnore: true*/ dir, name, "chat.md");
+    const chat = fs.existsSync(chatFile) ? fs.readFileSync(chatFile, "utf8").trim() : undefined;
+    out.set(name, { name, title: head.title, tools, body: match[2].trim(), ...(chat ? { chat } : {}) });
   }
   return out;
 }
@@ -82,3 +85,14 @@ export function skillOfTool(agent: Agent, tool: string): string | undefined {
 }
 
 export const fill = (text: string, values: Record<string, string>) => text.replace(/\{\{(\w+)\}\}/g, (whole, key: string) => values[key] ?? whole);
+
+// The chat agent's chapters: one per skill, in the registry's order. A chat skill without its
+// own text stops the server from answering rather than leaving a responsibility unsaid.
+export function chatChapters(): string {
+  return agentSkills("chat")
+    .map((skill) => {
+      if (!skill.chat) throw new Error(`skill ${skill.name}: the chat agent has it, but there is no chat.md`);
+      return `# ${skill.title}\n\n${skill.chat}`;
+    })
+    .join("\n\n");
+}

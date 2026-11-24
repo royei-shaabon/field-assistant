@@ -14,7 +14,9 @@ import fs from "node:fs";
 import path from "node:path";
 
 type Question = { he: string; en: string; pages: number[] };
-type QuestionSet = { env: string; kb: string; questions: Question[] };
+// `outside`: a question the manual does not answer, with the kinds of reply that are acceptable.
+type Outside = { he: string; kinds: string[]; caution: boolean | null };
+type QuestionSet = { env: string; kb: string; questions: Question[]; outside?: Outside[] };
 
 // Which build answers: printed first, so a result is never read against the wrong version.
 const base = process.argv[2]?.replace(/\/$/, "");
@@ -32,7 +34,7 @@ type ChatStep = { source?: { n?: number } };
 type ChatResult = { kind?: string; steps?: ChatStep[]; ideas?: unknown[]; caution?: string };
 
 // One question through /api/conversation: the stream's lines as they come, for the time of the first step.
-async function askChat(cookie: string, set: QuestionSet, q: Question): Promise<{ result: ChatResult | null; first: number | null; total: number }> {
+async function askChat(cookie: string, set: QuestionSet, q: { he: string }): Promise<{ result: ChatResult | null; first: number | null; total: number }> {
   // The service allows a bounded number of questions in five minutes: wait and ask again.
   let started = Date.now();
   let res: Response;
@@ -87,6 +89,21 @@ async function chat(cookie: string): Promise<number> {
         `steps per answer ${(rows.reduce((sum, r) => sum + r.steps, 0) / Math.max(1, n)).toFixed(1)}, first step ${median(rows.flatMap((r) => (r.first === null ? [] : [r.first])))} ms, whole answer ${median(rows.map((r) => r.total))} ms, warnings ${rows.filter((r) => r.caution).length}/${n}`,
     );
     bad += rows.filter((r) => !r.answered || !r.cited).length;
+    // Outside the manual: the reply must be of an acceptable kind, never invented steps, and warn where it should.
+    let fit = 0;
+    let ideas = 0;
+    const outside = set.outside ?? [];
+    for (const q of outside) {
+      const { result } = await askChat(cookie, set, q);
+      const kind = result?.kind ?? "no result";
+      const warned = Boolean(result?.caution) || kind === "hazard";
+      const ok = q.kinds.includes(kind) && (q.caution === null || q.caution === warned);
+      if (ok) fit++;
+      else console.log(`OUTSIDE: got ${kind}${warned ? " with a warning" : ""} for ${q.he}  (acceptable: ${q.kinds.join(", ")}${q.caution === null ? "" : q.caution ? ", warned" : ", not warned"})`);
+      if ((result?.ideas?.length ?? 0) > 0) ideas++;
+    }
+    if (outside.length) console.log(`${set.kb} (${set.env}) outside the manual: handled as expected ${fit}/${outside.length}, offered checks in ${ideas}/${outside.length}`);
+    bad += outside.length - fit;
   }
   return bad;
 }

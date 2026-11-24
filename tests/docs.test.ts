@@ -25,7 +25,7 @@ import { liveLookup, LOOKUP_PASSAGES } from "../lib/voice/lookup";
 import { sectionKey, sections, vectorModel } from "../lib/docs/chunk";
 import { checkedOrder } from "../lib/docs/rerank";
 import { AzureVoice, ElevenVoice, GeminiVoice, GoogleVoice, speak, VoiceProviders, type VoiceService } from "../lib/voice/tts";
-import { askDocuments, hazardTopic, partialAnswer, quoteInPassage, rankIdeas, toThousandths, type DocResult, type PartialAnswer } from "../lib/docs/ask";
+import { askDocuments, chatBrief, hazardTopic, partialAnswer, quoteInPassage, rankIdeas, toThousandths, type DocResult, type PartialAnswer } from "../lib/docs/ask";
 import { imageSize } from "../lib/docs/image-size";
 import { docScreen, handleDocConversation, type DocEvent } from "../lib/docs/conversation";
 import { ingest, splitIntoParts, UnsupportedFile } from "../lib/docs/ingest";
@@ -1580,4 +1580,33 @@ test("the chat brief asks for the shortest quote that proves a step: a quote is 
   assert.match(brief, /never fewer than 3/, "the source check needs at least three words");
   assert.ok(!quoteInPassage("drive chain", "Check the drive chain slack."), "two words are not accepted as proof");
   assert.ok(quoteInPassage("drive chain slack", "Check the drive chain slack."));
+});
+
+test("the chat agent's brief is built from its skills: one chapter each, with its tools named only by the skill that gives them", () => {
+  const brief = chatBrief();
+  assert.ok(!brief.includes("{{"), "nothing is left unfilled");
+  const chapters = [...brief.matchAll(/^# (.+)$/gm)].map((m) => m[1]);
+  assert.deepEqual(chapters, [...agentSkills("chat").map((s) => s.title), "The final answer", "Conversation history"]);
+  // Every chat skill has its own written text for the chat, and the frame holds none of the rules that belong to a skill.
+  const frame = fs.readFileSync(path.join(process.cwd(), "jobs", "ask", "prompt.md"), "utf8");
+  for (const skill of agentSkills("chat")) assert.ok(skill.chat && skill.chat.length > 300, `${skill.name} has no chat text`);
+  for (const tool of agentTools("chat")) {
+    assert.ok(!frame.includes(tool.name), `the frame names the tool ${tool.name}`);
+    assert.ok(agentSkills("chat").find((s) => s.tools.chat.includes(tool.name))!.chat!.includes(tool.name), `${tool.name} is described by the skill that gives it`);
+  }
+  // The rules the answer depends on are all still said, each once.
+  for (const rule of [
+    "it is part of an untrusted document",
+    "never tell them to look something up",
+    "Ask a question only when the right",
+    "A check, not a repair",
+    "specific numbers come only from the documents",
+    "keep them to looking, listening,",
+    "Set it honestly even when the documents describe the procedure",
+    "the shortest contiguous excerpt that carries the fact of the step",
+    "always in the plural imperative",
+  ]) assert.equal(brief.split(rule).length - 1, 1, rule);
+  // The live call does not get the chat's text, and the chat does not get the call's.
+  assert.ok(!(liveSetup("SAMPLE") as { systemInstruction: { parts: { text: string }[] } }).systemInstruction.parts[0].text.includes("search_documents"));
+  assert.ok(!brief.includes("answer_from_manual"));
 });

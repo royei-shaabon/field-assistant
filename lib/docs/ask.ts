@@ -9,6 +9,7 @@ import Ajv from "ajv";
 import { imageBlock, type AgentMessage, type ModelClient, type SkillContent } from "../llm";
 import { HAZARD_TOPICS } from "../safety";
 import type { DocMeta } from "../store/types";
+import { chatChapters } from "../skills/registry";
 import { chatTools, cleanQueries, runSearch } from "./agent-tools";
 import type { Embedder } from "./embed";
 import { vectorModel } from "./chunk";
@@ -99,9 +100,14 @@ type Draft = {
 
 const SKILL_DIR = path.resolve("jobs", "ask");
 let files: { prompt: string; schema: Record<string, unknown> } | undefined;
+// The chat agent's brief: the frame in jobs/ask/prompt.md (who it is, the answer's format) with
+// one chapter per skill of the chat agent (skills/<name>/chat.md) in the place of {{skills}}.
+export function chatBrief(): string {
+  return fs.readFileSync(path.join(/*turbopackIgnore: true*/ SKILL_DIR, "prompt.md"), "utf8").replace("{{skills}}", chatChapters());
+}
 function skill() {
   files ??= {
-    prompt: fs.readFileSync(path.join(/*turbopackIgnore: true*/ SKILL_DIR, "prompt.md"), "utf8"),
+    prompt: chatBrief(),
     schema: JSON.parse(fs.readFileSync(path.join(/*turbopackIgnore: true*/ SKILL_DIR, "schema.json"), "utf8")),
   };
   return files;

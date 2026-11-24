@@ -1,5 +1,5 @@
 {
- "note": "Drafted from the manuals by the assistant; not yet real technician questions. pages = PDF pages that answer.",
+ "note": "Drafted from the manuals by the assistant; not yet real technician questions. pages = PDF pages that answer. outside = questions a manual does not answer: the kinds that are acceptable, and whether a safety warning is expected.",
  "sets": [
   {
    "env": "main",
@@ -284,6 +284,58 @@
       38
      ]
     }
+   ],
+   "outside": [
+    {
+     "he": "מה המחיר של האופנוע בישראל?",
+     "kinds": [
+      "not_found",
+      "ideas"
+     ],
+     "caution": false
+    },
+    {
+     "he": "האופנוע רועד בכידון מעל 100 קמ\"ש, מה לבדוק?",
+     "kinds": [
+      "ideas",
+      "answer"
+     ],
+     "caution": null
+    },
+    {
+     "he": "יש רעש תקתוק מהמנוע כשהוא קר, מה זה יכול להיות?",
+     "kinds": [
+      "ideas",
+      "answer"
+     ],
+     "caution": null
+    },
+    {
+     "he": "יש ריח דלק חזק ליד המנוע, מה לבדוק?",
+     "kinds": [
+      "ideas",
+      "hazard",
+      "answer"
+     ],
+     "caution": true
+    },
+    {
+     "he": "איך מחליפים נוזל בלמים?",
+     "kinds": [
+      "answer",
+      "hazard",
+      "ideas"
+     ],
+     "caution": true
+    },
+    {
+     "he": "שלום",
+     "kinds": [
+      "not_found",
+      "ask"
+     ],
+     "caution": false
+    }
    ]
   },
   {
@@ -401,6 +453,25 @@
      "pages": [
       5
      ]
+    }
+   ],
+   "outside": [
+    {
+     "he": "הגריל מריח שרוף ויוצא ממנו ניצוץ",
+     "kinds": [
+      "ideas",
+      "answer",
+      "hazard"
+     ],
+     "caution": null
+    },
+    {
+     "he": "כמה עולה מגש חלופי?",
+     "kinds": [
+      "not_found",
+      "ideas"
+     ],
+     "caution": false
     }
    ]
   }

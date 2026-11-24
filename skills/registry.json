@@ -1,5 +1,5 @@
 {
-  "about": "Who may do what. A SKILL is a written area of responsibility (skills/<name>/SKILL.md): what it is in charge of, its rules, and the tools it may use. A TOOL is one specific action (tools/<name>/tool.json) that code runs when a model asks for it; all tools are read-only. A JOB is one internal call to a model with a fixed prompt and output schema (jobs/<name>/), usually what answers a tool. An agent is given the skills listed here, and only the tools those skills name for its channel. tests/docs.test.ts checks this file against the folders and against what each model is actually given.",
+  "about": "Who may do what. A SKILL is a written area of responsibility (skills/<name>/SKILL.md): what it is in charge of, its rules, and the tools it may use. A TOOL is one specific action (tools/<name>/tool.json) that code runs when a model asks for it; all tools are read-only. A JOB is one internal call to a model with a fixed prompt and output schema (jobs/<name>/), usually what answers a tool. A skill is told to the call agent from SKILL.md and to the chat agent from chat.md beside it. An agent is given the skills listed here, and only the tools those skills name for its channel. tests/docs.test.ts checks this file against the folders and against what each model is actually given.",
   "agents": {
     "chat": {
       "model": "main",
@@ -7,8 +7,7 @@
         "retrieval",
         "diagnosis",
         "safety"
-      ],
-      "note": "The chat agent's writing brief is still one file, jobs/ask/prompt.md; it is split into these skills after the retrieval test set exists, so the split can be measured."
+      ]
     },
     "call": {
       "model": "live",
