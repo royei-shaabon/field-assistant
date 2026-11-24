@@ -3,7 +3,10 @@
 // answers it comes back, and how high. Run it before and after a change to search, sections,
 // the meaning index or the rerank job.
 //
-// Usage: RAG_EVAL_PASSWORD=<admin password of the main environment> npm run rag-eval -- https://<service-url> [--hebrew-only]
+// Usage: RAG_EVAL_PASSWORD=<admin password of the main environment> npm run rag-eval -- https://<service-url> [--hebrew-only] [--chat[=N]]
+// --chat asks every Nth question (default 3) through the full checked-answer engine instead:
+// was it answered, does a step cite a page that answers it, how many steps, and how long to
+// the first step and to the end. This calls the main model and costs accordingly.
 // --hebrew-only leaves out the English form of each question (the harder case: the service
 // writes the English itself). The questions are written to the service's conversation log,
 // under the conversation id "eval-rag", which the service answers but does not write to its log or count.
@@ -18,6 +21,64 @@ const base = process.argv[2]?.replace(/\/$/, "");
 const password = process.env.RAG_EVAL_PASSWORD;
 if (!base?.startsWith("http") || !password) throw new Error("usage: RAG_EVAL_PASSWORD=... npm run rag-eval -- https://<service-url> [--hebrew-only]");
 const hebrewOnly = process.argv.includes("--hebrew-only");
+const chatArg = process.argv.find((a) => a === "--chat" || a.startsWith("--chat="));
+const chatEvery = chatArg ? Math.max(1, Number(chatArg.split("=")[1]) || 3) : 0;
+
+type ChatStep = { source?: { n?: number } };
+type ChatResult = { kind?: string; steps?: ChatStep[]; ideas?: unknown[]; caution?: string };
+
+// One question through /api/conversation: the stream's lines as they come, for the time of the first step.
+async function askChat(cookie: string, set: QuestionSet, q: Question): Promise<{ result: ChatResult | null; first: number | null; total: number }> {
+  const started = Date.now();
+  const res = await fetch(`${base}/api/conversation`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Cookie: cookie, "x-ridd-env": set.env },
+    body: JSON.stringify({ kbId: set.kb, events: [], input: { kind: "ask", text: q.he }, conversationId: "eval-rag-chat", channel: "chat" }),
+  });
+  let first: number | null = null;
+  let result: ChatResult | null = null;
+  let buffer = "";
+  const decoder = new TextDecoder();
+  for await (const chunk of res.body as unknown as AsyncIterable<Uint8Array>) {
+    buffer += decoder.decode(chunk, { stream: true });
+    const lines = buffer.split("\n");
+    buffer = lines.pop() ?? "";
+    for (const line of lines) {
+      const row = (() => {
+        try {
+          return JSON.parse(line) as { partial?: unknown; result?: { events?: { result?: ChatResult }[] } };
+        } catch {
+          return null;
+        }
+      })();
+      if (row?.partial && first === null) first = Date.now() - started;
+      if (row?.result) result = row.result.events?.at(-1)?.result ?? null;
+    }
+  }
+  return { result, first, total: Date.now() - started };
+}
+
+async function chat(cookie: string): Promise<number> {
+  let bad = 0;
+  for (const set of sets) {
+    const rows: { answered: boolean; cited: boolean; steps: number; first: number | null; total: number; caution: boolean }[] = [];
+    for (const q of set.questions.filter((_, i) => i % chatEvery === 0)) {
+      const { result, first, total } = await askChat(cookie, set, q);
+      const pages = (result?.steps ?? []).map((s) => s.source?.n).filter((n): n is number => typeof n === "number");
+      const row = { answered: result?.kind === "answer", cited: pages.some((n) => q.pages.includes(n)), steps: result?.steps?.length ?? 0, first, total, caution: Boolean(result?.caution) };
+      rows.push(row);
+      if (!row.answered || !row.cited) console.log(`${row.answered ? "WRONG PAGE" : `NOT ANSWERED (${result?.kind ?? "no result"})`} ${q.he}  want ${q.pages.join(",")}  cited ${[...new Set(pages)].join(",") || "-"}`);
+    }
+    const n = rows.length;
+    const median = (values: number[]) => (values.length ? values.sort((a, b) => a - b)[Math.floor(values.length / 2)] : 0);
+    console.log(
+      `${set.kb} (${set.env}) answers: answered ${rows.filter((r) => r.answered).length}/${n}, cite a page that answers ${rows.filter((r) => r.cited).length}/${n}, ` +
+        `steps per answer ${(rows.reduce((sum, r) => sum + r.steps, 0) / Math.max(1, n)).toFixed(1)}, first step ${median(rows.flatMap((r) => (r.first === null ? [] : [r.first])))} ms, whole answer ${median(rows.map((r) => r.total))} ms, warnings ${rows.filter((r) => r.caution).length}/${n}`,
+    );
+    bad += rows.filter((r) => !r.answered || !r.cited).length;
+  }
+  return bad;
+}
 const { sets } = JSON.parse(fs.readFileSync(path.resolve("tests", "eval", "rag-questions.json"), "utf8")) as { sets: QuestionSet[] };
 
 async function main() {
@@ -28,6 +89,10 @@ async function main() {
 
   const version = (await fetch(`${base}/api/version`).then((r) => r.json()).catch(() => null)) as { build?: string } | null;
   console.log(`build ${version?.build ?? "unknown (before the version endpoint)"}${hebrewOnly ? ", Hebrew only" : ""}`);
+  if (chatEvery) {
+    process.exitCode = (await chat(cookie)) ? 1 : 0;
+    return;
+  }
   let failed = 0;
   for (const set of sets) {
     const rows: { rank: number; ms: number; caution: boolean }[] = [];
