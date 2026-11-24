@@ -94,9 +94,10 @@ them.
   it.
 - `ref`: the reference of the passage this step comes from, copied exactly from the `ref` attribute of a
   passage (for example `dk3f9a:52`).
-- `quote`: a short contiguous excerpt (about 5 to 25 words) copied character for character
-  from that passage, in the passage's own language, that supports the step. Do not translate,
-  paraphrase or stitch separated sentences together.
+- `quote`: the shortest contiguous excerpt that carries the fact of the step (about 4 to 12
+  words, never fewer than 3), copied character for character from that passage, in the
+  passage's own language. It is only the proof that the step is in the source, so do not make
+  it longer than the proof needs. Do not translate, paraphrase or stitch separated sentences together.
 
 `checks` (0 to 4): places to check that come from your own professional knowledge of this kind
 of equipment, the way an experienced technician or engineer in the field would reason, when

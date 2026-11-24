@@ -22,6 +22,8 @@ const password = process.env.RAG_EVAL_PASSWORD;
 if (!base?.startsWith("http") || !password) throw new Error("usage: RAG_EVAL_PASSWORD=... npm run rag-eval -- https://<service-url> [--hebrew-only]");
 const hebrewOnly = process.argv.includes("--hebrew-only");
 const chatArg = process.argv.find((a) => a === "--chat" || a.startsWith("--chat="));
+// --first-search=parallel|sequential|meaning asks the service to run a chat answer's first search that way (an experiment).
+const firstSearch = process.argv.find((a) => a.startsWith("--first-search="))?.split("=")[1];
 const chatEvery = chatArg ? Math.max(1, Number(chatArg.split("=")[1]) || 3) : 0;
 
 type ChatStep = { source?: { n?: number } };
@@ -29,12 +31,19 @@ type ChatResult = { kind?: string; steps?: ChatStep[]; ideas?: unknown[]; cautio
 
 // One question through /api/conversation: the stream's lines as they come, for the time of the first step.
 async function askChat(cookie: string, set: QuestionSet, q: Question): Promise<{ result: ChatResult | null; first: number | null; total: number }> {
-  const started = Date.now();
-  const res = await fetch(`${base}/api/conversation`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json", Cookie: cookie, "x-ridd-env": set.env },
-    body: JSON.stringify({ kbId: set.kb, events: [], input: { kind: "ask", text: q.he }, conversationId: "eval-rag-chat", channel: "chat" }),
-  });
+  // The service allows a bounded number of questions in five minutes: wait and ask again.
+  let started = Date.now();
+  let res: Response;
+  for (let attempt = 0; ; attempt++) {
+    started = Date.now();
+    res = await fetch(`${base}/api/conversation`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Cookie: cookie, "x-ridd-env": set.env, ...(firstSearch ? { "x-first-search": firstSearch } : {}) },
+      body: JSON.stringify({ kbId: set.kb, events: [], input: { kind: "ask", text: q.he }, conversationId: "eval-rag-chat", channel: "chat" }),
+    });
+    if (res.status !== 429 || attempt >= 8) break;
+    await new Promise((resolve) => setTimeout(resolve, 60_000));
+  }
   let first: number | null = null;
   let result: ChatResult | null = null;
   let buffer = "";

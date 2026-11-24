@@ -1573,3 +1573,11 @@ test("starter questions: the implementer's own, cleaned and bounded, and the tec
   assert.deepEqual((await store.updateKb(kb.id, { name: "SAMPLE גריל 2" })).starters, ["SAMPLE כתוב E על המסך"]);
   assert.deepEqual((await store.updateKb(kb.id, { starters: [] })).starters, []);
 });
+
+test("the chat brief asks for the shortest quote that proves a step: a quote is proof, and every extra word is time before the step shows", () => {
+  const brief = fs.readFileSync(path.join(process.cwd(), "jobs", "ask", "prompt.md"), "utf8");
+  assert.match(brief, /the shortest contiguous excerpt that carries the fact of the step/);
+  assert.match(brief, /never fewer than 3/, "the source check needs at least three words");
+  assert.ok(!quoteInPassage("drive chain", "Check the drive chain slack."), "two words are not accepted as proof");
+  assert.ok(quoteInPassage("drive chain slack", "Check the drive chain slack."));
+});
