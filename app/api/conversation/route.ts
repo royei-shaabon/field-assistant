@@ -75,7 +75,8 @@ export async function POST(request: Request) {
               if (t.total > 15_000) log.warn("ask.slow", { env: envId, kb: kbId, ms: t.total });
               send({ timing: t });
             },
-            pageImage: async (hit) => {
+            // An experiment header, like x-first-search: answer without the pages as pictures, to measure what they cost.
+            pageImage: request.headers.get("x-page-images") === "off" ? undefined : async (hit) => {
               const image = await pageImage(kbId, hit.docId, hit.n, store, envId);
               return image && { data: image.png.toString("base64"), mediaType: "image/png" as const, width: image.width, height: image.height };
             },

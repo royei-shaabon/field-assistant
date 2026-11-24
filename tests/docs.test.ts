@@ -1208,7 +1208,7 @@ test("live call tool: the best pages come whole, so a line at the bottom of a lo
   // The live model gave no English: the small model writes it, and the search uses it.
   const asked: string[] = [];
   const parts: string[] = [];
-  const translated = await liveLookup(index, "המכשיר לא נדלק", null, undefined, undefined, (part) => parts.push(part), async (q) => (asked.push(q), "the unit will not turn on"));
+  const translated = await liveLookup(index, "המכשיר לא נדלק", null, undefined, undefined, (part) => parts.push(part), async (q) => (asked.push(q), { english: "the appliance is dead", terms: "unit will not turn on, power cord" }));
   assert.equal(translated.kind, "passages");
   assert.deepEqual([asked, parts.includes("english")], [["המכשיר לא נדלק"], true], "asked once, and timed");
   // Not asked when the English came with the question, or when the question is already in Latin letters.

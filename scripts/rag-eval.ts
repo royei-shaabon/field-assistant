@@ -24,6 +24,8 @@ const hebrewOnly = process.argv.includes("--hebrew-only");
 const chatArg = process.argv.find((a) => a === "--chat" || a.startsWith("--chat="));
 // --first-search=parallel|sequential|meaning asks the service to run a chat answer's first search that way (an experiment).
 const firstSearch = process.argv.find((a) => a.startsWith("--first-search="))?.split("=")[1];
+// --no-page-images answers without the manual pages as pictures (an experiment: what do they cost?).
+const noPageImages = process.argv.includes("--no-page-images");
 const chatEvery = chatArg ? Math.max(1, Number(chatArg.split("=")[1]) || 3) : 0;
 
 type ChatStep = { source?: { n?: number } };
@@ -38,7 +40,7 @@ async function askChat(cookie: string, set: QuestionSet, q: Question): Promise<{
     started = Date.now();
     res = await fetch(`${base}/api/conversation`, {
       method: "POST",
-      headers: { "Content-Type": "application/json", Cookie: cookie, "x-ridd-env": set.env, ...(firstSearch ? { "x-first-search": firstSearch } : {}) },
+      headers: { "Content-Type": "application/json", Cookie: cookie, "x-ridd-env": set.env, ...(firstSearch ? { "x-first-search": firstSearch } : {}), ...(noPageImages ? { "x-page-images": "off" } : {}) },
       body: JSON.stringify({ kbId: set.kb, events: [], input: { kind: "ask", text: q.he }, conversationId: "eval-rag-chat", channel: "chat" }),
     });
     if (res.status !== 429 || attempt >= 8) break;

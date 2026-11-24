@@ -7,7 +7,9 @@ import fs from "node:fs";
 import path from "node:path";
 import type { ModelClient } from "../llm";
 
-export type Translator = (question: string) => Promise<string | null>;
+// `terms`: the parts and symptoms the technician named, as a manual would print them: a second way in by words.
+export type InEnglish = { english: string; terms?: string };
+export type Translator = (question: string) => Promise<InEnglish | null>;
 
 let files: { prompt: string; schema: Record<string, unknown> } | undefined;
 function job() {
@@ -24,8 +26,10 @@ export function modelTranslator(client: ModelClient): Translator {
     const { prompt, schema } = job();
     try {
       const response = await client.complete({ system: prompt, schema, fast: true, content: [{ type: "text", text: question }] });
-      const english = (JSON.parse(response.text ?? "") as { english?: unknown }).english;
-      return typeof english === "string" && english.trim() ? english.trim().slice(0, 300) : null;
+      const reply = JSON.parse(response.text ?? "") as { english?: unknown; terms?: unknown };
+      const english = typeof reply.english === "string" ? reply.english.trim().slice(0, 300) : "";
+      const terms = typeof reply.terms === "string" ? reply.terms.trim().slice(0, 200) : "";
+      return english ? { english, ...(terms ? { terms } : {}) } : null;
     } catch {
       return null;
     }
