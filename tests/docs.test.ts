@@ -1063,7 +1063,7 @@ test("video call: the live model names what to mark and a careful look finds it;
 
   // The careful look answers in pixels of the picture; the app keeps thousandths.
   const size = { width: 800, height: 1600 };
-  assert.deepEqual(checkedLook({ visible: true, quality: "ok", name: " SAMPLE מכסה ", box: { x: 200, y: 400, w: 100, h: 160 }, seen: "" }, size), { visible: true, quality: "ok", name: "SAMPLE מכסה", seen: "", box: { x: 250, y: 250, w: 125, h: 100 } });
+  assert.deepEqual(checkedLook({ visible: true, quality: "ok", name: " SAMPLE מכסה ", box: { x: 200, y: 400, w: 100, h: 160 }, seen: "" }, size), { visible: true, quality: "ok", name: "SAMPLE מכסה", seen: "", onMachine: true, box: { x: 250, y: 250, w: 125, h: 100 } });
   assert.equal(checkedLook({ visible: false, quality: "dark", name: "", box: { x: 0, y: 0, w: 0, h: 0 }, seen: "SAMPLE חשוך" }, size).visible, false);
   assert.equal(checkedLook({ visible: true, quality: "ok", name: "x", box: { x: 10, y: 10, w: 2, h: 2 }, seen: "" }, size).visible, false, "a dot is not a mark");
   assert.equal(checkedLook({ visible: true, quality: "ok", name: "x", box: { x: 10, y: 10, w: 100, h: 100 }, seen: "" }, null).visible, false, "no size, no place");
@@ -1657,4 +1657,24 @@ test("a read-out is not a hazard: fuel consumption and the fuel gauge bring no f
   assert.match(brief, /Decide by what your steps and checks have them DO/);
   assert.match(brief, /a warning on every answer is a warning nobody reads/);
   assert.match(brief, /flag\s+it even though it is the official procedure/);
+});
+
+test("a careful look says whether the thing is part of the machine, and the call marks one machine part at a time", async () => {
+  const { checkedLook } = await import("../lib/voice/look");
+  const size = { width: 1000, height: 1000 };
+  const box = { x: 100, y: 100, w: 200, h: 200 };
+  assert.equal(checkedLook({ visible: true, quality: "ok", name: "SAMPLE כרית", on_machine: false, box, seen: "SAMPLE כרית על ספה" }, size).onMachine, false);
+  assert.equal(checkedLook({ visible: true, quality: "ok", name: "SAMPLE מתג", on_machine: true, box, seen: "" }, size).onMachine, true);
+  assert.equal(checkedLook({ visible: true, quality: "ok", name: "SAMPLE מתג", box, seen: "" }, size).onMachine, true, "an answer without the field is treated as a machine part");
+  const schema = JSON.parse(fs.readFileSync(path.join(process.cwd(), "jobs", "look", "schema.json"), "utf8")) as { required: string[]; additionalProperties: boolean };
+  assert.ok(schema.required.includes("on_machine") && schema.additionalProperties === false);
+  // The screen: a thing in the room is not circled, one mark replaces the one before, and the mark carries its own name.
+  const call = fs.readFileSync(path.join(process.cwd(), "app", "components", "Call.tsx"), "utf8");
+  assert.match(call, /look\.onMachine !== false/);
+  assert.match(call, /return \[\{ \.\.\.mark, box, id, n: 1 \}\];/);
+  assert.ok(!call.includes("{m.n}"), "no numbers to decode");
+  // The camera skill: no marks on things that are not the machine, and no asking twice for the camera.
+  const video = (liveSetup("SAMPLE", undefined, true, "en") as { systemInstruction: { parts: { text: string }[] } }).systemInstruction.parts[0].text;
+  assert.match(video, /Mark only parts of the machine, and one at a time/);
+  assert.match(video, /at most once/);
 });

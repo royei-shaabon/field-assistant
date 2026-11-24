@@ -195,10 +195,11 @@ export function CallView({
         }
       }
       const tracked = tracks.current.has(id);
-      // The same part marked again replaces its earlier mark (its state may have changed).
+            // One mark at a time: the part being talked about now. Several boxes with numbers and a
+      // list to decode them is more than a person holding a phone at a machine can read.
       setQuick((list) => {
-        for (const old of list) if (old.label === mark.label) tracks.current.delete(old.id);
-        return [...list.filter((m) => m.label !== mark.label).slice(-2), { ...mark, box, id, n: 0 }].map((m, i) => ({ ...m, n: i + 1 }));
+        for (const old of list) tracks.current.delete(old.id);
+        return [{ ...mark, box, id, n: 1 }];
       });
       setTimeout(() => removeMark(id), tracked ? TRACKED_MARK_MS : QUICK_MARK_MS);
     },
@@ -308,9 +309,10 @@ export function CallView({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ kbId, image, ring: Boolean(ring), ...(marking ? (pointing || !label ? { pointing: true } : { find: label, english }) : { question }) }),
       }).catch(() => null);
-      const look = res?.ok ? ((await res.json()) as { visible: boolean; quality: string; name: string; seen: string; box?: QuickMark["box"] }) : null;
+      const look = res?.ok ? ((await res.json()) as { visible: boolean; quality: string; name: string; seen: string; onMachine?: boolean; box?: QuickMark["box"] }) : null;
       if (!look) return { result: { ok: false, note: "could not look at the picture" }, quiet: false };
-      const shown = look.visible && look.box ? look.name || label : "";
+      // A thing that is not part of the machine (the technician touched a chair) is named aloud, not circled.
+      const shown = look.visible && look.box && look.onMachine !== false ? look.name || label : "";
       if (shown && look.box) addMark({ label: pointing || ring ? look.name || label : label || look.name, state, box: look.box }, seen);
       if (marking) {
         // Found and marked: nothing to say about it, unless the model asked what the finger points at.
@@ -635,29 +637,36 @@ export function CallView({
         />
       )}
       {kind === "video" && (
-        // Above the cards: a mark is never hidden behind the legend that explains it.
-        <div aria-hidden className="pointer-events-none absolute inset-0 z-20">
-          {quick.map((m) => (
-            <span key={m.id}>
-              <span
-                className={`absolute rounded-md border-2 shadow-[0_0_0_1px_var(--color-night),inset_0_0_0_1px_var(--color-night)] ${MARK_TONE[m.state].border}`}
-                style={{ left: `${m.box.x / 10}%`, top: `${m.box.y / 10}%`, width: `${m.box.w / 10}%`, height: `${m.box.h / 10}%` }}
-              />
-              {/* The number sits outside the corner, so it never covers the part itself. */}
-              <span
-                className={`absolute grid h-[22px] min-w-[22px] -translate-x-full -translate-y-full place-items-center rounded-full px-1 font-mono text-[13px] font-medium leading-none shadow-[0_0_0_1px_var(--color-night)] ${MARK_TONE[m.state].fill} ${MARK_TONE[m.state].ink}`}
-                style={{ left: `max(22px, ${m.box.x / 10}%)`, top: `max(22px, ${m.box.y / 10}%)` }}
-              >
-                {m.n}
+        // Under the captions and the buttons: the mark belongs to the picture, and never covers what is read or pressed.
+        <div aria-hidden className="pointer-events-none absolute inset-0 z-[1]">
+          {quick.map((m) => {
+            // The name sits on the mark itself: above it, or below when the part is at the top of the picture.
+            const above = m.box.y > 140;
+            return (
+              <span key={m.id}>
+                <span
+                  className={`absolute rounded-md border-2 shadow-[0_0_0_1px_var(--color-night),inset_0_0_0_1px_var(--color-night)] ${MARK_TONE[m.state].border}`}
+                  style={{ left: `${m.box.x / 10}%`, top: `${m.box.y / 10}%`, width: `${m.box.w / 10}%`, height: `${m.box.h / 10}%` }}
+                />
+                <span
+                  className={`absolute w-max max-w-[72vw] -translate-x-1/2 rounded-[10px] px-2.5 py-1 text-center shadow-[0_0_0_1px_var(--color-night)] ${above ? "-translate-y-full" : ""} ${MARK_TONE[m.state].fill} ${MARK_TONE[m.state].ink}`}
+                  style={{ left: `clamp(22%, ${(m.box.x + m.box.w / 2) / 10}%, 78%)`, top: above ? `calc(${m.box.y / 10}% - 6px)` : `calc(${(m.box.y + m.box.h) / 10}% + 6px)` }}
+                >
+                  <span className="block text-[15px] font-medium leading-5">
+                    {m.label}
+                    {m.state !== "current" && ` · ${T.call.markState[m.state]}`}
+                  </span>
+                </span>
               </span>
-            </span>
-          ))}
+            );
+          })}
           {touched && <span className="absolute h-14 w-14 -translate-x-1/2 -translate-y-1/2 rounded-full border-[3px] border-white shadow-[0_0_0_1.5px_var(--color-night)]" style={{ left: `${touched.x / 10}%`, top: `${touched.y / 10}%` }} />}
         </div>
       )}
-      {kind === "video" && visual && !busy && liveFor === speech.answer && <LiveMarks marks={visual.marks.filter((m) => m.frame === visual.marks[0].frame)} />}
+      {/* In a live call the checked answer is in the chat; on the picture there is only the one mark of the part being talked about. */}
+      {kind === "video" && mode !== "live" && visual && !busy && liveFor === speech.answer && <LiveMarks marks={visual.marks.filter((m) => m.frame === visual.marks[0].frame)} />}
 
-      <header className="pointer-events-none relative flex items-center justify-between px-5 pb-2 pt-5">
+      <header className="pointer-events-none relative z-10 flex items-center justify-between px-5 pb-2 pt-5">
         <div className="min-w-0">
           <p className="truncate text-[17px] font-semibold">{title}</p>
           <p className="flex gap-2 text-[13px] text-white/70">
@@ -668,7 +677,7 @@ export function CallView({
         <span className="max-w-[45%] truncate text-[13px] text-white/70">{kbName}</span>
       </header>
 
-      <div className="pointer-events-none relative flex min-h-0 flex-1 flex-col justify-end gap-4 px-5 pb-4 [&>*]:pointer-events-auto">
+      <div className="pointer-events-none relative z-10 flex min-h-0 flex-1 flex-col justify-end gap-4 px-5 pb-4 [&>*]:pointer-events-auto">
         {kind === "voice" && (
           <div className="flex flex-1 items-center justify-center">
             {/* While the assistant talks, a tap on the circle cuts it short. */}
@@ -710,25 +719,17 @@ export function CallView({
           </div>
         )}
         {quick.length > 0 && (
-          // What each number on the picture is, in words: the colour is never the only sign.
-          // Low on the screen, with the captions: the picture above stays clear for the marks.
-          <div role="status" className="anim-rise flex flex-col gap-1 rounded-2xl bg-night/85 px-3 py-2">
-            {!FOLLOW_MARKS && <p className="text-sm text-signal">{T.call.liveNote}</p>}
-            <p className="text-sm text-white/75">{T.call.marksLegend}</p>
-            <ol className="flex flex-col gap-1.5">
-              {quick.map((m) => (
-                <li key={m.id} className="flex items-center gap-2.5 text-[16px]">
-                  <span aria-hidden className={`grid h-7 w-7 shrink-0 place-items-center rounded-full font-mono text-sm font-medium ${MARK_TONE[m.state].fill} ${MARK_TONE[m.state].ink}`}>
-                    {m.n}
-                  </span>
-                  <span className="min-w-0 flex-1">{m.label}</span>
-                  {m.state !== "current" && <span className="shrink-0 text-[13px] text-white/75">{T.call.markState[m.state]}</span>}
-                </li>
-              ))}
-            </ol>
-          </div>
+          // The mark carries its own name on the picture. Here only the one thing the picture cannot
+          // say: the mark stays where the part was. Read out with the name for a screen reader.
+          <p role="status" className="self-start rounded-full bg-night/70 px-3 py-1 text-[13px] leading-5 text-white/80">
+            <span className="sr-only">
+              {quick[0].label}
+              {quick[0].state !== "current" && `, ${T.call.markState[quick[0].state]}`}.{" "}
+            </span>
+            {!FOLLOW_MARKS && T.call.liveNote}
+          </p>
         )}
-        {visual && !busy && closedFor !== speech.answer && (
+        {visual && mode !== "live" && !busy && closedFor !== speech.answer && (
           // Never taller than half the screen: it scrolls inside, and the X closes it.
           <div className={`anim-rise relative flex max-h-[50dvh] shrink-0 flex-col gap-2 overflow-y-auto rounded-2xl bg-night/90 p-2.5 ${kind === "video" && liveFor === speech.answer ? "mb-auto" : ""}`}>
             <button onClick={() => setClosedFor(speech.answer)} aria-label={T.header.close} className="sticky top-0 z-10 -mb-12 grid h-12 w-12 shrink-0 place-items-center self-end rounded-full bg-night/80">
@@ -777,7 +778,7 @@ export function CallView({
         </p>
       </div>
 
-      <div className="relative flex items-start justify-center gap-4 px-3 pb-[max(16px,env(safe-area-inset-bottom))] pt-2">
+      <div className="relative z-10 flex items-start justify-center gap-4 px-3 pb-[max(16px,env(safe-area-inset-bottom))] pt-2">
         <div className="flex w-20 flex-col items-center gap-1.5">
           <button
             onClick={toggleMute}

@@ -31,9 +31,11 @@ export type Look = {
   // Thousandths of the picture's width and height. Absent when nothing was found.
   box?: { x: number; y: number; w: number; h: number };
   seen: string;
+  // False when the thing named is not a part of the machine (a chair, a wall): it gets no mark.
+  onMachine: boolean;
 };
 
-const NOTHING: Look = { visible: false, quality: "ok", name: "", seen: "" };
+const NOTHING: Look = { visible: false, quality: "ok", name: "", seen: "", onMachine: true };
 
 let files: { prompt: string; schema: Record<string, unknown> } | undefined;
 function skill() {
@@ -45,7 +47,7 @@ const QUALITY = new Set(["ok", "dark", "blurry", "far"]);
 
 // What the model returned, checked: a box must lie inside the picture and be more than a dot.
 export function checkedLook(raw: unknown, size: { width: number; height: number } | null): Look {
-  const r = raw as { visible?: unknown; quality?: unknown; name?: unknown; box?: { x?: unknown; y?: unknown; w?: unknown; h?: unknown }; seen?: unknown } | null;
+  const r = raw as { visible?: unknown; quality?: unknown; name?: unknown; on_machine?: unknown; box?: { x?: unknown; y?: unknown; w?: unknown; h?: unknown }; seen?: unknown } | null;
   if (!r || typeof r !== "object") return NOTHING;
   const quality = (QUALITY.has(r.quality as string) ? r.quality : "ok") as Look["quality"];
   const seen = typeof r.seen === "string" ? r.seen.trim().slice(0, 400) : "";
@@ -54,7 +56,8 @@ export function checkedLook(raw: unknown, size: { width: number; height: number 
   const numbers = b && [b.x, b.y, b.w, b.h].every((n) => typeof n === "number" && Number.isFinite(n));
   const box = r.visible === true && numbers && size ? toThousandths({ x: b!.x as number, y: b!.y as number, w: b!.w as number, h: b!.h as number }, size) : null;
   const usable = box && box.w >= 10 && box.h >= 10 ? box : undefined;
-  return { visible: Boolean(usable), quality, name, seen, ...(usable ? { box: usable } : {}) };
+  // Only an explicit "no" keeps a mark off: a thing in the room is named, not circled.
+  return { visible: Boolean(usable), quality, name, seen, onMachine: r.on_machine !== false, ...(usable ? { box: usable } : {}) };
 }
 
 export async function lookAtPicture(client: ModelClient, request: LookRequest): Promise<Look> {
