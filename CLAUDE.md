@@ -148,6 +148,10 @@
 - `npm run rag-eval -- https://<service>`: מודד את החיפוש בשירות פרוס על סט השאלות ב-`tests/eval/rag-questions.json` (לכל שאלה העמודים שעונים
   עליה): האם העמוד הנכון חזר ובאיזה מקום, וכמה זמן לקח. `--hebrew-only` בלי הצורה האנגלית. דורש `RAG_EVAL_PASSWORD`. מריצים לפני ואחרי כל
   שינוי בחיפוש, בחיתוך לקטעים, באינדקס המשמעות או במבט השני. השאלות נרשמות ביומן השיחות תחת `eval-rag`.
+- **פריסה (באישור המשתמש):** דחיפה ל-`main` נפרסת לבד (Cloud Run, פריסה רציפה מ-GitHub). לפני כל דחיפה כזו: `npm test`, `npm run lint`,
+  `npm run build`, ו-`rag-eval` על השירות החי (המספרים של "לפני"). מעלים את `BUILD` ב-`lib/version.ts`. אחרי הדחיפה מחכים ש-`/api/version`
+  יחזיר את ה-`BUILD` החדש, מריצים שוב את `rag-eval`, ומדווחים לפני מול אחרי. מספר שירד: מדווחים ומציעים לחזור אחורה.
+  תיקון של אותו באג שלא הצליח אחרי שני סבבים: עוצרים ומדווחים.
 - `npm run dev` / `npm run build` / `npm run lint`.
 - משתני סביבה: `ANTHROPIC_API_KEY`, `ADMIN_PASSWORD`, `ACCESS_CODE`, `SESSION_SECRET`, `DAILY_QUESTION_LIMIT`, `DATA_DIR`, `HIDE_SAMPLE_KB`,
   `EMBEDDINGS` (`vertex` מפעיל חיפוש לפי משמעות), `EMBED_MODEL`, `EMBED_LOCATION`, `EMBED_BATCH`, `FIRST_SEARCH`,

@@ -1419,3 +1419,10 @@ test("stage log: a stage reports its total and the time of each part, and a fail
     console.error = saved.error;
   }
 });
+
+test("version: the service says which build it runs, and nothing else", async () => {
+  const { GET } = await import("../app/api/version/route");
+  const { BUILD } = await import("../lib/version");
+  assert.match(BUILD, /^\d{4}-\d{2}-\d{2}\.\d+$/);
+  assert.deepEqual(await GET().json(), { build: BUILD });
+});
