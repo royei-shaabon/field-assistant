@@ -1537,3 +1537,24 @@ test("a measuring script's questions are answered but never written down, counte
   await recordTurn("main", { id: "kb", name: "SAMPLE" }, { type: "DOC_TURN", said: "SAMPLE מדידה", result: { kind: "not_found" } }, { conversationId: "eval-rag-chat", channel: "chat" });
   assert.equal((await activity("main").recent(lastDays(1), 500)).length, before);
 });
+
+test("every route of the implementer's area checks the session before anything else, and a route that takes a body bounds it", () => {
+  const root = path.join(process.cwd(), "app", "api", "admin");
+  const routes = (fs.readdirSync(root, { recursive: true }) as string[]).filter((f) => f.endsWith("route.ts"));
+  assert.ok(routes.length >= 10);
+  for (const file of routes) {
+    const code = fs.readFileSync(path.join(root, file), "utf8");
+    // The body of each exported handler, up to the next one.
+    const handlers = code.split(/export async function (?:GET|POST|PUT|PATCH|DELETE)\b/).slice(1);
+    assert.ok(handlers.length > 0, `${file} exports no handler`);
+    for (const handler of handlers) {
+      if (file === "login/route.ts") continue; // signing in is how a session begins
+      // The first statement: the session check (envs has its own, `allowed`, which also asks for the main environment).
+      const first = handler.slice(handler.indexOf(") {") + 3).trim().split("\n")[0];
+      assert.ok(/^if \(.*(isAdmin|isMaster|allowed)\(\).*\) return forbidden\(\);$/.test(first), `${file}: a handler does something before checking the session: ${first}`);
+    }
+  }
+  const tryRoute = fs.readFileSync(path.join(root, "kbs", "[kbId]", "try", "route.ts"), "utf8");
+  assert.ok(tryRoute.includes("allow(") && tryRoute.includes("tooLarge("), "the try route bounds how often and how much");
+  assert.ok(!/\.record\(|\.measure\(|recordUsage/.test(tryRoute), "the implementer's own test question is not written to the log");
+});

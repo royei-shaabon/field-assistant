@@ -8,7 +8,7 @@ import { T } from "@/lib/ui-text";
 import { BRAND } from "@/lib/brand";
 import { CheckIcon, CloseIcon, DocIcon, LockIcon, PlusIcon, WarningIcon } from "./icons";
 import { Logo } from "./Logo";
-import { CallTraces, Conversations, Dashboard, Environments, Gaps } from "./AdminDash";
+import { CallTraces, Conversations, Dashboard, Environments, Gaps, TryQuestion } from "./AdminDash";
 import { envBase } from "@/lib/client/env";
 import type { EnvView } from "@/lib/store/envs";
 import { SILENCE } from "@/lib/client/voice";
@@ -902,6 +902,7 @@ export function AdminApp() {
               {!accessCode && <p className="text-[13px] leading-5 text-stone">{A.openAccess}</p>}
               <p className="text-[13px] leading-5 text-stone">{embeddings ? <><span>{A.semantic.on}</span> <span dir="ltr" className="font-mono">{embeddings}</span></> : A.semantic.off}</p>
               <Documents key={kb.id} kb={kb} embeddings={embeddings} onChanged={load} />
+              {kb.docs.length > 0 && <TryQuestion key={`try-${kb.id}`} kbId={kb.id} />}
             </>
           ) : (
             <p className="text-[15px] text-stone">{A.noDocs}</p>

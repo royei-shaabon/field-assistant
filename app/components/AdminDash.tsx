@@ -6,7 +6,7 @@ import { useCallback, useEffect, useState } from "react";
 import type { CallTrace, DayMetrics, QaRecord } from "@/lib/store/activity";
 import type { EnvView } from "@/lib/store/envs";
 import { T } from "@/lib/ui-text";
-import { CheckIcon, PlusIcon } from "./icons";
+import { CheckIcon, PlusIcon, WarningIcon } from "./icons";
 
 const A = T.admin;
 const D = A.dash;
@@ -525,6 +525,85 @@ export function Gaps({ kbId }: { kbId?: string }) {
             </li>
           ))}
         </ul>
+      )}
+    </section>
+  );
+}
+
+type Tried = { kind: string; passages: { source: string; text: string }[]; caution: string | null; ms: number; byMeaning: boolean };
+
+// The implementer asks a question the way a technician would and sees what the search finds.
+export function TryQuestion({ kbId }: { kbId: string }) {
+  const [question, setQuestion] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [found, setFound] = useState<Tried | null>(null);
+  const [failed, setFailed] = useState(false);
+  const Y = A.tryIt;
+  const run = async () => {
+    if (!question.trim() || busy) return;
+    setBusy(true);
+    setFailed(false);
+    const res = await fetch(`/api/admin/kbs/${encodeURIComponent(kbId)}/try`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ question }) }).catch(() => null);
+    const data = res?.ok ? ((await res.json()) as Tried) : null;
+    setFound(data);
+    setFailed(!data);
+    setBusy(false);
+  };
+  return (
+    <section className="flex flex-col gap-2.5">
+      <h2 className="text-[17px] font-bold">{Y.title}</h2>
+      <p className="text-[14px] leading-[21px] text-graphite">{Y.body}</p>
+      <form
+        className="flex gap-2"
+        onSubmit={(e) => {
+          e.preventDefault();
+          void run();
+        }}
+      >
+        <input value={question} onChange={(e) => setQuestion(e.target.value)} maxLength={500} aria-label={Y.title} placeholder={Y.placeholder} dir="auto" className="h-11 min-w-0 flex-1 rounded-[9px] border border-edge bg-paper px-3 text-[15px]" />
+        <button type="submit" disabled={busy || !question.trim()} className="h-11 shrink-0 rounded-[9px] border border-edge px-4 text-[15px] font-medium text-primary disabled:opacity-40">
+          {busy ? Y.running : Y.run}
+        </button>
+      </form>
+      {failed && (
+        <p role="alert" className="text-[14px] text-danger-ink">
+          {Y.failed}
+        </p>
+      )}
+      {found && (
+        <div aria-live="polite" className="flex flex-col gap-2">
+          {!found.byMeaning && <p className="text-[14px] text-graphite">{Y.wordsOnly}</p>}
+          {found.caution && (
+            <p className="flex items-start gap-2 rounded-[10px] bg-signal-soft px-3.5 py-2.5 text-[14px] text-warn">
+              <WarningIcon className="mt-0.5 h-4 w-4 shrink-0" />
+              <span>{found.caution}</span>
+            </p>
+          )}
+          {found.passages.length === 0 ? (
+            <p className="text-[15px] text-stone">{Y.nothing}</p>
+          ) : (
+            <>
+              <p className="text-[14px] text-graphite">
+                <span>{Y.found}</span>{" "}
+                <span className="font-mono text-[13px] text-stone">
+                  {seconds(found.ms)} {Y.seconds}
+                </span>
+              </p>
+              <ol className="flex flex-col gap-2">
+                {found.passages.map((p, i) => (
+                  <li key={i} className="rounded-[12px] border border-rule bg-paper px-4 py-3">
+                    <p className="text-[14px] font-semibold">
+                      <span className="font-mono text-stone">{i + 1}.</span> <bdi>{p.source}</bdi>
+                    </p>
+                    <p dir="auto" className="mt-1 line-clamp-6 whitespace-pre-line text-[14px] leading-[21px] text-graphite">
+                      {p.text}
+                    </p>
+                  </li>
+                ))}
+              </ol>
+            </>
+          )}
+        </div>
       )}
     </section>
   );
