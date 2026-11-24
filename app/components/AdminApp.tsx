@@ -8,7 +8,7 @@ import { T } from "@/lib/ui-text";
 import { BRAND } from "@/lib/brand";
 import { CheckIcon, CloseIcon, DocIcon, LockIcon, PlusIcon, WarningIcon } from "./icons";
 import { Logo } from "./Logo";
-import { CallTraces, Conversations, Dashboard, Environments } from "./AdminDash";
+import { CallTraces, Conversations, Dashboard, Environments, Gaps } from "./AdminDash";
 import { envBase } from "@/lib/client/env";
 import type { EnvView } from "@/lib/store/envs";
 import { SILENCE } from "@/lib/client/voice";
@@ -920,6 +920,7 @@ export function AdminApp() {
           <>
             {kbPicker}
             {kb && <UsageTiles usage={kb.usage} />}
+            {kb && <Gaps kbId={kb.id} />}
             <p className="flex items-start gap-2.5 rounded-[10px] border border-rule bg-paper px-4 py-3 text-[14px] leading-[21px] text-graphite">
               <LockIcon className="mt-0.5 h-5 w-5 shrink-0 text-stone" />
               <span>{A.privacy}</span>

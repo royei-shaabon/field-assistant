@@ -487,3 +487,45 @@ export function CallTraces() {
     </section>
   );
 }
+
+type GapRow = { question: string; count: number; kinds: string[]; kbId: string; lastAt: string };
+
+// What the manuals did not answer, the most asked first: the implementer's list of what to upload next.
+export function Gaps({ kbId }: { kbId?: string }) {
+  const [rows, setRows] = useState<GapRow[] | null>(null);
+  useEffect(() => {
+    let alive = true;
+    void fetch(`/api/admin/gaps${kbId ? `?kbId=${encodeURIComponent(kbId)}` : ""}`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => alive && setRows((d as { gaps: GapRow[] } | null)?.gaps ?? []))
+      .catch(() => {});
+    return () => {
+      alive = false;
+    };
+  }, [kbId]);
+  const G = A.gaps;
+  const kinds = G.kind as Record<string, string>;
+  return (
+    <section className="flex flex-col gap-2">
+      <h2 className="text-[17px] font-bold">{G.title}</h2>
+      <p className="text-[14px] leading-[21px] text-graphite">{G.body}</p>
+      {!rows ? (
+        <p className="text-[15px] text-stone">{D.loading}</p>
+      ) : !rows.length ? (
+        <p className="text-[15px] text-stone">{G.none}</p>
+      ) : (
+        <ul className="flex flex-col overflow-hidden rounded-[12px] border border-rule bg-paper">
+          {rows.map((g) => (
+            <li key={`${g.kbId}/${g.question}`} className="flex flex-wrap items-baseline gap-x-3 gap-y-1 border-t border-rule-soft px-4 py-3 first:border-t-0">
+              <span className="min-w-0 flex-1 text-[15px] font-medium">
+                <bdi>{g.question}</bdi>
+              </span>
+              <span className="text-[13px] text-graphite">{g.kinds.map((k) => kinds[k] ?? k).join(" · ")}</span>
+              <span className="font-mono text-[13px] text-stone">{g.count === 1 ? G.once : `${g.count} ${G.times}`}</span>
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
+  );
+}

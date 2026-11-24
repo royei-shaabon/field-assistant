@@ -7,10 +7,15 @@ import { log, span } from "@/lib/server/log";
 import { activity } from "@/lib/store";
 import { needsCode, technicianAllowed } from "@/lib/server/access";
 import { loadDocKb } from "@/lib/server/kbs";
+import { sameQuestionKey } from "@/lib/same-question";
+import { Recent } from "@/lib/server/recent";
 import { allow, clientKey, LIMITS, tooLarge, tooMany } from "@/lib/server/rate-limit";
-import { liveLookup } from "@/lib/voice/lookup";
+import { liveLookup, type LiveLookup } from "@/lib/voice/lookup";
 
 let client: AnthropicModelClient | undefined;
+// In a call the model often asks the same thing twice (the technician repeats, the model
+// re-checks). A repeat within ten minutes, on the same version of the manuals, is not searched again.
+const recent = new Recent<LiveLookup>(300, 10 * 60_000);
 
 // The live call's tool: a fast search over the machine's documents (lib/voice/lookup.ts).
 export async function POST(request: Request) {
@@ -28,11 +33,17 @@ export async function POST(request: Request) {
     return Response.json({ error: kb ? "no question" : "unknown knowledge base" }, { status: 400 });
   }
   client ??= new AnthropicModelClient();
+  const english = typeof body?.english === "string" ? body.english : undefined;
+  const key = `${envId}/${kb.meta.id}/${kb.meta.updatedAt}/${sameQuestionKey(question)}/${sameQuestionKey(english ?? "")}`;
+  const cached = recent.get(key);
   // embed, match and rerank are timed inside the lookup; what is left here is glue.
-  const found = await liveLookup(kb.index, question, embedder(), typeof body?.english === "string" ? body.english : undefined, modelReranker(client), (part, ms) => stage.add(part, ms), modelTranslator(client)).catch((e) => {
-    stage.fail(e);
-    throw e;
-  });
+  const found =
+    cached ??
+    (await liveLookup(kb.index, question, embedder(), english, modelReranker(client), (part, ms) => stage.add(part, ms), modelTranslator(client)).catch((e) => {
+      stage.fail(e);
+      throw e;
+    }));
+  if (!cached) recent.set(key, found);
   const result = { ...found, general_checks_allowed: kb.meta.ideas !== false };
   stage.part("lookup");
   // What was asked in the call, and that the live model answered it from these pages.
@@ -41,7 +52,7 @@ export async function POST(request: Request) {
     .record({ kbId: kb.meta.id, kbName: kb.meta.name, conversationId: typeof body?.conversationId === "string" ? body.conversationId : undefined, channel: body?.video === true ? "video" : "voice", question, kind: result.kind === "passages" ? "spoken" : "not_found", sources: result.passages.map((p) => p.source) })
     .catch((e) => log.error("record.failed", e, { env: envId }));
   stage.part("record");
-  const ms = stage.end({ passages: result.passages.length, caution: Boolean(result.caution), chars: result.passages.reduce((n, p) => n + p.text.length, 0) });
+  const ms = stage.end({ cached: Boolean(cached), passages: result.passages.length, caution: Boolean(result.caution), chars: result.passages.reduce((n, p) => n + p.text.length, 0) });
   if (ms > 3000) log.warn("live.lookup_slow", { env: envId, kb: kb.meta.id, ms });
   await book.measure((day) => ((day.lookups += 1), void (day.lookupMs += ms))).catch(() => {});
   return Response.json(result, { headers: { "Cache-Control": "no-store" } });

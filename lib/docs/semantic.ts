@@ -8,6 +8,8 @@ import { sectionKey, sectionsInContext, vectorModel } from "./chunk";
 import type { Embedder } from "./embed";
 
 const BATCH = 32;
+// Embedding requests sent at the same time (EMBED_PARALLEL). One for a service with a tight quota.
+const PARALLEL = () => Math.min(8, Math.max(1, Number(process.env.EMBED_PARALLEL) || 4));
 
 export type IndexProgress = { indexed: number; total: number; done: boolean };
 // Filled by `indexDoc` for the stage log: milliseconds per part, and how many embedding calls.
@@ -33,19 +35,27 @@ export async function indexDoc(store: KbStore, embedder: Embedder, kbId: string,
   if (timing) timing.load = started - began;
   let added = 0;
   try {
-    for (let at = 0; at < todo.length && Date.now() - started < budgetMs; at += BATCH) {
-      const batch = todo.slice(at, at + BATCH);
-      // The document name goes in with the text, so a section of bare numbers still says what it is about.
+    // Several requests at a time: a manual of thousands of pages is thousands of sections, and
+    // one request after another would take minutes. What succeeded is kept when one fails.
+    const wave = BATCH * PARALLEL();
+    for (let at = 0; at < todo.length && Date.now() - started < budgetMs; at += wave) {
+      const batches = Array.from({ length: Math.ceil(Math.min(wave, todo.length - at) / BATCH) }, (_, i) => todo.slice(at + i * BATCH, at + (i + 1) * BATCH));
       const calling = Date.now();
-      const made = await embedder.embed(batch.map((s) => `${loaded.name}\n${s.text}`), "document");
-      if (timing) {
-        timing.embed += Date.now() - calling;
-        timing.batches++;
-        timing.sections += batch.length;
-      }
-      batch.forEach((s, i) => vectors.byN.set(s.key, made[i]));
-      vectors.dims = made[0]?.length ?? vectors.dims;
-      added += batch.length;
+      // The document name goes in with the text, so a section of bare numbers still says what it is about.
+      const results = await Promise.allSettled(batches.map((batch) => embedder.embed(batch.map((s) => `${loaded.name}\n${s.text}`), "document")));
+      if (timing) timing.embed += Date.now() - calling;
+      results.forEach((result, i) => {
+        if (result.status !== "fulfilled") return;
+        batches[i].forEach((s, j) => vectors.byN.set(s.key, result.value[j]));
+        vectors.dims = result.value[0]?.length ?? vectors.dims;
+        added += batches[i].length;
+        if (timing) {
+          timing.batches++;
+          timing.sections += batches[i].length;
+        }
+      });
+      const failed = results.find((r): r is PromiseRejectedResult => r.status === "rejected");
+      if (failed) throw failed.reason;
     }
   } finally {
     // Whatever was embedded is kept, also when a later request failed.

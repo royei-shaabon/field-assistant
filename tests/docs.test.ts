@@ -1454,3 +1454,67 @@ test("sections under their headings: a section cut from the middle of a procedur
   assert.equal(hit.n, 1);
   assert.ok(!/Glimp Removal/.test(hit.focus!), "the best section is from the middle of the page; its heading found it");
 });
+
+test("recent results: a repeat is remembered for a while, the oldest is dropped first, and wording details do not make a new question", async () => {
+  const { Recent } = await import("../lib/server/recent");
+  const { sameQuestionKey } = await import("../lib/same-question");
+  const recent = new Recent<string>(2, 1000);
+  recent.set("a", "SAMPLE 1", 0);
+  assert.equal(recent.get("a", 999), "SAMPLE 1");
+  assert.equal(recent.get("a", 1001), undefined, "too old");
+  recent.set("a", "SAMPLE 1", 0);
+  recent.set("b", "SAMPLE 2", 1);
+  recent.set("c", "SAMPLE 3", 2);
+  assert.deepEqual([recent.get("a", 3), recent.get("b", 3), recent.get("c", 3), recent.size], [undefined, "SAMPLE 2", "SAMPLE 3", 2]);
+  assert.equal(sameQuestionKey("  איך בודקים שמן?? "), sameQuestionKey("איך בודקים   שמן"));
+  assert.notEqual(sameQuestionKey("איך בודקים שמן"), sameQuestionKey("איך בודקים מים"));
+});
+
+test("meaning index of a large manual: requests go out several at a time, and a failed one does not lose the others", async () => {
+  const store = await tempStore();
+  const meta = await store.createKb({ name: "SAMPLE big" });
+  // 200 short parts: 200 sections, seven requests of 32.
+  const passages = Array.from({ length: 200 }, (_, i) => ({ n: i + 1, text: `SAMPLE part ${i + 1} about the SAMPLE valve.` }));
+  const added = await store.addDoc(meta.id, { name: "SAMPLE big manual", unit: "part", mime: "text/plain", ext: ".txt", bytes: 10, passages: 200, empty: 0, chars: 1000, origin: "manufacturer" }, passages, Buffer.from("SAMPLE"));
+  let running = 0;
+  let most = 0;
+  let calls = 0;
+  let failOn = 3;
+  const embedder = {
+    model: "sample-embed",
+    embed: async (texts: string[]) => {
+      const call = ++calls;
+      most = Math.max(most, ++running);
+      await new Promise((resolve) => setTimeout(resolve, 5));
+      running--;
+      if (call === failOn) throw new Error("SAMPLE 503");
+      return texts.map(() => new Float32Array([1, 0]));
+    },
+  };
+  await assert.rejects(indexDoc(store, embedder, meta.id, added.id), /503/);
+  assert.ok(most > 1 && most <= 4, `several at a time, at most four (${most})`);
+  const kept = (await store.getVectors(meta.id, added.id))!.byN.size;
+  assert.equal(kept, 96, "the three requests that succeeded beside the failed one were kept");
+  failOn = -1;
+  assert.deepEqual(await indexDoc(store, embedder, meta.id, added.id), { indexed: 200, total: 200, done: true });
+  assert.equal(calls, 4 + 4, "the second run embedded only what was missing: 104 sections in four requests");
+});
+
+test("what the manuals did not answer: unanswered questions are grouped, the most asked first, and measuring scripts are left out", async () => {
+  const { gaps } = await import("../lib/store/gaps");
+  const rec = (question: string, kind: string, at: string, over: object = {}) => ({ id: at, at, kbId: "kb", channel: "chat" as const, question, kind, ...over });
+  const list = gaps([
+    rec("SAMPLE איך מחליפים רצועה?", "not_found", "2026-11-01T10:00:00Z"),
+    rec("SAMPLE איך מחליפים רצועה", "ideas", "2026-11-03T10:00:00Z"),
+    rec("SAMPLE מה לחץ האוויר?", "answer", "2026-11-02T10:00:00Z"),
+    rec("SAMPLE יש ריח דלק", "hazard", "2026-11-04T10:00:00Z"),
+    rec("SAMPLE שאלת מדידה", "not_found", "2026-11-05T10:00:00Z", { conversationId: "eval-rag" }),
+    rec("SAMPLE במכונה אחרת", "not_found", "2026-11-05T10:00:00Z", { kbId: "other" }),
+    rec("", "survey", "2026-11-05T11:00:00Z"),
+  ], "kb");
+  assert.deepEqual(list.map((g) => [g.question, g.count, g.kinds]), [
+    ["SAMPLE איך מחליפים רצועה?", 2, ["not_found", "ideas"]],
+    ["SAMPLE יש ריח דלק", 1, ["hazard"]],
+  ]);
+  assert.equal(list[0].lastAt, "2026-11-03T10:00:00Z");
+});

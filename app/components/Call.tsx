@@ -14,6 +14,7 @@ import { listenForSpeech, voicePlayer } from "@/lib/client/voice";
 import { forVoice } from "@/lib/speech";
 import { T } from "@/lib/ui-text";
 import type { DocMark } from "@/lib/docs/ask";
+import { sameQuestionKey } from "@/lib/same-question";
 import { MarkedImage, StopCard } from "./Chat";
 import { DocHazard, MarksLegend } from "./DocChat";
 import { LogoMark } from "./Logo";
@@ -244,6 +245,8 @@ export function CallView({
   }, [callId, kbId, kind, conversationId]);
   // Whether anything was asked in this call: only then is the short survey worth showing.
   const asked = useRef(0);
+  // Questions of this call that were already sent for a checked answer.
+  const checked = useRef(new Set<string>());
   // The still picture of the last checked answer can be closed.
   const [closedFor, setClosedFor] = useState(0);
 
@@ -412,11 +415,16 @@ export function CallView({
       onTool: async (question, english) => {
         asked.current++;
         const picture = frame();
-        // The checked answer carries the safety warning too: shown when it arrives.
-        void liveAsk.current?.(question, picture)?.then((r) => {
-          const warning = (r as { warning?: string } | null)?.warning;
-          warn(warning);
-        });
+        // The checked answer carries the safety warning too: shown when it arrives. The same
+        // question asked again in this call already has its checked answer in the chat.
+        const key = sameQuestionKey(question);
+        if (!checked.current.has(key)) {
+          checked.current.add(key);
+          void liveAsk.current?.(question, picture)?.then((r) => {
+            const warning = (r as { warning?: string } | null)?.warning;
+            warn(warning);
+          });
+        }
         const res = await fetch("/api/voice/lookup", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ kbId, question, english, conversationId, video: kind === "video" }) }).catch(() => null);
         const found = res?.ok ? ((await res.json()) as { caution?: string }) : null;
         warn(found?.caution);
