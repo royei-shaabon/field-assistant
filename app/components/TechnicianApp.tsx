@@ -504,6 +504,23 @@ function Notice({ text, action, onAction }: { text: string; action?: string; onA
 // A round icon button in the top bar, as in any messaging app. The label is read by a screen reader.
 // The machines this technician can ask about, opened from the bar. Shown only when there is
 // more than one; a tap outside or Escape closes it.
+// Three ways to start without typing: the implementer's own questions for this machine, or the general ones.
+function Starters({ own, onPick }: { own?: string[]; onPick: (question: string) => void }) {
+  const list: readonly string[] = own && own.length > 0 ? own : T.doc.emptyIdeas;
+  return (
+    <ul className="pt-5">
+      {list.map((idea) => (
+        <li key={idea} className="border-b border-rule-soft">
+          <button onClick={() => onPick(idea)} className="flex min-h-12 w-full items-center justify-between gap-3 text-start text-[16px] text-graphite active:bg-mist">
+            <bdi>{idea}</bdi>
+            <ArrowIcon className="h-4 w-4 shrink-0 rotate-180 text-pebble" />
+          </button>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
 function Machines({ kbs, kbId, onPick, onClose }: { kbs: KbSummary[]; kbId: string; onPick: (id: string) => void; onClose: () => void }) {
   const ref = useDialog(onClose);
   return (
@@ -965,16 +982,7 @@ export function TechnicianApp() {
             <div className="flex flex-col px-3 pb-3">
               <h2 className="text-[28px] font-extrabold leading-[34px] tracking-[-0.035em]">{noDocuments ? T.doc.empty : isDocs ? T.doc.emptyTitle : T.chat.emptyLead}</h2>
               {isDocs && !noDocuments && (
-                <ul className="pt-5">
-                  {T.doc.emptyIdeas.map((idea) => (
-                    <li key={idea} className="border-b border-rule-soft">
-                      <button onClick={() => void sendMessage(idea, null)} className="flex min-h-12 w-full items-center justify-between gap-3 text-start text-[16px] text-graphite active:bg-mist">
-                        <span>{idea}</span>
-                        <ArrowIcon className="h-4 w-4 shrink-0 rotate-180 text-pebble" />
-                      </button>
-                    </li>
-                  ))}
-                </ul>
+                <Starters own={kb?.starters} onPick={(idea) => void sendMessage(idea, null)} />
               )}
               <p className="pt-4 text-[13px] leading-5 text-stone">{notice}</p>
             </div>

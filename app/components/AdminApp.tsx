@@ -77,13 +77,14 @@ function KbForm({ initial, submit, onSubmit, onCancel }: { initial?: { name: str
   const [name, setName] = useState(initial?.name ?? "");
   const [description, setDescription] = useState(initial?.description ?? "");
   const [ideas, setIdeas] = useState(initial?.ideas !== false);
+  const [starters, setStarters] = useState<string[]>([0, 1, 2].map((i) => initial?.starters?.[i] ?? ""));
   const [busy, setBusy] = useState(false);
   return (
     <form
       onSubmit={async (e) => {
         e.preventDefault();
         setBusy(true);
-        await onSubmit({ name, description, ideas });
+        await onSubmit({ name, description, ideas, ...(initial ? { starters } : {}) });
         setBusy(false);
       }}
       className="flex flex-col gap-3 rounded-[18px] border border-rule p-4"
@@ -96,6 +97,23 @@ function KbForm({ initial, submit, onSubmit, onCancel }: { initial?: { name: str
         <span>{A.kbDescription}</span>
         <input value={description} maxLength={400} onChange={(e) => setDescription(e.target.value)} className="h-11 rounded-xl border border-edge bg-paper px-3 text-base font-normal text-ink focus:border-primary" />
       </label>
+      {initial && (
+        <fieldset className="flex flex-col gap-1.5">
+          <legend className="text-sm font-medium text-graphite">{A.starters}</legend>
+          <p className="pb-1 text-sm text-graphite">{A.startersHint}</p>
+          {starters.map((value, i) => (
+            <input
+              key={i}
+              value={value}
+              maxLength={60}
+              dir="auto"
+              aria-label={`${A.starterLabel} ${i + 1}`}
+              onChange={(e) => setStarters((now) => now.map((q, j) => (j === i ? e.target.value : q)))}
+              className="h-11 rounded-xl border border-edge bg-paper px-3 text-base font-normal text-ink focus:border-primary"
+            />
+          ))}
+        </fieldset>
+      )}
       {initial && (
         <label className="flex items-start gap-2.5 text-[15px] text-ink">
           <input type="checkbox" checked={ideas} onChange={(e) => setIdeas(e.target.checked)} className="mt-1 h-5 w-5 shrink-0 accent-primary" />
