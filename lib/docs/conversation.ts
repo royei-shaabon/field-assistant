@@ -10,7 +10,9 @@ import type { Embedder } from "./embed";
 import type { SearchIndex } from "./search";
 import { log } from "../server/log";
 
-export type DocTurn = { type: "DOC_TURN"; said?: string; media?: "photo" | "video"; frames?: number; result: DocResult };
+// `again`: the pictures of this turn are the ones sent earlier in the conversation, attached again
+// by the phone so a later question can be answered, and marked, on them.
+export type DocTurn = { type: "DOC_TURN"; said?: string; media?: "photo" | "video"; frames?: number; again?: true; result: DocResult };
 // What was said in a voice or video call, as the phone transcribed it: the technician's words
 // and the assistant's. It is a record, not a checked answer; the chat shows it as the call's
 // transcript, and it is part of what the next question (written or spoken) knows about.
@@ -20,7 +22,7 @@ export type DocEvent = DocTurn | CallLog;
 export const MAX_CALL_LINES = 60;
 export const MAX_CALL_LINE = 400;
 
-export type DocInput = { kind: "view" } | { kind: "ask"; text?: string; images?: ClientImage[]; media?: "photo" | "video" } | { kind: "call_log"; call: "voice" | "video"; lines: CallLine[] };
+export type DocInput = { kind: "view" } | { kind: "ask"; text?: string; images?: ClientImage[]; media?: "photo" | "video"; again?: boolean } | { kind: "call_log"; call: "voice" | "video"; lines: CallLine[] };
 
 export type DocRequest = { events: DocEvent[]; input: DocInput };
 export type DocResponse = { events: DocEvent[]; screen: Screen };
@@ -50,6 +52,7 @@ const docTurn =
       said: text(),
       media: { enum: ["photo", "video"] },
       frames: { type: "integer", minimum: 0, maximum: MAX_IMAGES },
+      again: { const: true },
       result: {
         oneOf: [
           obj(["kind", "title", "steps", "marks"], {
@@ -61,7 +64,13 @@ const docTurn =
             figures: {
               type: "array",
               maxItems: 2,
-              items: obj(["source", "caption", "box", "aspect"], { source, caption: text(80), box: obj(["x", "y", "w", "h"], { x: int, y: int, w: int, h: int }), aspect: { type: "number", minimum: 0.2, maximum: 5 } }),
+              items: obj(["source", "caption", "box", "aspect"], {
+                source,
+                caption: text(80),
+                box: obj(["x", "y", "w", "h"], { x: int, y: int, w: int, h: int }),
+                aspect: { type: "number", minimum: 0.2, maximum: 5 },
+                parts: { type: "array", maxItems: 6, items: obj(["name", "box"], { name: text(40), printed: text(60), asked: { const: true }, box: obj(["x", "y", "w", "h"], { x: int, y: int, w: int, h: int }) }) },
+              }),
             },
             marks: {
               type: "array",
@@ -85,6 +94,7 @@ const inputAsk =
       obj(["kind"], {
         kind: kind("ask"),
         text: text(),
+        again: { type: "boolean" },
         media: { enum: ["photo", "video"] },
         images: {
           type: "array",
@@ -140,7 +150,7 @@ export function conversationSoFar(events: DocEvent[], max = 2500): string {
       for (const l of e.lines) lines.push(`${l.by === "tech" ? "Technician" : "Assistant"} (in a ${e.call} call): ${l.text}`);
       continue;
     }
-    lines.push(`Technician: ${e.said ? oneLine(e.said, 300) : ""}${e.media ? ` [sent ${e.frames ?? 1} ${e.media === "video" ? "video frame(s)" : "photo(s)"}]` : ""}`);
+    lines.push(`Technician: ${e.said ? oneLine(e.said, 300) : ""}${e.media && !e.again ? ` [sent ${e.frames ?? 1} ${e.media === "video" ? "video frame(s)" : "photo(s)"}]` : ""}`);
     const r = e.result;
     if (r.kind === "answer") lines.push(`Assistant: ${r.title}. ${r.steps.map((s, i) => `${i + 1}) ${oneLine(s.text, 160)}`).join(" ")}`);
     else if (r.kind === "ask") lines.push(`Assistant asked: ${oneLine(r.question, 200)}`);
@@ -161,7 +171,7 @@ export function docScreen(events: DocEvent[], hasDocuments: boolean, allowIdeas 
       items.push({ by: "bot", kind: "call_log", call: event.call, lines: event.lines });
       return;
     }
-    if (event.media) items.push({ by: "tech", kind: "media", media: event.media, frames: event.frames ?? 1, eventIndex, said: event.said });
+    if (event.media && !event.again) items.push({ by: "tech", kind: "media", media: event.media, frames: event.frames ?? 1, eventIndex, said: event.said });
     else if (event.said) items.push({ by: "tech", kind: "text", said: event.said });
     const r = guarded(event, allowIdeas);
     if (r.kind === "answer") {
@@ -214,6 +224,7 @@ export async function handleDocConversation(
       question: said,
       images: images.map((i) => ({ type: "image" as const, ...i })),
       media,
+      again: images.length > 0 && input.again === true,
       history: events.filter((e): e is DocTurn => e.type === "DOC_TURN").map((e) => ({ said: e.said, result: e.result })),
       earlier: conversationSoFar(events, 1500),
       pageImage: live.pageImage,
@@ -227,7 +238,7 @@ export async function handleDocConversation(
   );
   if (run.errors.length) log.warn("ask.model_errors", { kb: kb.meta.id, errors: run.errors.join("; ").slice(0, 500) });
   live.onTiming?.(run.timing);
-  const event: DocTurn = { type: "DOC_TURN", result: run.result, ...(said ? { said } : {}), ...(media ? { media, frames: images.length } : {}) };
+  const event: DocTurn = { type: "DOC_TURN", result: run.result, ...(said ? { said } : {}), ...(media ? { media, frames: images.length } : {}), ...(media && input.again === true ? { again: true as const } : {}) };
   const next = [...events, event];
   return { events: next, screen: docScreen(next, true, allowIdeas) };
 }

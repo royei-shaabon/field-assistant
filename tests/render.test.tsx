@@ -170,3 +170,39 @@ test("the rendered chat really contains the question, the stop card and the map"
   assert.ok(html.includes("SAMPLE בדיקה s1"), "question after acknowledging");
   assert.ok(html.includes("SAMPLE מדריך"), "source chip");
 });
+
+test("a manual drawing shows the asked part's name on it and the printed labels next to their names", async () => {
+  const { DocAnswer } = await import("../app/components/DocChat");
+  const source = { docId: "d1", docName: "SAMPLE manual", origin: "manufacturer" as const, unit: "page" as const, n: 2 };
+  const html = renderToStaticMarkup(
+    <DocAnswer
+      kbId="kb1"
+      animate={false}
+      delay={0}
+      item={{
+        by: "bot",
+        kind: "doc_answer",
+        eventIndex: 0,
+        title: "SAMPLE כותרת",
+        steps: [{ text: "SAMPLE שלב", quote: "SAMPLE quote", source }],
+        marks: [],
+        figures: [
+          {
+            source,
+            caption: "SAMPLE איור",
+            box: { x: 100, y: 100, w: 600, h: 500 },
+            aspect: 0.7,
+            parts: [
+              { name: "SAMPLE מצבר", printed: "Battery", box: { x: 300, y: 300, w: 100, h: 100 }, asked: true },
+              { name: "SAMPLE כיסוי", printed: "Cover", box: { x: 500, y: 200, w: 80, h: 80 } },
+            ],
+          },
+        ],
+      }}
+    />,
+  );
+  assert.equal(html.split("border-signal").length - 1, 1, "only the asked part is marked on the drawing");
+  assert.match(html, /<bdi lang="en"[^>]*>Battery<\/bdi>/);
+  assert.match(html, /<bdi lang="en"[^>]*>Cover<\/bdi>/);
+  assert.ok(html.includes("SAMPLE כיסוי") && html.includes("SAMPLE מצבר"));
+});

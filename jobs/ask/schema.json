@@ -78,11 +78,31 @@
         "required": [
           "ref",
           "caption",
-          "box"
+          "box",
+          "parts"
         ],
         "properties": {
           "ref": {
             "type": "string"
+          },
+          "parts": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["name", "printed", "asked", "box"],
+              "properties": {
+                "name": { "type": "string" },
+                "printed": { "type": "string" },
+                "asked": { "type": "boolean" },
+                "box": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": ["x", "y", "w", "h"],
+                  "properties": { "x": { "type": "integer" }, "y": { "type": "integer" }, "w": { "type": "integer" }, "h": { "type": "integer" } }
+                }
+              }
+            }
           },
           "caption": {
             "type": "string"

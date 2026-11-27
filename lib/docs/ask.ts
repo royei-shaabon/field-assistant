@@ -34,7 +34,13 @@ export type HazardTopic = "brakes" | "fuel" | "hot_coolant" | "running_engine" |
 export type SourceView = { docId: string; docName: string; origin: DocMeta["origin"]; unit: DocMeta["unit"]; n: number };
 export type Box = { x: number; y: number; w: number; h: number };
 // A drawing cut out of a manual page: `box` in thousandths of the page, `aspect` = page width / height.
-export type DocFigure = { source: SourceView; caption: string; box: Box; aspect: number };
+// A part named in the manual's drawing. `name` is in the technician's language; `printed` is the
+// label as the drawing prints it (kept only when the page really carries it); `asked` puts a mark
+// on the drawing, for the part the technician is asking about.
+export type FigurePart = { name: string; printed?: string; box: Box; asked?: true };
+export type DocFigure = { source: SourceView; caption: string; box: Box; aspect: number; parts?: FigurePart[] };
+const MAX_PARTS = 6;
+const MAX_ASKED = 2;
 export type DocMark = { frame: number; step: number; label: string; box: { x: number; y: number; w: number; h: number } };
 
 export type Likelihood = "high" | "medium" | "low";
@@ -79,6 +85,8 @@ export type AskInput = {
   // The conversation so far as plain text, calls included (see conversationSoFar): what was
   // said aloud is part of what this question may refer to.
   earlier?: string;
+  // The pictures are the ones the technician sent earlier in this conversation, attached again by the phone.
+  again?: boolean;
   // Renders a page of a document as a picture. Absent in tests and for non-PDF documents.
   pageImage?: (hit: Hit) => Promise<PageShot | null>;
   // False when this knowledge base answers from its documents only. Default: suggestions allowed.
@@ -97,7 +105,7 @@ type Draft = {
   question: string;
   options: string[];
   marks: DocMark[];
-  figures: { ref: string; caption: string; box: Box }[];
+  figures: { ref: string; caption: string; box: Box; parts?: { name: string; printed: string; asked: boolean; box: Box }[] }[];
   hazard: "none" | HazardTopic;
 };
 
@@ -196,6 +204,34 @@ export function validDocMarks(marks: DocMark[], frames: number, steps: number): 
 }
 
 const inRange = (v: number) => Number.isInteger(v) && v >= 0 && v <= 1000;
+// Letters and digits only, lower case: how a label printed in a drawing is looked for in the page's text.
+const plain = (text: string) => text.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, " ").trim();
+
+// The parts of one drawing, checked: a box must be a real box inside the drawing, a printed label
+// is kept only when the page's own text carries it, and at most two parts are marked.
+export function checkedParts(parts: unknown, figure: Box, size: Size, pageText: string): FigurePart[] {
+  if (!Array.isArray(parts)) return [];
+  const page = ` ${plain(pageText)} `;
+  let asked = 0;
+  const out: FigurePart[] = [];
+  for (const raw of parts as { name?: unknown; printed?: unknown; asked?: unknown; box?: Box }[]) {
+    const name = String(raw?.name ?? "").trim().slice(0, 40);
+    const box = raw?.box ? toThousandths(raw.box, size) : null;
+    if (!name || !box || box.w < 8 || box.h < 8) continue;
+    const inside = box.x + box.w / 2 >= figure.x && box.x + box.w / 2 <= figure.x + figure.w && box.y + box.h / 2 >= figure.y && box.y + box.h / 2 <= figure.y + figure.h;
+    if (!inside) continue;
+    const printed = String(raw.printed ?? "").trim().slice(0, 60);
+    const real = printed && plain(printed) && page.includes(` ${plain(printed)} `) ? printed : "";
+    const mark = raw.asked === true && asked < MAX_ASKED;
+    // A part that is neither marked nor a label the page really prints has nothing to show.
+    if (!mark && !real) continue;
+    if (mark) asked++;
+    out.push({ name, box, ...(real ? { printed: real } : {}), ...(mark ? { asked: true as const } : {}) });
+    if (out.length >= MAX_PARTS) break;
+  }
+  return out;
+}
+
 const validBox = ({ x, y, w, h }: Box) => [x, y, w, h].every(inRange) && w >= 60 && h >= 60 && x + w <= 1000 && y + h <= 1000;
 
 // The order is decided here, not by the model: how likely the cause is, divided by how long the
@@ -278,7 +314,9 @@ export function verifyDraft(
     .flatMap((f) => {
       const shot = shots.get(f.ref);
       const box = shot && cited.has(f.ref) && seen.has(f.ref) ? toThousandths(f.box, shot) : null;
-      return box && validBox(box) ? [{ source: sourceOf(seen.get(f.ref)!), caption: String(f.caption ?? "").trim().slice(0, 80), box, aspect: shot!.width / shot!.height }] : [];
+      if (!box || !validBox(box)) return [];
+      const parts = checkedParts(f.parts, box, shot!, seen.get(f.ref)!.text);
+      return [{ source: sourceOf(seen.get(f.ref)!), caption: String(f.caption ?? "").trim().slice(0, 80), box, aspect: shot!.width / shot!.height, ...(parts.length ? { parts } : {}) }];
     })
     .slice(0, MAX_FIGURES);
   return {
@@ -416,7 +454,9 @@ function contextOf(input: AskInput, index: SearchIndex, frameSizes: (Size | null
     attached_pictures: frameSizes.map((s, frame) => ({ frame, pixels: s ? `${s.width} x ${s.height}` : "unknown" })),
     history: input.history.slice(-4).map((h) => ({ technician: h.said ?? "(sent media)", assistant: describeResult(h.result) })),
     ...(input.earlier && /\(in a (voice|video) call\)/.test(input.earlier) ? { said_in_calls_and_chat_so_far: input.earlier } : {}),
-    attached: input.images.length ? `${input.images.length} ${input.media === "video" ? "video frames" : "photo(s)"}` : "nothing",
+    attached: input.images.length
+      ? `${input.images.length} ${input.media === "video" ? "video frames" : "photo(s)"}${input.again ? ", sent earlier in this conversation and attached again by the phone (not new)" : ""}`
+      : "nothing",
     technician: input.question ?? "(no text, only the attached media)",
     search: input.embedder && index.hasVectors(vectorModel(input.embedder.model)) ? "keywords and meaning" : "keywords",
     suggested_checks: input.ideas === false ? "off: this knowledge base answers from its documents only, return an empty `checks` list" : "allowed",

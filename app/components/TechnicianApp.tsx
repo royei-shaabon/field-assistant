@@ -41,7 +41,26 @@ type Reply = { events: SavedConversation["events"]; screen: Screen };
 // What the technician attached and has not sent yet.
 type Staged = { frames: string[]; media: "photo" | "video" };
 // `at`: the time shown on the message while it waits for its answer.
-type Pending = { said?: string; frames?: string[]; at?: string };
+// `reuse`: the small copies of pictures sent earlier, which this question was asked about again.
+type Pending = { said?: string; frames?: string[]; at?: string; reuse?: string[] };
+
+// The pictures as they were sent, kept while the page is open, by their small saved copies:
+// a later question about the same picture is answered on the sharp one.
+const sharp = new WeakMap<string[], string[]>();
+// How far back a picture still counts as "what we are talking about".
+const PICTURE_STAYS = 8;
+
+// The last photos the technician sent in this conversation, when they are recent enough.
+function picturesSoFar(conversation: Active["conversation"]): { frames: string[]; small: string[] } | null {
+  const events = conversation.events as { type?: string; media?: string; again?: boolean }[];
+  for (let i = events.length - 1; i >= Math.max(0, events.length - PICTURE_STAYS); i--) {
+    const e = events[i];
+    if (e.type !== "DOC_TURN" || e.media !== "photo" || e.again) continue;
+    const small = conversation.media?.[i];
+    return small?.length ? { frames: sharp.get(small) ?? small, small } : null;
+  }
+  return null;
+}
 
 class HttpError extends Error {
   constructor(public status: number) {
@@ -792,7 +811,11 @@ export function TechnicianApp() {
       let times = base.conversation.times;
       if (res.events.length > base.conversation.events.length) {
         times = { ...times, [res.events.length - 1]: sentAt };
-        if (sent?.frames?.length) media = { ...media, [res.events.length - 1]: await Promise.all(sent.frames.map((f) => thumbnail(f))) };
+        if (sent?.frames?.length) {
+          const small = await Promise.all(sent.frames.map((f) => thumbnail(f)));
+          sharp.set(small, sent.frames);
+          media = { ...media, [res.events.length - 1]: small };
+        } else if (sent?.reuse) media = { ...media, [res.events.length - 1]: sent.reuse };
       }
       const conversation = {
         ...base.conversation,
@@ -835,13 +858,20 @@ export function TechnicianApp() {
       if (!text && !attachment) return null;
       const base = target(activeRef.current);
       if (base !== activeRef.current) open(base);
-      const media = attachment ? { images: attachment.frames.map(dataUrlToImage), media: attachment.media } : {};
+      // A written question with no new picture is still about the photo sent a moment ago:
+      // it goes along again, so the answer can point at parts in it.
+      const before = !attachment && docsRef.current && !callRef.current ? picturesSoFar(base.conversation) : null;
+      const media = attachment
+        ? { images: attachment.frames.map(dataUrlToImage), media: attachment.media }
+        : before
+          ? { images: before.frames.map(dataUrlToImage), media: "photo" as const, again: true }
+          : {};
       const input: Input = docsRef.current
         ? { kind: "ask", ...(text ? { text } : {}), ...media }
         : base.screen.mode === "identify" || attachment
           ? { kind: "describe", ...(text ? { text } : {}), ...media }
           : { kind: "text", text, symptomId: base.screen.current?.symptomId };
-      return send(base, input, { said: text || undefined, frames: attachment?.frames, at: new Date().toLocaleTimeString("he-IL", { hour: "2-digit", minute: "2-digit" }) }, speak);
+      return send(base, input, { said: text || undefined, frames: attachment?.frames, reuse: before?.small, at: new Date().toLocaleTimeString("he-IL", { hour: "2-digit", minute: "2-digit" }) }, speak);
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps -- reads the latest state through activeRef
     [send],

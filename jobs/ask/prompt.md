@@ -67,6 +67,13 @@ picture, whose size is stated where it is introduced (`x`, `y` of the top-left c
 `h`). Take the whole drawing with its
 labels; a box that cuts the drawing is worse than a slightly generous one. A page of text with
 no drawing gets no figure.
+Each figure has `parts` (0 to 6): the parts in that drawing that your steps talk about, so the
+technician can read the drawing in their own language. For each part: `name`, what you call it
+in the answer (the technician's language, at most four words); `printed`, the label exactly as
+the drawing prints it (empty when the drawing has no text for it); a `box` around the part
+itself in the drawing (not around its label), in the same page pixels; and `asked`, true only
+for the part the technician is asking about or the step acts on (at most two), which gets a
+mark on the drawing. Give only parts you can actually see in the drawing; an empty list is fine.
 
 `marks`: only when the technician attached images and something the answer talks about is visible in
 them. Each mark points at one thing: `frame` (0-based image index), `step` (0-based index of
@@ -74,6 +81,10 @@ the step it illustrates), a `label` of at most four Hebrew words, and a `box` in
 that picture (`x`, `y` of the top-left corner, `w`, `h`); `attached_pictures` in the input
 gives the pixel size of each frame. Mark only what you
 can actually see; a wrong box misleads more than no box. Otherwise return an empty list.
+When `attached` says the pictures were sent earlier in this conversation, they are not a new
+message: the technician is still talking about what is in them. When the question now is about
+a part, or asks to be shown or guided on the machine itself, mark in them the parts your steps
+name; when the question has nothing to do with the pictures, ignore them and return no marks.
 
 `hazard`: see "Safety" above. One of `brakes`, `fuel`, `hot_coolant`, `running_engine`, `other`, `none`.
 

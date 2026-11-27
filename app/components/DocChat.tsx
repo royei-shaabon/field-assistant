@@ -118,12 +118,15 @@ function Figure({ kbId, figure }: { kbId: string; figure: DocFigure }) {
   const y = Math.max(0, box.y - pad);
   const w = Math.min(1000 - x, box.w + 2 * pad);
   const h = Math.min(1000 - y, box.h + 2 * pad);
+  const marked = (figure.parts ?? []).filter((p) => p.asked);
+  // What the drawing prints, next to the same part's name in the technician's language.
+  const printed = (figure.parts ?? []).filter((p) => p.printed);
   return (
     <figure className="anim-rise m-0 flex flex-col gap-1.5">
-      <a href={page} target="_blank" rel="noopener" className="block overflow-hidden rounded-2xl border border-edge bg-white">
+      <a href={page} target="_blank" rel="noopener" className="relative block overflow-hidden rounded-2xl border border-edge bg-white">
         <span
           role="img"
-          aria-label={figure.caption || T.doc.figure}
+          aria-label={[figure.caption || T.doc.figure, ...marked.map((m) => m.name)].join(", ")}
           className="block w-full"
           style={{
             aspectRatio: `${w * aspect} / ${h}`,
@@ -133,10 +136,40 @@ function Figure({ kbId, figure }: { kbId: string; figure: DocFigure }) {
             backgroundPosition: `${w >= 1000 ? 0 : (x / (1000 - w)) * 100}% ${h >= 1000 ? 0 : (y / (1000 - h)) * 100}%`,
           }}
         />
+        {/* The part being talked about, marked on the manual's own drawing with its name. */}
+        {marked.map((m, i) => {
+          const left = ((m.box.x - x) / w) * 100;
+          const top = ((m.box.y - y) / h) * 100;
+          return (
+            <span key={i} aria-hidden>
+              <span
+                className="absolute rounded-lg border-[3px] border-signal shadow-[0_0_0_1.5px_var(--color-night),inset_0_0_0_1.5px_var(--color-night)]"
+                style={{ left: `${left}%`, top: `${top}%`, width: `${(m.box.w / w) * 100}%`, height: `${(m.box.h / h) * 100}%` }}
+              />
+              <span
+                className="absolute max-w-[70%] truncate rounded-md bg-signal px-1.5 py-0.5 text-[13px] font-medium leading-[18px] text-night shadow-[0_0_0_1.5px_var(--color-night)]"
+                style={top > 18 ? { left: `${Math.min(left, 60)}%`, bottom: `${100 - top + 1.5}%` } : { left: `${Math.min(left, 60)}%`, top: `${top + (m.box.h / h) * 100 + 1.5}%` }}
+              >
+                {m.name}
+              </span>
+            </span>
+          );
+        })}
       </a>
       <figcaption className="text-[15px] text-graphite">
         <span>{T.doc.figure}</span>
         {figure.caption && <span>: {figure.caption}</span>}
+        {printed.length > 0 && (
+          <ul className="mt-1 flex flex-col gap-0.5 text-[14px] leading-[20px]" aria-label={T.doc.figureWords}>
+            {printed.map((p, i) => (
+              <li key={i} className="flex flex-wrap items-baseline gap-x-1.5">
+                <bdi lang="en" className="font-mono text-[13px] text-stone">{p.printed}</bdi>
+                <span aria-hidden className="text-stone">·</span>
+                <span className="text-ink">{p.name}</span>
+              </li>
+            ))}
+          </ul>
+        )}
       </figcaption>
     </figure>
   );

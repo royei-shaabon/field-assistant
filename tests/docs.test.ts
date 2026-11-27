@@ -25,7 +25,7 @@ import { liveLookup, LOOKUP_PASSAGES } from "../lib/voice/lookup";
 import { sectionKey, sections, vectorModel } from "../lib/docs/chunk";
 import { checkedOrder } from "../lib/docs/rerank";
 import { AzureVoice, ElevenVoice, GeminiVoice, GoogleVoice, speak, VoiceProviders, type VoiceService } from "../lib/voice/tts";
-import { askDocuments, chatBrief, hazardTopic, partialAnswer, quoteInPassage, rankIdeas, toThousandths, type DocResult, type PartialAnswer } from "../lib/docs/ask";
+import { askDocuments, chatBrief, checkedParts, hazardTopic, partialAnswer, quoteInPassage, rankIdeas, toThousandths, type DocResult, type PartialAnswer } from "../lib/docs/ask";
 import { imageSize } from "../lib/docs/image-size";
 import { docScreen, handleDocConversation, type DocEvent } from "../lib/docs/conversation";
 import { ingest, splitIntoParts, UnsupportedFile } from "../lib/docs/ingest";
@@ -396,10 +396,10 @@ test("figures: a drawing is shown only from a page the model saw and the answer 
       final: draft({
         steps: [{ text: "SAMPLE שמן", ref: `${docId}:2`, quote: "The level must be between the upper and lower marks." }],
         figures: [
-          { ref: `${docId}:2`, caption: "SAMPLE חלון בדיקה", box },
-          { ref: `${docId}:3`, caption: "SAMPLE עמוד שלא צוטט", box },
-          { ref: `${docId}:2`, caption: "SAMPLE תיבה קטנה מדי", box: { ...box, w: 10 } },
-          { ref: "nope:1", caption: "SAMPLE", box },
+          { ref: `${docId}:2`, caption: "SAMPLE חלון בדיקה", box, parts: [] },
+          { ref: `${docId}:3`, caption: "SAMPLE עמוד שלא צוטט", box, parts: [] },
+          { ref: `${docId}:2`, caption: "SAMPLE תיבה קטנה מדי", box: { ...box, w: 10 }, parts: [] },
+          { ref: "nope:1", caption: "SAMPLE", box, parts: [] },
         ],
       }),
     },
@@ -418,6 +418,63 @@ test("figures: a drawing is shown only from a page the model saw and the answer 
   assert.ok(JSON.stringify(agent.turns[0].messages[0]).includes(`Picture of the page with ref ${docId}:2 (1000 x 500 pixels)`));
   const answer = run.result as Extract<DocResult, { kind: "answer" }>;
   assert.deepEqual(answer.figures, [{ source: { docId, docName: "sample manual", origin: "manufacturer", unit: "page", n: 2 }, caption: "SAMPLE חלון בדיקה", box: { x: 500, y: 200, w: 400, h: 600 }, aspect: 2 }], "pixels become thousandths of each axis");
+});
+
+test("figure parts: a mark only inside the drawing, a printed label only when the page carries it", () => {
+  const figure = { x: 500, y: 200, w: 400, h: 600 };
+  const size = { width: 1000, height: 500 };
+  const page = "SAMPLE Check the oil level. (1) Upper level mark (2) Lower level mark";
+  const part = (over: object) => ({ name: "SAMPLE סימון עליון", printed: "Upper level mark", asked: false, box: { x: 600, y: 200, w: 100, h: 50 }, ...over });
+  const parts = checkedParts(
+    [
+      part({ asked: true }),
+      part({ name: "SAMPLE מחוץ לאיור", asked: true, box: { x: 10, y: 10, w: 100, h: 50 } }),
+      part({ name: "SAMPLE מילה שלא בעמוד", printed: "Drain bolt" }),
+      part({ name: "SAMPLE בלי כיתוב", printed: "", asked: true }),
+      part({ name: "SAMPLE שלישי", printed: "lower level mark", asked: true }),
+      part({ name: "", asked: true }),
+      part({ name: "SAMPLE תיבה שבורה", asked: true, box: { x: 600, y: 200, w: 0, h: 50 } }),
+    ],
+    figure,
+    size,
+    page,
+  );
+  assert.deepEqual(parts, [
+    { name: "SAMPLE סימון עליון", box: { x: 600, y: 400, w: 100, h: 100 }, printed: "Upper level mark", asked: true },
+    { name: "SAMPLE בלי כיתוב", box: { x: 600, y: 400, w: 100, h: 100 }, asked: true },
+    // Only two parts are marked; the third keeps its label, which the page really prints.
+    { name: "SAMPLE שלישי", box: { x: 600, y: 400, w: 100, h: 100 }, printed: "lower level mark" },
+  ]);
+  assert.deepEqual(checkedParts(undefined, figure, size, page), []);
+});
+
+test("a picture sent earlier goes with a later question, and is not shown as sent again", async () => {
+  const { kb, docId } = await sampleKb();
+  const agent = new FakeAgent([
+    {
+      final: draft({
+        steps: [{ text: "SAMPLE שמן", ref: `${docId}:2`, quote: "The level must be between the upper and lower marks." }],
+        marks: [{ frame: 0, step: 0, label: "SAMPLE חלון", box: { x: 0, y: 0, w: 1, h: 1 } }],
+      }),
+    },
+  ]);
+  agent.plan = ["oil level"];
+  const png = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==";
+  const first: DocEvent = { type: "DOC_TURN", media: "photo", frames: 1, result: { kind: "ask", question: "SAMPLE מה צריך?", options: [] } };
+  const after = await handleDocConversation({ meta: kb.meta, docs: kb.docs, index: kb.index }, agent, {
+    events: [first],
+    input: { kind: "ask", text: "איפה חלון הבדיקה של השמן?", images: [{ mediaType: "image/png", data: png }], media: "photo", again: true },
+  });
+  const turn = after.events[1] as Extract<DocEvent, { type: "DOC_TURN" }>;
+  assert.equal(turn.again, true);
+  assert.equal(turn.frames, 1);
+  assert.ok(JSON.stringify(agent.turns[0].messages[0]).includes("sent earlier in this conversation"));
+  assert.deepEqual(after.screen.items.map((i) => i.kind), ["media", "doc_ask", "text", "doc_answer"], "the old picture is not a new message");
+  const answer = after.screen.items[3] as { marks: unknown[] };
+  assert.equal(answer.marks.length, 1, "the mark is drawn on the earlier picture");
+  // The log comes back from the phone: it still passes the request check.
+  const again = await handleDocConversation({ meta: kb.meta, docs: kb.docs, index: kb.index }, agent, { events: after.events, input: { kind: "view" } });
+  assert.equal(again.screen.items.length, 4);
 });
 
 test("the first search is told the language of each document", async () => {
