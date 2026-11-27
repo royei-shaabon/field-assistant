@@ -76,6 +76,9 @@ export type AskInput = {
   media?: "photo" | "video";
   // Earlier turns, oldest first.
   history: { said?: string; result: DocResult }[];
+  // The conversation so far as plain text, calls included (see conversationSoFar): what was
+  // said aloud is part of what this question may refer to.
+  earlier?: string;
   // Renders a page of a document as a picture. Absent in tests and for non-PDF documents.
   pageImage?: (hit: Hit) => Promise<PageShot | null>;
   // False when this knowledge base answers from its documents only. Default: suggestions allowed.
@@ -412,6 +415,7 @@ function contextOf(input: AskInput, index: SearchIndex, frameSizes: (Size | null
     documents: input.docs.map((d) => ({ name: d.name, language: index.language(d.id), from: d.origin, pages: d.passages })),
     attached_pictures: frameSizes.map((s, frame) => ({ frame, pixels: s ? `${s.width} x ${s.height}` : "unknown" })),
     history: input.history.slice(-4).map((h) => ({ technician: h.said ?? "(sent media)", assistant: describeResult(h.result) })),
+    ...(input.earlier && /\(in a (voice|video) call\)/.test(input.earlier) ? { said_in_calls_and_chat_so_far: input.earlier } : {}),
     attached: input.images.length ? `${input.images.length} ${input.media === "video" ? "video frames" : "photo(s)"}` : "nothing",
     technician: input.question ?? "(no text, only the attached media)",
     search: input.embedder && index.hasVectors(vectorModel(input.embedder.model)) ? "keywords and meaning" : "keywords",

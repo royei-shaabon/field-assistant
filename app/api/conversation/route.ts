@@ -29,7 +29,9 @@ export async function POST(request: Request) {
   const raw = (await request.json().catch(() => null)) as { kbId?: unknown; events?: unknown; input?: unknown; conversationId?: unknown; channel?: unknown } | null;
   const kbId = typeof raw?.kbId === "string" ? raw.kbId : "";
   // Looking at a saved conversation is free; anything else may call the model.
-  const asks = (raw?.input as { kind?: unknown } | undefined)?.kind !== "view";
+  // Looking at a saved conversation, or adding a call's transcript to it, asks no model.
+  const inputKind = (raw?.input as { kind?: unknown } | undefined)?.kind;
+  const asks = inputKind !== "view" && inputKind !== "call_log";
   if (asks && !(await measuringRun(request)) && (!allow(`ask:${clientKey(request)}`, LIMITS.ask) || !allow("ask:all", LIMITS.askDaily))) {
     log.warn("ask.rate_limited", { env: await currentEnvId(), kb: kbId });
     return tooMany();
@@ -85,8 +87,8 @@ export async function POST(request: Request) {
           // A new turn was added: count it, write it down, and log how it ended.
           stage?.part("answer");
           const before = Array.isArray(body?.events) ? body.events.length : 0;
-          if (result.events.length > before) {
-            const event = result.events.at(-1)!;
+          const event = result.events.length > before ? result.events.at(-1)! : null;
+          if (event?.type === "DOC_TURN") {
             if (!isMeasuring(meta.conversationId)) await store.recordUsage(kbId, event.result.kind).catch(() => {});
             await recordTurn(envId, { id: kbId, name: kb.meta.name }, event, meta, timing);
             stage?.part("record");

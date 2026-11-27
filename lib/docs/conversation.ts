@@ -10,9 +10,17 @@ import type { Embedder } from "./embed";
 import type { SearchIndex } from "./search";
 import { log } from "../server/log";
 
-export type DocEvent = { type: "DOC_TURN"; said?: string; media?: "photo" | "video"; frames?: number; result: DocResult };
+export type DocTurn = { type: "DOC_TURN"; said?: string; media?: "photo" | "video"; frames?: number; result: DocResult };
+// What was said in a voice or video call, as the phone transcribed it: the technician's words
+// and the assistant's. It is a record, not a checked answer; the chat shows it as the call's
+// transcript, and it is part of what the next question (written or spoken) knows about.
+export type CallLine = { by: "tech" | "bot"; text: string };
+export type CallLog = { type: "CALL_LOG"; call: "voice" | "video"; lines: CallLine[] };
+export type DocEvent = DocTurn | CallLog;
+export const MAX_CALL_LINES = 60;
+export const MAX_CALL_LINE = 400;
 
-export type DocInput = { kind: "view" } | { kind: "ask"; text?: string; images?: ClientImage[]; media?: "photo" | "video" };
+export type DocInput = { kind: "view" } | { kind: "ask"; text?: string; images?: ClientImage[]; media?: "photo" | "video" } | { kind: "call_log"; call: "voice" | "video"; lines: CallLine[] };
 
 export type DocRequest = { events: DocEvent[]; input: DocInput };
 export type DocResponse = { events: DocEvent[]; screen: Screen };
@@ -34,11 +42,10 @@ const ideas = {
   items: obj(["text", "why", "likelihood", "minutes"], { text: text(300), why: text(300), likelihood: { enum: ["high", "medium", "low"] }, minutes: { type: "integer", minimum: 1, maximum: 240 } }),
 };
 
-const requestSchema = obj(["events", "input"], {
-  events: {
-    type: "array",
-    maxItems: MAX_EVENTS,
-    items: obj(["type", "result"], {
+const callLines = { type: "array", minItems: 1, maxItems: MAX_CALL_LINES, items: obj(["by", "text"], { by: { enum: ["tech", "bot"] }, text: text(MAX_CALL_LINE) }) };
+const callLog = obj(["type", "call", "lines"], { type: kind("CALL_LOG"), call: { enum: ["voice", "video"] }, lines: callLines });
+const docTurn =
+    obj(["type", "result"], {
       type: kind("DOC_TURN"),
       said: text(),
       media: { enum: ["photo", "video"] },
@@ -73,11 +80,8 @@ const requestSchema = obj(["events", "input"], {
           obj(["kind"], { kind: kind("error") }),
         ],
       },
-    }),
-  },
-  input: {
-    oneOf: [
-      obj(["kind"], { kind: kind("view") }),
+    });
+const inputAsk =
       obj(["kind"], {
         kind: kind("ask"),
         text: text(),
@@ -88,8 +92,12 @@ const requestSchema = obj(["events", "input"], {
           maxItems: MAX_IMAGES,
           items: obj(["mediaType", "data"], { mediaType: { enum: ["image/jpeg", "image/png", "image/webp"] }, data: { type: "string", maxLength: MAX_IMAGE_BASE64 } }),
         },
-      }),
-    ],
+      });
+
+const requestSchema = obj(["events", "input"], {
+  events: { type: "array", maxItems: MAX_EVENTS, items: { oneOf: [callLog, docTurn] } },
+  input: {
+    oneOf: [obj(["kind"], { kind: kind("view") }), obj(["kind", "call", "lines"], { kind: kind("call_log"), call: { enum: ["voice", "video"] }, lines: callLines }), inputAsk],
   },
 });
 
@@ -98,7 +106,7 @@ const validateRequest = new Ajv().compile<DocRequest>(requestSchema);
 // The event log comes back from the client, so the hazard rule is applied again on every
 // replay: anything on a hazard topic gets its warning back, whatever the log says, and
 // suggested checks are dropped when the knowledge base turned them off.
-function guarded(event: DocEvent, allowIdeas: boolean): DocResult {
+function guarded(event: DocTurn, allowIdeas: boolean): DocResult {
   const r = event.result;
   if (r.kind === "ideas") {
     const caution = r.caution ?? hazardTopic(event.said, { hazard: "none", steps: [], checks: r.ideas }) ?? undefined;
@@ -114,10 +122,45 @@ function guarded(event: DocEvent, allowIdeas: boolean): DocResult {
   return { ...rest, marks: validDocMarks(r.marks, event.frames ?? 0, r.steps.length), ...(caution ? { caution } : {}), ...(kept.length ? { ideas: kept } : {}) };
 }
 
+const oneLine = (text: string, max: number) => text.replace(/\s+/g, " ").trim().slice(0, max);
+export const cleanLines = (lines: CallLine[]): CallLine[] =>
+  lines
+    .map((l) => ({ by: l.by, text: oneLine(l.text, MAX_CALL_LINE) }))
+    .filter((l) => l.text)
+    .slice(-MAX_CALL_LINES);
+
+// The conversation as plain text, newest last: what the technician wrote or said, and what the
+// assistant answered. This is what a call is told about the chat before it, and what a written
+// question is told about a call before it, so the three ways of talking are one conversation.
+// Bounded: the newest part is kept.
+export function conversationSoFar(events: DocEvent[], max = 2500): string {
+  const lines: string[] = [];
+  for (const e of events) {
+    if (e.type === "CALL_LOG") {
+      for (const l of e.lines) lines.push(`${l.by === "tech" ? "Technician" : "Assistant"} (in a ${e.call} call): ${l.text}`);
+      continue;
+    }
+    lines.push(`Technician: ${e.said ? oneLine(e.said, 300) : ""}${e.media ? ` [sent ${e.frames ?? 1} ${e.media === "video" ? "video frame(s)" : "photo(s)"}]` : ""}`);
+    const r = e.result;
+    if (r.kind === "answer") lines.push(`Assistant: ${r.title}. ${r.steps.map((s, i) => `${i + 1}) ${oneLine(s.text, 160)}`).join(" ")}`);
+    else if (r.kind === "ask") lines.push(`Assistant asked: ${oneLine(r.question, 200)}`);
+    else if (r.kind === "ideas") lines.push(`Assistant: the documents do not cover it; suggested checks: ${r.ideas.map((i) => oneLine(i.text, 100)).join("; ")}`);
+    else if (r.kind === "not_found") lines.push("Assistant: the documents do not cover it.");
+    else if (r.kind === "hazard") lines.push("Assistant: stopped, a hazard topic with nothing in the documents to show.");
+  }
+  let out = "";
+  for (let i = lines.length - 1; i >= 0 && out.length + lines[i].length + 1 <= max; i--) out = `${lines[i]}\n${out}`;
+  return out.trim();
+}
+
 export function docScreen(events: DocEvent[], hasDocuments: boolean, allowIdeas = true): Screen {
   const items: ChatItem[] = [];
   let title: string | undefined;
   events.forEach((event, eventIndex) => {
+    if (event.type === "CALL_LOG") {
+      items.push({ by: "bot", kind: "call_log", call: event.call, lines: event.lines });
+      return;
+    }
     if (event.media) items.push({ by: "tech", kind: "media", media: event.media, frames: event.frames ?? 1, eventIndex, said: event.said });
     else if (event.said) items.push({ by: "tech", kind: "text", said: event.said });
     const r = guarded(event, allowIdeas);
@@ -131,7 +174,7 @@ export function docScreen(events: DocEvent[], hasDocuments: boolean, allowIdeas 
     else items.push({ by: "bot", kind: "doc_error" });
   });
   if (!hasDocuments) items.push({ by: "bot", kind: "doc_empty" });
-  title ??= events.find((e) => e.said)?.said?.slice(0, 40);
+  title ??= events.find((e): e is DocTurn => e.type === "DOC_TURN" && Boolean(e.said))?.said?.slice(0, 40);
   return { items, mode: "identify", candidates: [], trees: [], title, danger: false };
 }
 
@@ -150,6 +193,12 @@ export async function handleDocConversation(
   const allowIdeas = kb.meta.ideas !== false;
   if (input.kind === "view" || !hasDocuments) return { events, screen: docScreen(events, hasDocuments, allowIdeas) };
   if (events.length >= MAX_EVENTS) throw new BadRequest("conversation too long");
+  // A call ended: its transcript joins the conversation. No model is asked.
+  if (input.kind === "call_log") {
+    const lines = cleanLines(input.lines);
+    const next: DocEvent[] = lines.length ? [...events, { type: "CALL_LOG", call: input.call, lines }] : events;
+    return { events: next, screen: docScreen(next, true, allowIdeas) };
+  }
 
   const said = input.text?.trim() || undefined;
   const images = input.images ?? [];
@@ -165,7 +214,8 @@ export async function handleDocConversation(
       question: said,
       images: images.map((i) => ({ type: "image" as const, ...i })),
       media,
-      history: events.map((e) => ({ said: e.said, result: e.result })),
+      history: events.filter((e): e is DocTurn => e.type === "DOC_TURN").map((e) => ({ said: e.said, result: e.result })),
+      earlier: conversationSoFar(events, 1500),
       pageImage: live.pageImage,
       ideas: allowIdeas,
       embedder: live.embedder,
@@ -177,7 +227,7 @@ export async function handleDocConversation(
   );
   if (run.errors.length) log.warn("ask.model_errors", { kb: kb.meta.id, errors: run.errors.join("; ").slice(0, 500) });
   live.onTiming?.(run.timing);
-  const event: DocEvent = { type: "DOC_TURN", result: run.result, ...(said ? { said } : {}), ...(media ? { media, frames: images.length } : {}) };
+  const event: DocTurn = { type: "DOC_TURN", result: run.result, ...(said ? { said } : {}), ...(media ? { media, frames: images.length } : {}) };
   const next = [...events, event];
   return { events: next, screen: docScreen(next, true, allowIdeas) };
 }

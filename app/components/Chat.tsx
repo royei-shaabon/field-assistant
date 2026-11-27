@@ -104,6 +104,28 @@ export function BotBubble({ children, time, wide = false }: { children: React.Re
   );
 }
 
+// What was said in a call, as the phone heard it: a quiet record inside the conversation. It is
+// not a checked answer (those appear as answers of their own), and it says so.
+export function CallLog({ call, lines, time }: { call: "voice" | "video"; lines: { by: "tech" | "bot"; text: string }[]; time?: string }) {
+  return (
+    <section aria-label={call === "video" ? T.call.logVideo : T.call.logVoice} className="anim-rise mx-1 mt-1 flex flex-col gap-2 rounded-[12px] border border-rule-soft px-3 py-2.5">
+      <h3 className="text-[13px] font-medium text-graphite">{call === "video" ? T.call.logVideo : T.call.logVoice}</h3>
+      <ol className="flex flex-col gap-1.5">
+        {lines.map((line, i) => (
+          <li key={i} className="flex gap-2 text-[15px] leading-[22px]">
+            <span className="w-12 shrink-0 text-[13px] text-stone">{line.by === "tech" ? T.call.logYou : T.call.logAssistant}</span>
+            <span dir="auto" className={`min-w-0 flex-1 ${line.by === "tech" ? "text-ink" : "text-ink-soft"}`}>
+              {line.text}
+            </span>
+          </li>
+        ))}
+      </ol>
+      <p className="text-[13px] leading-5 text-stone">{T.call.logNote}</p>
+      <ChatTime at={time} />
+    </section>
+  );
+}
+
 export function TechBubble({ children, time }: { children: React.ReactNode; time?: string }) {
   return (
     <div className="anim-rise flex justify-start pt-2">
@@ -487,6 +509,8 @@ function Item({
       );
     case "doc_not_found":
       return <DocNote time={time} title={T.doc.notFound} hint={T.doc.notFoundHint} actions={interactive ? [{ label: T.doc.rephrase, run: handlers.onOther }, { label: T.doc.addPhoto, run: handlers.onAttach }] : []} />;
+    case "call_log":
+      return <CallLog call={item.call} lines={item.lines} time={time} />;
     case "doc_error":
       return <DocNote title={T.doc.error} />;
     case "doc_empty":
@@ -647,7 +671,7 @@ export type ChatProps = {
 const clock = (ms?: number) => (ms ? new Date(ms).toLocaleTimeString("he-IL", { hour: "2-digit", minute: "2-digit" }) : undefined);
 
 // Items that draw their own bubble or card. Everything else the assistant says goes in a bubble here.
-const SELF_FRAMED = new Set<ChatItem["kind"]>(["text", "media", "picked", "answer", "acknowledged", "track_stopped", "doc_answer", "doc_ask", "doc_hazard", "doc_ideas", "doc_not_found", "doc_error", "doc_empty"]);
+const SELF_FRAMED = new Set<ChatItem["kind"]>(["text", "media", "picked", "answer", "acknowledged", "track_stopped", "doc_answer", "doc_ask", "doc_hazard", "doc_ideas", "doc_not_found", "doc_error", "doc_empty", "call_log"]);
 const selfFramed = (item: ChatItem) => SELF_FRAMED.has(item.kind) || (item.kind === "stopped" && item.reason === "danger");
 
 // The whole conversation, in reading order. Returns the typing time of new messages so the

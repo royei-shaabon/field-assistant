@@ -112,6 +112,7 @@ export function CallView({
   onAck,
   onHangUp,
   onLiveAsk,
+  events,
 }: {
   kind: "voice" | "video";
   kbId: string;
@@ -129,7 +130,10 @@ export function CallView({
   onUtterance: (text: string, frame?: string) => void;
   onAck: (symptomId: string) => void;
   // `asked`: something was asked in the call, so the short survey may follow.
-  onHangUp: (asked?: boolean) => void;
+  // `lines`: what was said in a live call, by whom, for the conversation's record.
+  onHangUp: (asked?: boolean, lines?: { by: "tech" | "bot"; text: string }[]) => void;
+  // The conversation so far (its event log), so a live call continues it.
+  events?: unknown[];
   // Asks the verified answer engine on behalf of the live model, and returns what it answered.
   // Present: the call tries the live model first, and falls back to the classic call.
   onLiveAsk?: (question: string, frame?: string) => Promise<unknown>;
@@ -247,9 +251,21 @@ export function CallView({
   }, [callId, kbId, kind, conversationId]);
   // Whether anything was asked in this call: only then is the short survey worth showing.
   // The latest way to end the call, for effects that run once (Escape, a call nobody is on).
-  const hangUp = useRef(onHangUp);
+  // The conversation as it was when the call began: read once, when the live call asks for its token.
+  const eventsRef = useRef(events);
+  // What was said in this call, in order: the technician's words and the assistant's.
+  const said = useRef<{ by: "tech" | "bot"; text: string }[]>([]);
+  // Ending the call: the live call is closed first, so its last words are in the record.
+  const end = useCallback(
+    (asked: boolean) => {
+      liveCall.current?.stop();
+      onHangUp(asked, said.current);
+    },
+    [onHangUp],
+  );
+  const hangUp = useRef(end);
   useEffect(() => {
-    hangUp.current = onHangUp;
+    hangUp.current = end;
   });
   // Notices a call nobody is on (live calls only): see lib/client/idle.ts.
   const idle = useRef<IdleWatch | null>(null);
@@ -428,7 +444,10 @@ export function CallView({
       // Two things at once: the fast search the model speaks from (a second or two), and the
       // full checked answer, which lands in the chat with its pages.
       onVideoTool: (tool) => videoTool.current(tool),
-      onTrace: (event) => void traced.current.push(event),
+      onTrace: (event) => {
+        traced.current.push(event);
+        if (event.text && (event.type === "heard" || event.type === "said" || event.type === "said_cut")) said.current.push({ by: event.type === "heard" ? "tech" : "bot", text: event.text });
+      },
       onTool: async (question, english) => {
         asked.current++;
         const picture = frame();
@@ -456,7 +475,7 @@ export function CallView({
       },
     });
     (async () => {
-      const res = await fetch("/api/voice/live", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ kbId, video: kind === "video" }) }).catch(() => null);
+      const res = await fetch("/api/voice/live", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ kbId, video: kind === "video", events: eventsRef.current }) }).catch(() => null);
       const body = res?.ok ? ((await res.json()) as { url: string; model: string }) : null;
       if (cancelled) return;
       if (!body) return setMode("classic");
@@ -717,7 +736,7 @@ export function CallView({
         {problem && (
           <div role="alert" className="flex flex-col gap-2.5 rounded-2xl bg-night/90 p-3.5">
             <p className="text-[17px] leading-[25px]">{problem}</p>
-            <button onClick={() => onHangUp(false)} className="h-12 rounded-[14px] bg-white text-base font-medium text-night">
+            <button onClick={() => end(false)} className="h-12 rounded-[14px] bg-white text-base font-medium text-night">
               {T.call.backToChat}
             </button>
           </div>
@@ -879,7 +898,7 @@ export function CallView({
           </div>
         )}
         <div className="flex w-20 flex-col items-center gap-1.5">
-          <button onClick={() => onHangUp(asked.current > 0)} aria-label={T.call.hangUp} className="grid h-16 w-16 place-items-center rounded-full bg-danger">
+          <button onClick={() => end(asked.current > 0)} aria-label={T.call.hangUp} className="grid h-16 w-16 place-items-center rounded-full bg-danger">
             <HangUpIcon className="h-7 w-7" />
           </button>
           <span aria-hidden className="text-center text-sm">

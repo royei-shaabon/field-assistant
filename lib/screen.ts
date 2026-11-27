@@ -34,6 +34,7 @@ export type ChatItem =
   | { by: "bot"; kind: "doc_ask"; question: string; options: string[] }
   | { by: "bot"; kind: "doc_not_found" }
   | { by: "bot"; kind: "doc_hazard"; topic: HazardTopic; sources: SourceView[] }
+  | { by: "bot"; kind: "call_log"; call: "voice" | "video"; lines: { by: "tech" | "bot"; text: string }[] }
   | { by: "bot"; kind: "doc_error" }
   | { by: "bot"; kind: "doc_empty" };
 

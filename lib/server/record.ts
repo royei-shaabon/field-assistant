@@ -1,6 +1,6 @@
 // Writes down what happened to a question: the record the implementer reads, the day's
 // numbers the dashboard draws, and a log line. A failure here never fails the answer.
-import type { DocEvent } from "../docs/conversation";
+import type { DocTurn } from "../docs/conversation";
 import type { AskTiming } from "../docs/ask";
 import { activity } from "../store";
 import { bump, isMeasuring, SLOW_MS, type Channel } from "../store/activity";
@@ -8,7 +8,7 @@ import { log } from "./log";
 
 export const channelOf = (value: unknown): Channel => (value === "voice" || value === "video" ? value : "chat");
 
-export async function recordTurn(envId: string, kb: { id: string; name: string }, event: DocEvent, meta: { conversationId?: string; channel: Channel }, timing?: AskTiming): Promise<void> {
+export async function recordTurn(envId: string, kb: { id: string; name: string }, event: DocTurn, meta: { conversationId?: string; channel: Channel }, timing?: AskTiming): Promise<void> {
   if (isMeasuring(meta.conversationId)) return;
   const r = event.result;
   const source = (s: { docName: string; unit: string; n: number }) => `${s.docName} · ${s.n}`;

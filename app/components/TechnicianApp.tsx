@@ -305,7 +305,8 @@ function Composer({
   text: string;
   onText: (t: string) => void;
   staged: Staged | null;
-  onUnstage: () => void;
+  // Takes one staged picture out (by its place in the row).
+  onUnstage: (index: number) => void;
   busy: boolean;
   disabled: boolean;
   canAttach: boolean;
@@ -357,19 +358,23 @@ function Composer({
       )}
 
       {staged && (
-        <div className="flex items-center gap-2 pb-2">
-          <ul className="flex min-w-0 flex-1 gap-2 overflow-x-auto">
-            {staged.frames.map((f, i) => (
-              <li key={i} className="shrink-0">
-                {/* eslint-disable-next-line @next/next/no-img-element -- local data URL */}
-                <img src={f} alt={T.chat.sentPhoto} className="h-16 w-16 rounded-xl border border-edge object-cover" />
-              </li>
-            ))}
-          </ul>
-          <button type="button" onClick={onUnstage} aria-label={T.composer.removeAttachment} className="grid h-12 w-12 shrink-0 place-items-center rounded-full border border-edge active:bg-mist">
-            <CloseIcon />
-          </button>
-        </div>
+        // Each picture can be taken out by itself before sending.
+        <ul className="flex gap-2 overflow-x-auto pb-2 pt-2">
+          {staged.frames.map((f, i) => (
+            <li key={i} className="relative shrink-0">
+              {/* eslint-disable-next-line @next/next/no-img-element -- local data URL */}
+              <img src={f} alt={T.chat.sentPhoto} className="h-16 w-16 rounded-xl border border-edge object-cover" />
+              <button
+                type="button"
+                onClick={() => onUnstage(i)}
+                aria-label={`${T.composer.removeOne} ${i + 1}`}
+                className="absolute -end-2 -top-2 grid h-7 w-7 place-items-center rounded-full border border-edge bg-paper text-ink shadow-none active:bg-mist after:absolute after:-inset-2.5 after:content-['']"
+              >
+                <CloseIcon className="h-4 w-4" />
+              </button>
+            </li>
+          ))}
+        </ul>
       )}
 
       {/* One white field: attach inside it, the camera, and a square send button. */}
@@ -1039,7 +1044,7 @@ export function TechnicianApp() {
           text={draft}
           onText={setDraft}
           staged={canAttach ? staged : null}
-          onUnstage={() => setStaged(null)}
+          onUnstage={(index) => setStaged((now) => (now && now.frames.length > 1 ? { ...now, frames: now.frames.filter((_, i) => i !== index) } : null))}
           busy={busy}
           disabled={noDocuments}
           canAttach={canAttach}
@@ -1101,8 +1106,11 @@ export function TechnicianApp() {
               : undefined
           }
           onAck={(symptomId) => send(activeRef.current, { kind: "acknowledge", symptomId }, { said: T.stop.acknowledged }, true)}
-          onHangUp={(asked) => {
+          events={isDocs ? conversation.events : undefined}
+          onHangUp={(asked, lines) => {
             voicePlayer().stop();
+            // What was said in the call joins the conversation, so the chat and the next call know it.
+            if (isDocs && lines?.length) void send(activeRef.current, { kind: "call_log", call, lines: lines.slice(-60).map((l) => ({ by: l.by, text: l.text.slice(0, 400) })) });
             // Something was asked in the call: three short optional questions about how it went.
             if (asked && isDocs) setSurvey({ kbId: conversation.kbId || kbId, conversationId: conversation.id, channel: call });
             setCall(null);
