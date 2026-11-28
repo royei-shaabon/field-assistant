@@ -430,9 +430,11 @@ export function DocAnswer({
   );
 }
 
-export function DocAsk({ item, interactive, animate, delay, onOption, time }: { item: Extract<ChatItem, { kind: "doc_ask" }>; interactive: boolean; animate: boolean; delay: number; onOption?: (text: string) => void; time?: string }) {
+export function DocAsk({ item, interactive, animate, delay, onOption, time, frames }: { item: Extract<ChatItem, { kind: "doc_ask" }>; interactive: boolean; animate: boolean; delay: number; onOption?: (text: string) => void; time?: string; frames?: string[] }) {
   return (
     <div className="flex flex-col gap-2">
+      {/* A picture that came with no question: the parts recognised in it, marked on it. */}
+      {item.marks?.length ? <Marks marks={item.marks} frames={frames} /> : null}
       <BotBubble time={time}>
         <p className="font-medium">
           <Reveal text={item.question} animate={animate} delay={delay} mixed />

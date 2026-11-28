@@ -117,7 +117,7 @@ test("answer: steps with a real source are kept, invented or misquoted steps are
           { text: "SAMPLE עמוד שלא נשלף", ref: `${docId}:2`, quote: "Check the oil level with the vehicle upright" },
           { text: "SAMPLE מקור לא קיים", ref: "nope:1", quote: "Front tyre pressure is 200 kPa when cold." },
         ],
-        marks: [{ frame: 0, step: 0, label: "SAMPLE", box: { x: 1, y: 1, w: 10, h: 10 } }],
+        marks: [{ frame: 0, step: 0, label: "SAMPLE", english: "", box: { x: 1, y: 1, w: 10, h: 10 } }],
       }),
     },
   ]);
@@ -223,10 +223,10 @@ test("photos reach the model; marks come back in pixels and are kept only when t
       final: draft({
         steps: [{ text: "SAMPLE שמן", ref: `${docId}:2`, quote: "The level must be between the upper and lower marks." }],
         marks: [
-          { frame: 0, step: 0, label: "SAMPLE חלון", box },
-          { frame: 3, step: 0, label: "SAMPLE", box }, // no such frame
-          { frame: 0, step: 2, label: "SAMPLE", box }, // no such step
-          { frame: 1, step: 0, label: "SAMPLE", box }, // a picture whose size could not be read
+          { frame: 0, step: 0, label: "SAMPLE חלון", english: "", box },
+          { frame: 3, step: 0, label: "SAMPLE", english: "", box }, // no such frame
+          { frame: 0, step: 2, label: "SAMPLE", english: "", box }, // no such step
+          { frame: 1, step: 0, label: "SAMPLE", english: "", box }, // a picture whose size could not be read
         ],
       }),
     },
@@ -460,7 +460,7 @@ test("a picture sent earlier goes with a later question, and is not shown as sen
     {
       final: draft({
         steps: [{ text: "SAMPLE שמן", ref: `${docId}:2`, quote: "The level must be between the upper and lower marks." }],
-        marks: [{ frame: 0, step: 0, label: "SAMPLE חלון", box: { x: 0, y: 0, w: 1, h: 1 } }],
+        marks: [{ frame: 0, step: 0, label: "SAMPLE חלון", english: "", box: { x: 0, y: 0, w: 1, h: 1 } }],
       }),
     },
   ]);
@@ -2226,4 +2226,43 @@ test("memory: when a technician tells what solved a fault, their own words are k
   assert.equal((refused.events[0] as { remembered?: boolean }).remembered, undefined);
   assert.equal(refused.screen.items.at(-1)!.kind, "doc_not_found");
   assert.equal(kept.length, 1);
+});
+
+test("marks on a sent picture are placed by the careful look; a picture with no question comes back with its parts named", async () => {
+  const { placedMarks } = await import("../lib/docs/ask");
+  const { kb, docId } = await sampleKb();
+  const png = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==";
+  const asked: string[] = [];
+  const look = async (_image: unknown, label: string, english: string) => (asked.push(`${label}|${english}`), label.includes("מצבר") ? { x: 100, y: 200, w: 300, h: 400 } : null);
+  // An answer: the model's own boxes are replaced by what the look found, and a part it did not find is not marked.
+  const agent = new FakeAgent([
+    {
+      final: draft({
+        steps: [{ text: "SAMPLE שמן", ref: `${docId}:2`, quote: "The level must be between the upper and lower marks." }],
+        marks: [
+          { frame: 0, step: 0, label: "SAMPLE מצבר", english: "battery", box: { x: 0, y: 0, w: 1, h: 1 } },
+          { frame: 0, step: 0, label: "SAMPLE מכסה", english: "cover", box: { x: 0, y: 0, w: 1, h: 1 } },
+        ],
+      }),
+    },
+  ]);
+  agent.plan = ["oil level"];
+  const input = { kind: "ask" as const, text: "איפה בודקים שמן?", images: [{ mediaType: "image/png" as const, data: png }], media: "photo" as const };
+  const after = await handleDocConversation({ meta: kb.meta, docs: kb.docs, index: kb.index }, agent, { events: [], input }, undefined, undefined, { look });
+  const answer = (after.events[0] as Extract<DocEvent, { type: "DOC_TURN" }>).result as Extract<DocResult, { kind: "answer" }>;
+  assert.deepEqual(asked.sort(), ["SAMPLE מכסה|cover", "SAMPLE מצבר|battery"]);
+  assert.deepEqual(answer.marks, [{ frame: 0, step: 0, label: "SAMPLE מצבר", box: { x: 100, y: 200, w: 300, h: 400 } }]);
+
+  // A picture with no question: the parts the look confirmed are marked beside the question.
+  const only = new FakeAgent([{ final: draft({ kind: "ask", question: "SAMPLE רואים את אזור המצבר. מה צריך?", marks: [{ frame: 0, step: 3, label: "SAMPLE מצבר", english: "battery", box: { x: 0, y: 0, w: 1, h: 1 } }] }) }]);
+  only.plan = [];
+  const shown = await handleDocConversation({ meta: kb.meta, docs: kb.docs, index: kb.index }, only, { events: [], input: { kind: "ask", images: input.images, media: "photo" } }, undefined, undefined, { look });
+  const item = shown.screen.items.find((i) => i.kind === "doc_ask") as { marks?: { label: string; step: number; box: object }[]; eventIndex?: number };
+  assert.deepEqual([item.marks?.length, item.marks?.[0].step, item.marks?.[0].box, item.eventIndex], [1, 0, { x: 100, y: 200, w: 300, h: 400 }, 0]);
+  const again = await handleDocConversation({ meta: kb.meta, docs: kb.docs, index: kb.index }, only, { events: shown.events, input: { kind: "view" } });
+  assert.equal((again.screen.items.find((i) => i.kind === "doc_ask") as { marks?: unknown[] }).marks?.length, 1, "the marks pass the request check");
+
+  // A look that fails or never answers is a mark not drawn, never an error.
+  const failing = await placedMarks({ kind: "ask", question: "x", options: [], marks: [{ frame: 0, step: 0, label: "x", english: "", box: { x: 1, y: 1, w: 9, h: 9 } }] }, draft({}) as never, async () => { throw new Error("down"); });
+  assert.equal("marks" in failing, false);
 });

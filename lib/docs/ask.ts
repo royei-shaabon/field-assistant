@@ -61,6 +61,10 @@ export type DocFigure = { source: SourceView; caption: string; box: Box; aspect:
 const MAX_PARTS = 6;
 const MAX_ASKED = 2;
 export type DocMark = { frame: number; step: number; label: string; box: { x: number; y: number; w: number; h: number } };
+// A careful second look at one attached picture for one named part: the box in thousandths, or
+// null when the part is not there for certain. When it is given, a mark is drawn only where it found the part.
+export type MarkLook = (frame: number, label: string, english: string) => Promise<Box | null>;
+const MAX_MARKS = 4;
 
 export type Likelihood = "high" | "medium" | "low";
 // A place to check that is NOT from the documents: the model's general professional knowledge.
@@ -75,7 +79,8 @@ export type DocResult =
   | { kind: "answer"; title: string; steps: { text: string; quote: string; source: SourceView }[]; marks: DocMark[]; figures?: DocFigure[]; caution?: HazardTopic; ideas?: DocIdea[] }
   // Nothing in the documents, only suggested checks from general knowledge.
   | { kind: "ideas"; ideas: DocIdea[]; caution?: HazardTopic }
-  | { kind: "ask"; question: string; options: string[] }
+  // `marks`: parts recognised in a picture that came with no question.
+  | { kind: "ask"; question: string; options: string[]; marks?: DocMark[] }
   | { kind: "not_found" }
   | { kind: "hazard"; topic: HazardTopic; sources: SourceView[] }
   | { kind: "error" };
@@ -108,6 +113,8 @@ export type AskInput = {
   again?: boolean;
   // Renders a page of a document as a picture. Absent in tests and for non-PDF documents.
   pageImage?: (hit: Hit) => Promise<PageShot | null>;
+  // The careful look that places every mark on an attached picture. Absent in tests: the model's own boxes are used.
+  look?: MarkLook;
   // False when this knowledge base answers from its documents only. Default: suggestions allowed.
   ideas?: boolean;
   // Who reads the answers (see Audience). Default: a general audience, warned on every hazard topic.
@@ -223,7 +230,8 @@ export function validDocMarks(marks: DocMark[], frames: number, steps: number): 
       );
     })
     .slice(0, 6)
-    .map((m) => ({ ...m, label: m.label.trim().slice(0, 40) }));
+    // Only what a mark is: anything else the model added (the part's English name) stays out of the log.
+    .map((m) => ({ frame: m.frame, step: m.step, label: m.label.trim().slice(0, 40), box: m.box }));
 }
 
 const inRange = (v: number) => Number.isInteger(v) && v >= 0 && v <= 1000;
@@ -308,7 +316,16 @@ export function verifyDraft(
   if (draft.kind === "ask") {
     const question2 = draft.question.trim();
     const options = draft.options.map((o) => o.trim()).filter(Boolean).slice(0, 4);
-    return question2 ? { kind: "ask", question: question2.slice(0, 300), options } : { kind: "not_found" };
+    // A picture that came with no question: the parts recognised in it, all under "step" 0.
+    const seenParts = validDocMarks(
+      (draft.marks ?? []).flatMap((m) => {
+        const box = toThousandths(m.box, frameSizes[m.frame]);
+        return box ? [{ ...m, box, step: 0 }] : [];
+      }),
+      frameSizes.length,
+      1,
+    ).slice(0, MAX_MARKS);
+    return question2 ? { kind: "ask", question: question2.slice(0, 300), options, ...(seenParts.length ? { marks: seenParts } : {}) } : { kind: "not_found" };
   }
 
   const kept = keepSteps(draft.steps, seen);
@@ -420,6 +437,26 @@ export function answerTitle(text: string): string | null {
   if (jsonString(text, "kind") !== "answer" || !/"steps"\s*:\s*\[\s*\{/.test(text)) return null;
   const title = jsonString(text, "title")?.trim().slice(0, 80);
   return title || null;
+}
+
+// Every mark on an attached picture is placed by the careful look, not by the model that wrote
+// the answer: it looks at the whole picture for that one part, and a part it is not sure of gets
+// no mark. The looks run together and are bounded in time; a look that fails is a mark not drawn.
+const LOOK_MS = 9000;
+export async function placedMarks(result: DocResult, draft: Draft, look: MarkLook | undefined): Promise<DocResult> {
+  if (!look || (result.kind !== "answer" && result.kind !== "ask") || !result.marks?.length) return result;
+  const english = new Map((draft.marks ?? []).map((m) => [`${m.frame}:${String(m.label ?? "").trim().slice(0, 40)}`, String((m as { english?: unknown }).english ?? "")]));
+  const wanted = result.marks.slice(0, MAX_MARKS);
+  const boxes = await Promise.all(
+    wanted.map((m) => Promise.race([look(m.frame, m.label, english.get(`${m.frame}:${m.label}`) ?? "").catch(() => null), new Promise<null>((r) => setTimeout(() => r(null), LOOK_MS))])),
+  );
+  const marks = wanted.flatMap((m, i) => (boxes[i] ? [{ ...m, box: boxes[i]! }] : []));
+  if (result.kind === "ask") {
+    const { marks: _dropped, ...rest } = result;
+    void _dropped;
+    return { ...rest, ...(marks.length ? { marks } : {}) };
+  }
+  return { ...result, marks };
 }
 
 // --- the first search ---------------------------------------------------------------------
@@ -665,7 +702,8 @@ export async function askDocuments(
         break;
       }
       timing.written = draft.steps.length;
-      return { ...done(verifyDraft(draft, seen, input.question, frameSizes, shots, input.ideas !== false, audience)), ...(draft.reports_fix === true && input.question ? { reported: true } : {}) };
+      const checked = await placedMarks(verifyDraft(draft, seen, input.question, frameSizes, shots, input.ideas !== false, audience), draft, input.look);
+      return { ...done(checked), ...(draft.reports_fix === true && input.question ? { reported: true } : {}) };
     }
     if (!errors.length) errors.push("too many turns");
   } catch (e) {

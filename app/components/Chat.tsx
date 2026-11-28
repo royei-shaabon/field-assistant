@@ -503,7 +503,7 @@ function Item({
     case "doc_answer":
       return <DocAnswer item={item} kbId={handlers.kbId ?? ""} frames={media[item.eventIndex]} animate={animate} resume={fresh && !animate} delay={delay} feedback={fresh} time={time} />;
     case "doc_ask":
-      return <DocAsk item={item} interactive={interactive} animate={animate} delay={delay} onOption={handlers.onOption} time={time} />;
+      return <DocAsk item={item} interactive={interactive} animate={animate} delay={delay} onOption={handlers.onOption} time={time} frames={item.eventIndex === undefined ? undefined : media[item.eventIndex]} />;
     case "doc_hazard":
       return <DocHazard topic={item.topic} sources={item.sources} kbId={handlers.kbId ?? ""} />;
     case "doc_ideas":

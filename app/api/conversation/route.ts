@@ -9,6 +9,7 @@ import { handleDocConversation } from "@/lib/docs/conversation";
 import { embedder } from "@/lib/docs/embed";
 import { pageImage } from "@/lib/docs/page-image";
 import { AnthropicModelClient } from "@/lib/llm";
+import { lookAtPicture } from "@/lib/voice/look";
 import { needsCode, technicianAllowed } from "@/lib/server/access";
 import { measuringRun } from "@/lib/server/admin-auth";
 import { loadDocKb, SAMPLE_KB_ID, sampleKbVisible } from "@/lib/server/kbs";
@@ -72,6 +73,12 @@ export async function POST(request: Request) {
             embedder: embedder(),
             firstSearch,
             audience,
+            // Every mark on a picture the technician sent is placed by the careful look (the same
+            // one as in a video call): a part it is not certain of, or not of the machine, gets no mark.
+            look: async (image, label, english) => {
+              const seen = await lookAtPicture(client!, { image, find: label, ...(english ? { english } : {}), language: "Hebrew" }).catch(() => null);
+              return seen?.visible && seen.onMachine && seen.box ? seen.box : null;
+            },
             // What a technician tells worked is kept for the team as a waiting note. Not for a measuring run.
             remember: isMeasuring(meta.conversationId)
               ? undefined

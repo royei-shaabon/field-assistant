@@ -153,9 +153,13 @@
           "frame",
           "step",
           "label",
+          "english",
           "box"
         ],
         "properties": {
+          "english": {
+            "type": "string"
+          },
           "frame": {
             "type": "integer"
           },

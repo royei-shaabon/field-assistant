@@ -83,7 +83,12 @@ const docTurn =
               items: obj(["frame", "step", "label", "box"], { frame: int, step: int, label: text(40), box: obj(["x", "y", "w", "h"], { x: int, y: int, w: int, h: int }) }),
             },
           }),
-          obj(["kind", "question", "options"], { kind: kind("ask"), question: text(300), options: { type: "array", maxItems: 4, items: text(120) } }),
+          obj(["kind", "question", "options"], {
+            kind: kind("ask"),
+            question: text(300),
+            options: { type: "array", maxItems: 4, items: text(120) },
+            marks: { type: "array", maxItems: 6, items: obj(["frame", "step", "label", "box"], { frame: int, step: int, label: text(40), box: obj(["x", "y", "w", "h"], { x: int, y: int, w: int, h: int }) }) },
+          }),
           obj(["kind", "ideas"], { kind: kind("ideas"), caution: { enum: ["brakes", "fuel", "hot_coolant", "running_engine", "other"] }, ideas: { ...ideas, minItems: 1 } }),
           obj(["kind"], { kind: kind("not_found") }),
           obj(["kind", "topic", "sources"], {
@@ -189,7 +194,10 @@ export function docScreen(events: DocEvent[], hasDocuments: boolean, allowIdeas 
       title ??= r.title;
       items.push({ by: "bot", kind: "doc_answer", eventIndex, title: r.title, steps: r.steps, marks: r.marks, ...(r.figures?.length ? { figures: r.figures } : {}), ...(r.caution ? { caution: r.caution } : {}), ...(r.ideas?.length ? { ideas: r.ideas } : {}) });
     } else if (r.kind === "ideas") items.push({ by: "bot", kind: "doc_ideas", ideas: r.ideas, ...(r.caution ? { caution: r.caution } : {}) });
-    else if (r.kind === "ask") items.push({ by: "bot", kind: "doc_ask", question: r.question, options: r.options });
+    else if (r.kind === "ask") {
+      const seenParts = validDocMarks(r.marks ?? [], event.frames ?? 0, 1);
+      items.push({ by: "bot", kind: "doc_ask", question: r.question, options: r.options, ...(seenParts.length ? { marks: seenParts, eventIndex } : {}) });
+    }
     else if (r.kind === "hazard") items.push({ by: "bot", kind: "doc_hazard", topic: r.topic, sources: r.sources });
     // A message that only told what worked is not a question that went unanswered.
     else if (r.kind === "not_found") {
@@ -210,7 +218,7 @@ export async function handleDocConversation(
   progress: (p: AskProgress) => void = () => {},
   signal?: AbortSignal,
   // Live view of the answer while it is written, and the renderer of manual pages.
-  live: { onPartial?: (p: PartialAnswer) => void; pageImage?: AskInput["pageImage"]; embedder?: Embedder | null; firstSearch?: FirstSearchMode; onTiming?: (t: AskTiming) => void; audience?: Audience; remember?: (text: string) => Promise<boolean> } = {},
+  live: { onPartial?: (p: PartialAnswer) => void; pageImage?: AskInput["pageImage"]; embedder?: Embedder | null; firstSearch?: FirstSearchMode; onTiming?: (t: AskTiming) => void; audience?: Audience; remember?: (text: string) => Promise<boolean>; look?: (image: { data: string; mediaType: "image/jpeg" | "image/png" | "image/webp" }, label: string, english: string) => Promise<{ x: number; y: number; w: number; h: number } | null> } = {},
 ): Promise<DocResponse> {
   if (!validateRequest(body)) throw new BadRequest(new Ajv().errorsText(validateRequest.errors));
   const { events, input } = body;
@@ -244,6 +252,7 @@ export async function handleDocConversation(
       history: events.filter((e): e is DocTurn => e.type === "DOC_TURN").map((e) => ({ said: e.said, result: e.result })),
       earlier: conversationSoFar(events, 1500),
       pageImage: live.pageImage,
+      look: live.look && images.length ? (frame, label, english) => (images[frame] ? live.look!(images[frame], label, english) : Promise.resolve(null)) : undefined,
       ideas: allowIdeas,
       audience,
       embedder: live.embedder,

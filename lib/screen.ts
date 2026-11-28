@@ -31,7 +31,7 @@ export type ChatItem =
   | { by: "bot"; kind: "doc_answer"; eventIndex: number; title: string; steps: { text: string; quote: string; source: SourceView }[]; marks: DocMark[]; figures?: DocFigure[]; caution?: HazardTopic; ideas?: DocIdea[] }
   // Nothing in the documents: suggested checks from general knowledge, marked as such.
   | { by: "bot"; kind: "doc_ideas"; ideas: DocIdea[]; caution?: HazardTopic }
-  | { by: "bot"; kind: "doc_ask"; question: string; options: string[] }
+  | { by: "bot"; kind: "doc_ask"; question: string; options: string[]; marks?: DocMark[]; eventIndex?: number }
   | { by: "bot"; kind: "doc_not_found" }
   | { by: "bot"; kind: "doc_hazard"; topic: HazardTopic; sources: SourceView[] }
   // What the technician told was kept for the team (it waits for the implementer's approval).
