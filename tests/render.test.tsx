@@ -171,7 +171,7 @@ test("the rendered chat really contains the question, the stop card and the map"
   assert.ok(html.includes("SAMPLE מדריך"), "source chip");
 });
 
-test("a manual drawing shows the asked part's name on it and the printed labels next to their names", async () => {
+test("a manual drawing: the printed labels next to their names, and no mark before the picture has loaded", async () => {
   const { DocAnswer } = await import("../app/components/DocChat");
   const source = { docId: "d1", docName: "SAMPLE manual", origin: "manufacturer" as const, unit: "page" as const, n: 2 };
   const html = renderToStaticMarkup(
@@ -201,8 +201,12 @@ test("a manual drawing shows the asked part's name on it and the printed labels 
       }}
     />,
   );
-  assert.equal(html.split("border-signal").length - 1, 1, "only the asked part is marked on the drawing");
+  // The mark waits for the page picture: a static render has the frame, marked as loading, and no mark on it.
+  assert.equal(html.split("border-signal").length - 1, 0, "no mark on a frame whose picture is not there yet");
+  assert.match(html, /aria-busy="true"/);
   assert.match(html, /<bdi lang="en"[^>]*>Battery<\/bdi>/);
   assert.match(html, /<bdi lang="en"[^>]*>Cover<\/bdi>/);
   assert.ok(html.includes("SAMPLE כיסוי") && html.includes("SAMPLE מצבר"));
+  // The pages are on a line of their own, so a long manual name never hides them.
+  assert.match(html, /<span>עמ[^<]*<\/span> <span class="font-mono">2<\/span>/);
 });

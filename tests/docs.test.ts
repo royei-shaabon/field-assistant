@@ -1464,7 +1464,7 @@ test("stage log: a stage reports its total and the time of each part, and a fail
   console.error = (line: string) => void lines.push(JSON.parse(line));
   try {
     const stage = span("sample.stage", { env: "main" });
-    await new Promise((r) => setTimeout(r, 15));
+    await new Promise((r) => setTimeout(r, 25));
     stage.part("first");
     stage.add("inner", 7);
     stage.part("second");

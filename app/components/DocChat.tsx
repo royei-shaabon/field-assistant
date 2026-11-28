@@ -21,18 +21,23 @@ export function sourceHref(kbId: string, s: SourceView): string {
 export function SourceLink({ kbId, source, pages, dark = false }: { kbId: string; source: SourceView; pages?: number[]; dark?: boolean }) {
   // One tile per document: every page the answer leans on is named in it, and a tap opens the first.
   const list = pages?.length ? pages : [source.n];
-  const where = (
+  // Which pages, and of which model years: this part is never cut, however long the manual's name is.
+  const pages_ = (
     <>
-      <bdi>{source.docName}</bdi>
       {source.years && (
         <>
-          {" "}
           <span>
-            ({T.doc.sourceYears} <span className="font-mono">{source.years}</span>)
-          </span>
+            {T.doc.sourceYears} <span className="font-mono">{source.years}</span>
+          </span>{" "}
+          <span>·</span>{" "}
         </>
-      )}{" "}
-      <span>·</span> <span>{source.unit === "page" ? T.doc.page : T.doc.part}</span> <span className="font-mono">{list.join(", ")}</span>
+      )}
+      <span>{source.unit === "page" ? T.doc.page : T.doc.part}</span> <span className="font-mono">{list.join(", ")}</span>
+    </>
+  );
+  const where = (
+    <>
+      <bdi>{source.docName}</bdi> <span>·</span> {pages_}
     </>
   );
   // On the dark stop card the source is the only thing to do, so it stays a full tile.
@@ -55,8 +60,9 @@ export function SourceLink({ kbId, source, pages, dark = false }: { kbId: string
     <p className="flex items-center gap-2.5 text-[13px] leading-5 text-graphite">
       <span className="flex min-w-0 flex-1 flex-col">
         <span className="truncate">
-          <span>{T.doc.sourceLabel}</span> {where}
+          <span>{T.doc.sourceLabel}</span> <bdi>{source.docName}</bdi>
         </span>
+        <span>{pages_}</span>
         {/* A model read this page from its picture: said on its own line, so it is never cut off. */}
         {source.read && <span>{T.doc.sourceRead}</span>}
         {/* Field experience of the customer's own team, approved by the implementer: never shown as the manufacturer's word. */}
@@ -138,19 +144,30 @@ function Figure({ kbId, figure }: { kbId: string; figure: DocFigure }) {
   const y = Math.max(0, box.y - pad);
   const w = Math.min(1000 - x, box.w + 2 * pad);
   const h = Math.min(1000 - y, box.h + 2 * pad);
-  const marked = (figure.parts ?? []).filter((p) => p.asked);
+  // The page picture takes a second or two the first time. Until it is there the frame is a
+  // quiet placeholder, and no mark is drawn on an empty frame.
+  const [loaded, setLoaded] = useState(false);
+  useEffect(() => {
+    const img = new Image();
+    img.onload = () => setLoaded(true);
+    img.src = page;
+    return () => {
+      img.onload = null;
+    };
+  }, [page]);
+  const marked = loaded ? (figure.parts ?? []).filter((p) => p.asked) : [];
   // What the drawing prints, next to the same part's name in the technician's language.
   const printed = (figure.parts ?? []).filter((p) => p.printed);
   return (
     <figure className="anim-rise m-0 flex flex-col gap-1.5">
-      <a href={page} target="_blank" rel="noopener" className="relative block overflow-hidden rounded-2xl border border-edge bg-white">
+      <a href={page} target="_blank" rel="noopener" aria-busy={!loaded} className={`relative block overflow-hidden rounded-2xl border border-edge ${loaded ? "bg-white" : "bg-mist"}`}>
         <span
           role="img"
           aria-label={[figure.caption || T.doc.figure, ...marked.map((m) => m.name)].join(", ")}
           className="block w-full"
           style={{
             aspectRatio: `${w * aspect} / ${h}`,
-            backgroundImage: `url(${page})`,
+            backgroundImage: loaded ? `url(${page})` : undefined,
             backgroundRepeat: "no-repeat",
             backgroundSize: `${(1000 / w) * 100}% auto`,
             backgroundPosition: `${w >= 1000 ? 0 : (x / (1000 - w)) * 100}% ${h >= 1000 ? 0 : (y / (1000 - h)) * 100}%`,
