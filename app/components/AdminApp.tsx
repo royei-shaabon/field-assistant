@@ -16,7 +16,33 @@ import { SILENCE } from "@/lib/client/voice";
 // `indexed` of `sections`: how much of the document can be searched by meaning.
 type Doc = DocMeta & { indexed?: number; sections?: number };
 type Kb = KbMeta & { docs: Doc[]; usage: Usage };
-type Upload = { id: number; name: string; state: "working" | "done" | "error"; message?: string };
+// `part`: how far a large file has got, while it is still on its way to the server.
+type Upload = { id: number; name: string; state: "working" | "done" | "error"; message?: string; part?: { done: number; total: number } };
+
+// One request to the service carries at most 32MB, so a larger file goes up in parts of this
+// size and is joined on the server (lib/server/upload-parts.ts).
+const PART_BYTES = 8 * 1024 * 1024;
+
+// Sends a large file part by part. A part that fails is tried twice more before giving up.
+async function uploadInParts(kbId: string, file: File, name: string, origin: string, onPart: (done: number, total: number) => void): Promise<Response | null> {
+  const total = Math.ceil(file.size / PART_BYTES);
+  const id = Array.from(crypto.getRandomValues(new Uint8Array(12)), (b) => b.toString(16).padStart(2, "0")).join("");
+  const url = `/api/admin/kbs/${kbId}/docs/parts?id=${id}&total=${total}`;
+  for (let index = 0; index < total; index++) {
+    onPart(index, total);
+    const body = file.slice(index * PART_BYTES, (index + 1) * PART_BYTES);
+    let res: Response | null = null;
+    for (let attempt = 0; attempt < 3 && !res?.ok; attempt++) {
+      if (attempt) await new Promise((r) => setTimeout(r, 1500 * attempt));
+      res = await fetch(`${url}&index=${index}`, { method: "POST", headers: { "Content-Type": "application/octet-stream" }, body }).catch(() => null);
+      // A refusal (not signed in, too many requests) will not change on a second try.
+      if (res && !res.ok && res.status < 500) return res;
+    }
+    if (!res?.ok) return res;
+  }
+  onPart(total, total);
+  return fetch(`${url}&finish=1`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ fileName: file.name, name, origin, bytes: file.size }) }).catch(() => null);
+}
 
 const A = T.admin;
 // "envs" is the main administrator's only.
@@ -512,11 +538,16 @@ function Documents({ kb, embeddings, onChanged }: { kb: Kb; embeddings: string |
     for (const { file, name } of items) {
       const id = ++counter.current;
       setUploads((u) => [...u, { id, name: name.trim() || file.name, state: "working" }]);
-      const form = new FormData();
-      form.set("file", file);
-      form.set("name", name);
-      form.set("origin", origin);
-      const res = await fetch(`/api/admin/kbs/${kb.id}/docs`, { method: "POST", body: form }).catch(() => null);
+      let res: Response | null;
+      if (file.size > PART_BYTES) {
+        res = await uploadInParts(kb.id, file, name, origin, (done, total) => setUploads((u) => u.map((x) => (x.id === id ? { ...x, part: done < total ? { done, total } : undefined } : x))));
+      } else {
+        const form = new FormData();
+        form.set("file", file);
+        form.set("name", name);
+        form.set("origin", origin);
+        res = await fetch(`/api/admin/kbs/${kb.id}/docs`, { method: "POST", body: form }).catch(() => null);
+      }
       const body = (await res?.json().catch(() => null)) as { error?: keyof typeof A.errors; doc?: Doc } | null;
       const message = res?.ok ? undefined : (A.errors[body?.error ?? "generic"] ?? A.errors.generic);
       setUploads((u) => u.map((x) => (x.id === id ? { ...x, state: res?.ok ? "done" : "error", message } : x)));
@@ -643,7 +674,7 @@ function Documents({ kb, embeddings, onChanged }: { kb: Kb; embeddings: string |
               <span dir="auto" className="min-w-0 flex-1 truncate">
                 {u.name}
               </span>
-              <span className={u.state === "error" ? "text-danger-ink" : "text-stone"}>{u.state === "working" ? A.uploading : u.state === "done" ? A.uploaded : u.message}</span>
+              <span className={u.state === "error" ? "text-danger-ink" : "text-stone"}>{u.state === "working" ? (u.part ? A.uploadingPart(u.part.done, u.part.total) : A.uploading) : u.state === "done" ? A.uploaded : u.message}</span>
             </li>
           ))}
         </ul>

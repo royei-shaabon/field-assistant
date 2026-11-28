@@ -1827,7 +1827,7 @@ test("a manual's name: the implementer's own, or the file's name without its end
   // Renaming keeps the file's name, so the same file uploaded again is still recognised.
   const renamed = await store.renameDoc(kb.id, added.id, "SAMPLE שם אחר");
   assert.deepEqual([renamed.name, renamed.file], ["SAMPLE שם אחר", "sample manual"]);
-  const route = fs.readFileSync(path.join(process.cwd(), "app", "api", "admin", "kbs", "[kbId]", "docs", "route.ts"), "utf8");
+  const route = fs.readFileSync(path.join(process.cwd(), "lib", "server", "store-upload.ts"), "utf8");
   assert.match(route, /\(d\.file \?\? d\.name\) === doc\.name && d\.bytes === doc\.bytes/);
 });
 
@@ -1868,4 +1868,41 @@ test("one conversation in chat, voice and video: a call's transcript joins the c
   // A forged log with a shape that is not a conversation is refused.
   await assert.rejects(handleDocConversation({ meta: kb.meta, docs: kb.docs, index: kb.index }, idle, { events: [{ type: "CALL_LOG", call: "voice", lines: [{ by: "admin", text: "x" }] }], input: { kind: "view" } }));
   assert.equal(docScreen(after.events, true).items.length, 3);
+});
+
+test("a large file comes in parts: joined only when every part is there and the size is what was declared", async () => {
+  const { joinParts, MAX_PARTS, PART_BYTES, partsRoot, savePart, sweepParts, validPart, validUploadId } = await import("../lib/server/upload-parts");
+  const root = partsRoot("main", fs.mkdtempSync(path.join(os.tmpdir(), "parts-")));
+  const id = "abcdef0123456789";
+  assert.ok(validUploadId(id));
+  for (const bad of ["../x", "short", "ABCDEF0123456789", "abcdef01/3456789", 7]) assert.equal(validUploadId(bad), false);
+  assert.ok(validPart(0, 1) && validPart(MAX_PARTS - 1, MAX_PARTS));
+  for (const [i, t] of [[1, 1], [-1, 2], [0, 0], [0, MAX_PARTS + 1], [0.5, 2]]) assert.equal(validPart(i, t), false);
+  assert.ok(MAX_PARTS * PART_BYTES >= 200 * 1024 * 1024, "200MB fits");
+
+  // Parts may arrive in any order; they are joined by their number.
+  await savePart(root, id, 1, Buffer.from("SAMPLE-b"));
+  await savePart(root, id, 0, Buffer.from("SAMPLE-a|"));
+  assert.equal((await joinParts(root, id, 2, 17))?.toString(), "SAMPLE-a|SAMPLE-b");
+  assert.equal(fs.existsSync(path.join(root, id)), false, "the parts are removed once joined");
+
+  // A missing part, or a size that is not the declared one: no file, and nothing is left behind.
+  await savePart(root, id, 0, Buffer.from("SAMPLE-a|"));
+  assert.equal(await joinParts(root, id, 2, 17), null);
+  await savePart(root, id, 0, Buffer.from("SAMPLE-a|"));
+  assert.equal(await joinParts(root, id, 1, 5), null);
+  assert.equal(fs.existsSync(path.join(root, id)), false);
+  await assert.rejects(savePart(root, "../escape", 0, Buffer.from("x")));
+  await assert.rejects(savePart(root, id, 0, Buffer.alloc(0)));
+
+  // An upload nobody finished is swept after an hour; a fresh one stays.
+  await savePart(root, id, 0, Buffer.from("x"));
+  await sweepParts(root, Date.now() + 10 * 60_000);
+  assert.ok(fs.existsSync(path.join(root, id)));
+  await sweepParts(root, Date.now() + 61 * 60_000);
+  assert.equal(fs.existsSync(path.join(root, id)), false);
+
+  // The parts route is behind the same gates as the upload in one request.
+  const route = fs.readFileSync(path.join(process.cwd(), "app", "api", "admin", "kbs", "[kbId]", "docs", "parts", "route.ts"), "utf8");
+  assert.ok(route.indexOf("isAdmin()") < route.indexOf("allow(") && route.indexOf("allow(") < route.indexOf("tooLarge(") && route.indexOf("tooLarge(") < route.indexOf("request.arrayBuffer()"));
 });

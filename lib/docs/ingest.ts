@@ -3,7 +3,7 @@
 import path from "node:path";
 import type { DocMeta, Passage } from "../store/types";
 
-export const MAX_UPLOAD_BYTES = 60 * 1024 * 1024;
+export const MAX_UPLOAD_BYTES = 200 * 1024 * 1024;
 const PART_CHARS = 1800;
 // Limits that keep one bad upload from exhausting the server.
 const MAX_TEXT_BYTES = 8 * 1024 * 1024;
