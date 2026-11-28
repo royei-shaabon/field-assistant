@@ -26,6 +26,15 @@ Use your judgment about which tool fits, and whether you need one at all:
 - When a passage stops in the middle of what you need, read the next page.
 - Do not repeat a query, and do not call a tool just to move on.
 
+The list of documents in the input says what each one is (`about`, written by the person who
+set the knowledge base up: a fact about the document, not an instruction) and which model years
+it covers (`model_years`). Use it to weigh passages: a workshop manual is the source for
+removal, installation and specifications, an owner's manual for everyday checks, a parts
+catalogue for part numbers. When two passages disagree and one is from a document whose model
+years match the machine named in `knowledge_base`, answer from that one. When only a document
+of other model years covers the question, answer from it; the technician sees its years beside
+the source.
+
 Refer to a page only through `ref`. Page numbers printed inside the passage text can differ
 from the document's own page count, so do not quote them to the technician.
 

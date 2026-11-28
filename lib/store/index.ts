@@ -142,6 +142,27 @@ export class KbStore {
     return next;
   }
 
+  // The description and model years the implementer approved. An empty text removes the field.
+  async describeDoc(kbId: string, docId: string, patch: { about?: string; years?: string }): Promise<DocMeta> {
+    this.checkId(kbId);
+    this.checkId(docId);
+    const key = `kbs/${kbId}/docs/${docId}.meta.json`;
+    const meta = parse<DocMeta>(await this.driver.read(key));
+    if (!meta) throw new NotFound("doc");
+    const next: DocMeta = { ...meta };
+    if (patch.about !== undefined) {
+      if (patch.about) next.about = patch.about;
+      else delete next.about;
+    }
+    if (patch.years !== undefined) {
+      if (patch.years) next.years = patch.years;
+      else delete next.years;
+    }
+    await this.driver.write(key, json(next));
+    await this.touch(kbId); // the search index carries the years beside each source
+    return next;
+  }
+
   async deleteDoc(kbId: string, docId: string): Promise<void> {
     this.checkId(kbId);
     this.checkId(docId);

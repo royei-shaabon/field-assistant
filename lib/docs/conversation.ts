@@ -36,6 +36,7 @@ const source = obj(["docId", "docName", "origin", "unit", "n"], {
   origin: { enum: ["manufacturer", "customer"] },
   unit: { enum: ["page", "part"] },
   n: { type: "integer", minimum: 1 },
+  years: text(40),
 });
 const kind = (k: string) => ({ const: k });
 const ideas = {

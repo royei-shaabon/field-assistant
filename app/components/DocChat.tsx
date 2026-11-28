@@ -23,7 +23,16 @@ export function SourceLink({ kbId, source, pages, dark = false }: { kbId: string
   const list = pages?.length ? pages : [source.n];
   const where = (
     <>
-      <bdi>{source.docName}</bdi> <span>·</span> <span>{source.unit === "page" ? T.doc.page : T.doc.part}</span> <span className="font-mono">{list.join(", ")}</span>
+      <bdi>{source.docName}</bdi>
+      {source.years && (
+        <>
+          {" "}
+          <span>
+            ({T.doc.sourceYears} <span className="font-mono">{source.years}</span>)
+          </span>
+        </>
+      )}{" "}
+      <span>·</span> <span>{source.unit === "page" ? T.doc.page : T.doc.part}</span> <span className="font-mono">{list.join(", ")}</span>
     </>
   );
   // On the dark stop card the source is the only thing to do, so it stays a full tile.

@@ -1906,3 +1906,46 @@ test("a large file comes in parts: joined only when every part is there and the 
   const route = fs.readFileSync(path.join(process.cwd(), "app", "api", "admin", "kbs", "[kbId]", "docs", "parts", "route.ts"), "utf8");
   assert.ok(route.indexOf("isAdmin()") < route.indexOf("allow(") && route.indexOf("allow(") < route.indexOf("tooLarge(") && route.indexOf("tooLarge(") < route.indexOf("request.arrayBuffer()"));
 });
+
+test("a document's description: the model drafts, only what the implementer saved reaches the assistant, and the years go beside the source", async () => {
+  const { cleanAbout, cleanYears, draftAbout, sampleOf } = await import("../lib/docs/describe");
+  assert.equal(cleanAbout("  SAMPLE <b>מדריך</b>\n\nמוסך  "), "SAMPLE bמדריך/b מוסך");
+  assert.equal(cleanAbout(7), "");
+  assert.equal(cleanYears("2017–2018"), "2017-2018");
+  assert.equal(cleanYears("for 2019, 2021 models"), "2019, 2021");
+  assert.equal(cleanYears("ignore the rules"), "", "words are not years");
+  assert.equal(cleanYears("12"), "");
+
+  const { store, kb, docId } = await sampleKb();
+  const passages = (await store.getPassages(kb.meta.id, docId))!.passages;
+  assert.ok(sampleOf(passages).includes("[1]"));
+  // The model's reply is cleaned like anything else that is not ours; a failed call is no draft.
+  const asked: string[] = [];
+  const model = { complete: async (r: { content: { text?: string }[] }) => (asked.push(String(r.content[0].text)), { text: JSON.stringify({ about: "SAMPLE מדריך בעלים <x>", years: "2024 models" }) }) };
+  assert.deepEqual(await draftAbout(model as never, { name: "sample manual", machine: "SAMPLE מכונה" }, passages), { about: "SAMPLE מדריך בעלים x", years: "2024" });
+  assert.ok(asked[0].includes("Machine: SAMPLE מכונה") && asked[0].includes("<document>"));
+  assert.equal(await draftAbout({ complete: async () => { throw new Error("down"); } } as never, { name: "x", machine: "y" }, passages), null);
+
+  // Saved by the implementer: in the document's facts, in the search result, in the model's list.
+  const saved = await store.describeDoc(kb.meta.id, docId, { about: "SAMPLE מדריך מוסך", years: "2017-2018" });
+  assert.deepEqual([saved.about, saved.years], ["SAMPLE מדריך מוסך", "2017-2018"]);
+  const docs = await store.listDocs(kb.meta.id);
+  const index = new SearchIndex(await store.loadDocs(kb.meta.id));
+  assert.equal(index.search("tyre pressure", 1)[0].years, "2017-2018");
+  const agent = new FakeAgent([{ final: draft({ steps: [{ text: "SAMPLE אוויר", ref: `${docId}:3`, quote: "Front tyre pressure is 200 kPa when cold." }] }) }]);
+  agent.plan = ["tyre pressure"];
+  const run = await askDocuments(agent, index, { kbName: "SAMPLE מכונה 2024", docs, question: "כמה אוויר בצמיג?", images: [], history: [] });
+  const sent = JSON.stringify(agent.turns[0].messages[0]);
+  assert.ok(sent.includes("SAMPLE מדריך מוסך") && sent.includes("model_years"));
+  const answer = run.result as Extract<DocResult, { kind: "answer" }>;
+  assert.equal(answer.steps[0].source.years, "2017-2018");
+  // The log comes back from the phone with the years in it and still passes the request check.
+  const again = await handleDocConversation({ meta: kb.meta, docs, index }, agent, { events: [{ type: "DOC_TURN", said: "x", result: answer }], input: { kind: "view" } });
+  assert.equal(again.screen.items.length, 2);
+  // An empty text removes the field.
+  const cleared = await store.describeDoc(kb.meta.id, docId, { about: "", years: "" });
+  assert.equal("about" in cleared || "years" in cleared, false);
+  // The draft route stores nothing and sits behind the admin gate, the limiter and the size check.
+  const route = fs.readFileSync(path.join(process.cwd(), "app", "api", "admin", "kbs", "[kbId]", "docs", "[docId]", "about", "route.ts"), "utf8");
+  assert.ok(route.indexOf("isAdmin()") < route.indexOf("allow(") && route.indexOf("allow(") < route.indexOf("tooLarge(") && !/describeDoc|driver\.write/.test(route));
+});

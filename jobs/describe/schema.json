@@ -1,0 +1,9 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["about", "years"],
+  "properties": {
+    "about": { "type": "string" },
+    "years": { "type": "string" }
+  }
+}

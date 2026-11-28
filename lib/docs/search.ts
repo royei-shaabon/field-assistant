@@ -10,6 +10,8 @@ export type Hit = {
   ref: string;
   docId: string;
   docName: string;
+  // The model years the document covers, when the implementer stated them.
+  years?: string;
   origin: StoredDoc["meta"]["origin"];
   unit: StoredDoc["meta"]["unit"];
   n: number;
@@ -62,7 +64,7 @@ export class SearchIndex {
       const latin = (sample.match(/[a-z]/gi) ?? []).length;
       this.languages.set(meta.id, hebrew > latin ? "Hebrew" : latin > 0 ? "English" : "other");
       for (const p of passages) {
-        const hit = { ref: `${meta.id}:${p.n}`, docId: meta.id, docName: meta.name, origin: meta.origin, unit: meta.unit, n: p.n, text: p.text };
+        const hit = { ref: `${meta.id}:${p.n}`, docId: meta.id, docName: meta.name, ...(meta.years ? { years: meta.years } : {}), origin: meta.origin, unit: meta.unit, n: p.n, text: p.text };
         this.pages.set(hit.ref, hit);
         sectionsInContext(p.text).forEach(({ text: section, context }, c) => {
           // The headings a section stands under are searched with it.

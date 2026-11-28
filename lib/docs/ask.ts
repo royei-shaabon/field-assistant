@@ -31,7 +31,7 @@ export const MAX_IDEAS = 4;
 
 export type HazardTopic = "brakes" | "fuel" | "hot_coolant" | "running_engine" | "other";
 
-export type SourceView = { docId: string; docName: string; origin: DocMeta["origin"]; unit: DocMeta["unit"]; n: number };
+export type SourceView = { docId: string; docName: string; origin: DocMeta["origin"]; unit: DocMeta["unit"]; n: number; years?: string };
 export type Box = { x: number; y: number; w: number; h: number };
 // A drawing cut out of a manual page: `box` in thousandths of the page, `aspect` = page width / height.
 // A part named in the manual's drawing. `name` is in the technician's language; `printed` is the
@@ -178,7 +178,7 @@ export function hazardTopic(question: string | undefined, draft: Pick<Draft, "ha
   return HAZARD_EN.find((t) => t.pattern.test(text))?.topic ?? null;
 }
 
-const sourceOf = (h: Omit<Hit, "score">): SourceView => ({ docId: h.docId, docName: h.docName, origin: h.origin, unit: h.unit, n: h.n });
+const sourceOf = (h: Omit<Hit, "score">): SourceView => ({ docId: h.docId, docName: h.docName, origin: h.origin, unit: h.unit, n: h.n, ...(h.years ? { years: h.years } : {}) });
 
 // The model gives boxes in the pixels of the picture it was shown. This turns one into
 // thousandths of the picture's width and height, which is how boxes are stored and drawn.
@@ -450,7 +450,7 @@ function describeResult(r: DocResult): string {
 function contextOf(input: AskInput, index: SearchIndex, frameSizes: (Size | null)[]): string {
   const context = {
     knowledge_base: input.kbName,
-    documents: input.docs.map((d) => ({ name: d.name, language: index.language(d.id), from: d.origin, pages: d.passages })),
+    documents: input.docs.map((d) => ({ name: d.name, language: index.language(d.id), from: d.origin, pages: d.passages, ...(d.about ? { about: d.about } : {}), ...(d.years ? { model_years: d.years } : {}) })),
     attached_pictures: frameSizes.map((s, frame) => ({ frame, pixels: s ? `${s.width} x ${s.height}` : "unknown" })),
     history: input.history.slice(-4).map((h) => ({ technician: h.said ?? "(sent media)", assistant: describeResult(h.result) })),
     ...(input.earlier && /\(in a (voice|video) call\)/.test(input.earlier) ? { said_in_calls_and_chat_so_far: input.earlier } : {}),
@@ -467,7 +467,7 @@ function contextOf(input: AskInput, index: SearchIndex, frameSizes: (Size | null
 function searchResultText(hits: Hit[]): string {
   if (!hits.length) return "No passages matched. Try different keywords.";
   return hits
-    .map((h) => `<passage ref="${h.ref}" document="${h.docName.replace(/["<>]/g, "")}" ${h.unit}="${h.n}">\n${h.text.slice(0, PASSAGE_CHARS).replace(/<\/?passage/gi, "")}\n</passage>`)
+    .map((h) => `<passage ref="${h.ref}" document="${h.docName.replace(/["<>]/g, "")}"${h.years ? ` model_years="${h.years}"` : ""} ${h.unit}="${h.n}">\n${h.text.slice(0, PASSAGE_CHARS).replace(/<\/?passage/gi, "")}\n</passage>`)
     .join("\n\n");
 }
 

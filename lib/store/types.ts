@@ -29,6 +29,11 @@ export type DocMeta = {
   // goes by it, whatever the manual is called later. Absent on documents from before the two were told apart.
   file?: string;
   origin: DocOrigin;
+  // What the document is and what it is the right source for, as the implementer approved it
+  // (the model drafts it). The assistant reads it in its list of documents.
+  about?: string;
+  // The model years the document covers ("2017-2018"). Shown beside the source of every answer.
+  years?: string;
   // "page" for a PDF (n is the real page number), "part" for everything else.
   unit: "page" | "part";
   mime: string;

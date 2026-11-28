@@ -71,6 +71,12 @@
       "does": "Sample fault trees: reads a free-text reply as yes, no or unclear.",
       "model": "main",
       "where": "jobs/interpret"
+    },
+    {
+      "name": "describe",
+      "does": "Drafts a document's description and model years for the implementer to approve.",
+      "model": "main",
+      "where": "jobs/describe"
     }
   ]
 }

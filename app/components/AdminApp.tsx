@@ -493,6 +493,92 @@ function Diagnose() {
   );
 }
 
+// What a document is and when the assistant should lean on it, with the model years it covers.
+// The model writes a draft; nothing is saved until the implementer reads it and presses "save".
+function DocAbout({ kbId, doc, suggest, onSaved }: { kbId: string; doc: Doc; suggest: boolean; onSaved: () => Promise<void> }) {
+  const [open, setOpen] = useState(false);
+  const [about, setAbout] = useState(doc.about ?? "");
+  const [years, setYears] = useState(doc.years ?? "");
+  const [busy, setBusy] = useState<"draft" | "save" | null>(null);
+  const [note, setNote] = useState<"drafted" | "failed" | null>(null);
+
+  const draft = useCallback(async () => {
+    setOpen(true);
+    setBusy("draft");
+    setNote(null);
+    const res = await fetch(`/api/admin/kbs/${kbId}/docs/${doc.id}/about`, { method: "POST" }).catch(() => null);
+    const body = (await res?.json().catch(() => null)) as { draft?: { about: string; years: string } } | null;
+    if (res?.ok && body?.draft) {
+      setAbout(body.draft.about);
+      setYears(body.draft.years);
+      setNote("drafted");
+    } else setNote("failed");
+    setBusy(null);
+  }, [kbId, doc.id]);
+
+  // A document that has just been uploaded gets its draft without being asked.
+  useEffect(() => {
+    if (!suggest || doc.about) return;
+    const t = setTimeout(() => void draft(), 0);
+    return () => clearTimeout(t);
+  }, [suggest, doc.about, draft]);
+
+  const save = async () => {
+    setBusy("save");
+    const res = await fetch(`/api/admin/kbs/${kbId}/docs/${doc.id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ about, years }) }).catch(() => null);
+    setBusy(null);
+    if (!res?.ok) return setNote("failed");
+    setOpen(false);
+    setNote(null);
+    await onSaved();
+  };
+
+  if (!open) {
+    return (
+      <p className="mt-1 flex flex-wrap items-baseline gap-x-2 gap-y-1 text-[13px] text-graphite">
+        {doc.years && (
+          <span className="rounded bg-mist px-1.5">
+            <span>{A.about.yearsShort}</span> <span className="font-mono">{doc.years}</span>
+          </span>
+        )}
+        <span dir="auto" className="min-w-0">{doc.about || A.about.none}</span>
+        <button onClick={() => (doc.about ? setOpen(true) : void draft())} className="rounded-lg border border-edge px-2.5 py-1 text-[13px] font-medium text-primary">
+          {doc.about ? A.about.edit : A.about.suggest}
+        </button>
+      </p>
+    );
+  }
+  return (
+    <div className="mt-2 flex flex-col gap-2 rounded-xl border border-edge bg-mist/60 p-3">
+      <label className="flex flex-col gap-1 text-[13px] font-medium text-graphite">
+        <span>{A.about.label}</span>
+        <textarea value={about} maxLength={400} rows={3} disabled={busy === "draft"} onChange={(e) => setAbout(e.target.value)} className="rounded-xl border border-edge bg-paper px-3 py-2 text-[15px] font-normal text-ink focus:border-primary" />
+      </label>
+      <label className="flex flex-col gap-1 text-[13px] font-medium text-graphite">
+        <span>{A.about.years}</span>
+        <input value={years} maxLength={40} dir="ltr" disabled={busy === "draft"} onChange={(e) => setYears(e.target.value)} placeholder="2017-2018" className="h-11 w-44 rounded-xl border border-edge bg-paper px-3 text-start font-mono text-[15px] font-normal text-ink focus:border-primary" />
+      </label>
+      <p role="status" className="text-[13px] text-graphite">{busy === "draft" ? A.about.drafting : note === "drafted" ? A.about.drafted : ""}</p>
+      {note === "failed" && (
+        <p role="alert" className="text-[13px] text-danger-ink">
+          {A.about.failed}
+        </p>
+      )}
+      <div className="flex flex-wrap gap-2">
+        <button onClick={save} disabled={Boolean(busy)} className="h-11 rounded-xl bg-primary px-4 text-[15px] font-medium text-white disabled:opacity-40">
+          {A.about.save}
+        </button>
+        <button onClick={() => void draft()} disabled={Boolean(busy)} className="h-11 rounded-xl border border-edge px-4 text-[15px] font-medium text-primary disabled:opacity-40">
+          {A.about.again}
+        </button>
+        <button onClick={() => setOpen(false)} disabled={Boolean(busy)} className="h-11 rounded-xl px-4 text-[15px] text-graphite disabled:opacity-40">
+          {A.cancel}
+        </button>
+      </div>
+    </div>
+  );
+}
+
 function Documents({ kb, embeddings, onChanged }: { kb: Kb; embeddings: string | null; onChanged: () => Promise<void> }) {
   const [origin, setOrigin] = useState<DocOrigin>("manufacturer");
   const [uploads, setUploads] = useState<Upload[]>([]);
@@ -533,6 +619,9 @@ function Documents({ kb, embeddings, onChanged }: { kb: Kb; embeddings: string |
   const [staged, setStaged] = useState<{ id: number; file: File; name: string }[]>([]);
   const stage = (files: File[]) => setStaged((now) => [...now, ...files.map((file) => ({ id: ++counter.current, file, name: titleOf(file.name) }))]);
 
+  // Documents uploaded on this screen just now: each gets a draft of its description.
+  const [fresh, setFresh] = useState<string[]>([]);
+
   const upload = async (items: { file: File; name: string }[]) => {
     setStaged([]);
     for (const { file, name } of items) {
@@ -551,6 +640,7 @@ function Documents({ kb, embeddings, onChanged }: { kb: Kb; embeddings: string |
       const body = (await res?.json().catch(() => null)) as { error?: keyof typeof A.errors; doc?: Doc } | null;
       const message = res?.ok ? undefined : (A.errors[body?.error ?? "generic"] ?? A.errors.generic);
       setUploads((u) => u.map((x) => (x.id === id ? { ...x, state: res?.ok ? "done" : "error", message } : x)));
+      if (res?.ok && body?.doc) setFresh((ids) => [...ids, body.doc!.id]);
       if (res?.ok) await onChanged();
       if (res?.ok && embeddings && body?.doc) await buildIndex([body.doc]);
     }
@@ -702,6 +792,7 @@ function Documents({ kb, embeddings, onChanged }: { kb: Kb; embeddings: string |
                   <span className="font-mono">{size(d.bytes)}</span>
                   <span className="font-mono uppercase">{d.ext.slice(1)}</span>
                 </p>
+                <DocAbout key={`${d.id}:${d.about ?? ""}:${d.years ?? ""}`} kbId={kb.id} doc={d} suggest={fresh.includes(d.id)} onSaved={onChanged} />
                 {embeddings && (
                   <p className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-[13px] text-graphite">
                     {indexing?.docId === d.id && !indexing.error ? (

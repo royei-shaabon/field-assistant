@@ -49,7 +49,7 @@ export async function liveLookup(index: SearchIndex, question: string, embedder:
   const hits = (await runSearch(index, [question, ...(inEnglish ? [inEnglish] : []), ...(terms ? [terms] : [])], { embedder, onTiming: onPart })).slice(0, LOOKUP_PAGES);
   // The sections to choose from: each page's best section first, page by page, then the
   // sections around them (a table of faults often runs over two sections).
-  const source = (h: (typeof hits)[number]) => `${h.docName}, ${h.unit === "page" ? T.doc.page : T.doc.part} ${h.n}`;
+  const source = (h: (typeof hits)[number]) => `${h.docName}${h.years ? ` (${h.years})` : ""}, ${h.unit === "page" ? T.doc.page : T.doc.part} ${h.n}`;
   const pool: { source: string; text: string }[] = hits.filter((h) => h.focus).map((h) => ({ source: source(h), text: h.focus! }));
   for (const h of hits) for (const text of index.sectionsOf(h.ref)) if (pool.length < CANDIDATES && text !== h.focus) pool.push({ source: source(h), text });
   const reranking = Date.now();
