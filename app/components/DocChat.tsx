@@ -32,7 +32,11 @@ export function SourceLink({ kbId, source, pages, dark = false }: { kbId: string
           <span>·</span>{" "}
         </>
       )}
-      <span>{source.unit === "page" ? T.doc.page : T.doc.part}</span> <span className="font-mono">{list.join(", ")}</span>
+      <span>{source.unit === "page" ? T.doc.page : T.doc.part}</span>{" "}
+      {/* Left to right, so "74, 75" is not turned round inside a Hebrew line. */}
+      <bdi dir="ltr" className="font-mono">
+        {list.join(", ")}
+      </bdi>
     </>
   );
   const where = (

@@ -208,5 +208,5 @@ test("a manual drawing: the printed labels next to their names, and no mark befo
   assert.match(html, /<bdi lang="en"[^>]*>Cover<\/bdi>/);
   assert.ok(html.includes("SAMPLE כיסוי") && html.includes("SAMPLE מצבר"));
   // The pages are on a line of their own, so a long manual name never hides them.
-  assert.match(html, /<span>עמ[^<]*<\/span> <span class="font-mono">2<\/span>/);
+  assert.match(html, /<bdi dir="ltr" class="font-mono">2<\/bdi>/);
 });
