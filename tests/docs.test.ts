@@ -1949,3 +1949,61 @@ test("a document's description: the model drafts, only what the implementer save
   const route = fs.readFileSync(path.join(process.cwd(), "app", "api", "admin", "kbs", "[kbId]", "docs", "[docId]", "about", "route.ts"), "utf8");
   assert.ok(route.indexOf("isAdmin()") < route.indexOf("allow(") && route.indexOf("allow(") < route.indexOf("tooLarge(") && !/describeDoc|driver\.write/.test(route));
 });
+
+test("pages read from their picture: only pages that need it, added after the page's own text, and an answer that leans on them says so", async () => {
+  const { looksLikeTable, pagesToRead, readPages, MAX_TABLE_PAGES } = await import("../lib/docs/read-pages");
+  const table = Array.from({ length: 30 }, (_, i) => `SAMPLE item ${i} 0.6 4 8 12 16`).join(" ");
+  assert.ok(looksLikeTable(table));
+  assert.equal(looksLikeTable("SAMPLE Check the oil level with the engine stopped. ".repeat(10)), false);
+  assert.equal(looksLikeTable("1 2 3"), false, "too short to judge");
+
+  const { store, kb, docId } = await sampleKb();
+  const before = (await store.getPassages(kb.meta.id, docId))!.passages;
+  const meta = (await store.listDocs(kb.meta.id))[0];
+  // The sample PDF has five pages and one of them has no text.
+  const waiting = pagesToRead(meta, before);
+  assert.deepEqual(waiting, { empty: [5], tables: [] });
+  assert.deepEqual(pagesToRead({ ...meta, unit: "part" }, before), { empty: [], tables: [] }, "only a PDF has pages to draw");
+  assert.ok(pagesToRead({ unit: "page", passages: 200, pictured: [] }, Array.from({ length: 200 }, (_, i) => ({ n: i + 1, text: table }))).tables.length === MAX_TABLE_PAGES);
+
+  const asked: number[] = [];
+  const model = { complete: async () => ({ text: JSON.stringify({ kind: "table", text: "SAMPLE Engine oil: 1,000 km: Replace" }) }) };
+  const progress = await readPages(store, model as never, kb.meta.id, docId, async (n) => (asked.push(n), { data: "AAAA", mediaType: "image/png" }));
+  assert.deepEqual([progress.read, progress.left, asked], [1, 0, [5]]);
+  const after = (await store.getPassages(kb.meta.id, docId))!.passages;
+  assert.deepEqual(after.find((p) => p.n === 5), { n: 5, text: "SAMPLE Engine oil: 1,000 km: Replace", own: 0 });
+  const updated = (await store.listDocs(kb.meta.id))[0];
+  assert.deepEqual([updated.pictured, updated.empty], [[5], 0]);
+  assert.deepEqual(pagesToRead(updated, after), { empty: [], tables: [] }, "a page is read once");
+
+  // A page with text of its own keeps it; what was read comes after, and `own` says where.
+  const added = await store.addSeen(kb.meta.id, docId, [{ n: 3, seen: "SAMPLE Rear: 225 kPa: Cold" }, { n: 99, seen: "x" }, { n: 2, seen: "  " }]);
+  assert.deepEqual(added.pictured, [2, 3, 5]);
+  const page3 = (await store.getPassages(kb.meta.id, docId))!.passages.find((p) => p.n === 3)!;
+  assert.ok(page3.text.startsWith(before.find((p) => p.n === 3)!.text) && page3.text.endsWith("SAMPLE Rear: 225 kPa: Cold") && page3.own === before.find((p) => p.n === 3)!.text.length);
+
+  // A step quoted from the file's own text is plain; one quoted from what was read is marked.
+  const index = new SearchIndex(await store.loadDocs(kb.meta.id));
+  const docs = await store.listDocs(kb.meta.id);
+  const agent = new FakeAgent([
+    {
+      final: draft({
+        steps: [
+          { text: "SAMPLE קדמי", ref: `${docId}:3`, quote: "Front tyre pressure is 200 kPa when cold." },
+          { text: "SAMPLE שמן", ref: `${docId}:5`, quote: "Engine oil: 1,000 km: Replace" },
+        ],
+      }),
+    },
+  ]);
+  agent.plan = ["tyre pressure", "engine oil replace"];
+  const run = await askDocuments(agent, index, { kbName: "x", docs, question: "מתי מחליפים שמן וכמה אוויר?", images: [], history: [] });
+  const answer = run.result as Extract<DocResult, { kind: "answer" }>;
+  assert.deepEqual(answer.steps.map((s) => s.source.read), [undefined, true]);
+  const again = await handleDocConversation({ meta: kb.meta, docs, index }, agent, { events: [{ type: "DOC_TURN", said: "x", result: answer }], input: { kind: "view" } });
+  assert.equal(again.screen.items.length, 2, "the mark passes the request check");
+
+  // A model that cannot be asked leaves the page waiting.
+  const { store: s2, kb: kb2, docId: d2 } = await sampleKb();
+  const down = await readPages(s2, { complete: async () => { throw new Error("down"); } } as never, kb2.meta.id, d2, async () => ({ data: "AAAA", mediaType: "image/png" }));
+  assert.deepEqual([down.read, down.failed, (await s2.listDocs(kb2.meta.id))[0].pictured], [0, 1, undefined]);
+});

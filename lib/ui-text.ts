@@ -174,6 +174,7 @@ export const T = {
     openSource: "פתיחת המדריך",
     sourceLabel: "מקור:",
     sourceYears: "דגמי",
+    sourceRead: "נקרא מתמונת העמוד",
     openShort: "פתיחה",
     helped: "עזר",
     notHelped: "לא עזר",
@@ -379,6 +380,13 @@ export const T = {
     noDocs: "עדיין אין מסמכים במאגר הזה.",
     remove: "מחיקה",
     renameDoc: "שינוי שם",
+    read: {
+      waiting: (empty: number, tables: number) => `${[empty ? `${empty} עמודים בלי טקסט` : "", tables ? `${tables} עמודי טבלאות` : ""].filter(Boolean).join(" ו-")} שהחיפוש לא קורא היטב.`,
+      start: "קריאה מתמונה",
+      working: "קורא עמודים מתמונה, נשארו",
+      done: "עמודים שנקראו מתמונה:",
+      failed: "הקריאה נעצרה. אפשר לנסות שוב.",
+    },
     about: {
       none: "אין תיאור למסמך.",
       suggest: "הצעת תיאור",

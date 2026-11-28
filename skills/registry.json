@@ -77,6 +77,12 @@
       "does": "Drafts a document's description and model years for the implementer to approve.",
       "model": "main",
       "where": "jobs/describe"
+    },
+    {
+      "name": "read",
+      "does": "Reads a page of a manual from its picture (a scanned page, a table of symbols) so it can be searched and quoted.",
+      "model": "main",
+      "where": "jobs/read"
     }
   ]
 }

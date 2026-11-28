@@ -16,6 +16,8 @@ export const LIMITS = {
   ask: { max: 30, windowMs: 5 * 60_000 },
   askDaily: { max: Number(process.env.DAILY_QUESTION_LIMIT) || 1000, windowMs: 24 * 60 * 60_000 },
   upload: { max: 60, windowMs: 10 * 60_000 },
+  // Reading pages from their pictures: each call reads a few pages with the main model.
+  readPages: { max: 120, windowMs: 10 * 60_000 },
   // A draft of a document's description: one model call for each.
   describe: { max: 40, windowMs: 10 * 60_000 },
   // A large file comes in parts of 8MB: a few big manuals in ten minutes.

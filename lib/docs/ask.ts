@@ -31,7 +31,7 @@ export const MAX_IDEAS = 4;
 
 export type HazardTopic = "brakes" | "fuel" | "hot_coolant" | "running_engine" | "other";
 
-export type SourceView = { docId: string; docName: string; origin: DocMeta["origin"]; unit: DocMeta["unit"]; n: number; years?: string };
+export type SourceView = { docId: string; docName: string; origin: DocMeta["origin"]; unit: DocMeta["unit"]; n: number; years?: string; read?: true };
 export type Box = { x: number; y: number; w: number; h: number };
 // A drawing cut out of a manual page: `box` in thousandths of the page, `aspect` = page width / height.
 // A part named in the manual's drawing. `name` is in the technician's language; `printed` is the
@@ -261,7 +261,9 @@ function keepSteps(steps: Draft["steps"], seen: Map<string, Hit>): KeptStep[] {
   steps.slice(0, MAX_STEPS).forEach((s, from) => {
     const hit = seen.get(String(s.ref ?? "").trim());
     if (hit && typeof s.text === "string" && s.text.trim() && typeof s.quote === "string" && quoteInPassage(s.quote, hit.text)) {
-      kept.push({ text: s.text.trim().slice(0, 600), quote: s.quote.trim().slice(0, 400), source: sourceOf(hit), from });
+      // A quote that the file's own text does not carry was read from the page's picture by a model.
+      const read = hit.own !== undefined && !quoteInPassage(s.quote, hit.text.slice(0, hit.own));
+      kept.push({ text: s.text.trim().slice(0, 600), quote: s.quote.trim().slice(0, 400), source: { ...sourceOf(hit), ...(read ? { read: true as const } : {}) }, from });
     }
   });
   return kept;

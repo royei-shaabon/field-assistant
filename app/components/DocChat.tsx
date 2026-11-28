@@ -53,8 +53,12 @@ export function SourceLink({ kbId, source, pages, dark = false }: { kbId: string
   // Under an answer the source is a quiet line: which manual and which pages, and a small button that opens it.
   return (
     <p className="flex items-center gap-2.5 text-[13px] leading-5 text-graphite">
-      <span className="min-w-0 flex-1 truncate">
-        <span>{T.doc.sourceLabel}</span> {where}
+      <span className="flex min-w-0 flex-1 flex-col">
+        <span className="truncate">
+          <span>{T.doc.sourceLabel}</span> {where}
+        </span>
+        {/* A model read this page from its picture: said on its own line, so it is never cut off. */}
+        {source.read && <span>{T.doc.sourceRead}</span>}
       </span>
       <a
         href={sourceHref(kbId, { ...source, n: list[0] })}
@@ -75,6 +79,8 @@ export function answerSources(steps: { source: SourceView }[]): { source: Source
   const byDoc = new Map<string, { source: SourceView; pages: number[] }>();
   for (const { source } of steps) {
     const entry = byDoc.get(source.docId) ?? { source, pages: [] };
+    // One step that leans on a page read from its picture marks the whole line.
+    if (source.read && !entry.source.read) entry.source = { ...entry.source, read: true };
     if (!entry.pages.includes(source.n)) entry.pages.push(source.n);
     byDoc.set(source.docId, entry);
   }

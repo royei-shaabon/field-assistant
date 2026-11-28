@@ -163,6 +163,44 @@ export class KbStore {
     return next;
   }
 
+  // What a model read from the pictures of pages: added after the page's own text. A page with
+  // no text of its own becomes a passage. The vectors of these pages are dropped, because their
+  // sections changed; the meaning index builds them again.
+  async addSeen(kbId: string, docId: string, items: { n: number; seen: string }[]): Promise<DocMeta> {
+    this.checkId(kbId);
+    this.checkId(docId);
+    const base = `kbs/${kbId}/docs/${docId}`;
+    const meta = parse<DocMeta>(await this.driver.read(`${base}.meta.json`));
+    const passages = parse<Passage[]>(await this.driver.read(`${base}.text.json`));
+    if (!meta || !passages) throw new NotFound("doc");
+    const byN = new Map(passages.map((p) => [p.n, p]));
+    const changed: number[] = [];
+    for (const { n, seen } of items) {
+      if (!Number.isInteger(n) || n < 1 || n > meta.passages) continue;
+      const text = seen.trim();
+      const page = byN.get(n);
+      if (text && page && page.own === undefined) byN.set(n, { n, text: `${page.text}\n\n${text}`, own: page.text.length });
+      else if (text && !page) byN.set(n, { n, text, own: 0 });
+      else continue;
+      changed.push(n);
+    }
+    const next = [...byN.values()].sort((a, b) => a.n - b.n);
+    const pictured = [...new Set([...(meta.pictured ?? []), ...items.map((i) => i.n).filter((n) => Number.isInteger(n) && n >= 1 && n <= meta.passages)])].sort((a, b) => a - b);
+    const updated: DocMeta = { ...meta, pictured, empty: meta.passages - next.length, chars: next.reduce((sum, p) => sum + p.text.length, 0) };
+    if (changed.length) {
+      await this.driver.write(`${base}.text.json`, json(next));
+      const vectors = await this.getVectors(kbId, docId);
+      if (vectors) {
+        const gone = new Set(changed);
+        for (const key of [...vectors.byN.keys()]) if (gone.has(Math.floor(key / 1000))) vectors.byN.delete(key);
+        await this.putVectors(kbId, docId, vectors);
+      }
+    }
+    await this.driver.write(`${base}.meta.json`, json(updated));
+    if (changed.length) await this.touch(kbId);
+    return updated;
+  }
+
   async deleteDoc(kbId: string, docId: string): Promise<void> {
     this.checkId(kbId);
     this.checkId(docId);

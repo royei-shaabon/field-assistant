@@ -17,7 +17,9 @@ export type KbMeta = {
   updatedAt: string;
 };
 
-export type Passage = { n: number; text: string };
+// `own`: how many characters of `text` came from the file itself. What follows was read from
+// the page's picture by a model (lib/docs/read-pages.ts). Absent when all of it is the file's.
+export type Passage = { n: number; text: string; own?: number };
 
 export type DocMeta = {
   id: string;
@@ -34,6 +36,8 @@ export type DocMeta = {
   about?: string;
   // The model years the document covers ("2017-2018"). Shown beside the source of every answer.
   years?: string;
+  // Pages that were read from their picture (whether or not anything was added), so they are not read twice.
+  pictured?: number[];
   // "page" for a PDF (n is the real page number), "part" for everything else.
   unit: "page" | "part";
   mime: string;

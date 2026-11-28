@@ -579,6 +579,71 @@ function DocAbout({ kbId, doc, suggest, onSaved }: { kbId: string; doc: Doc; sug
   );
 }
 
+// Pages that text extraction could not read (scanned pages, tables of symbols): the implementer
+// starts the reading, the main model reads each page from its picture, and the screen asks
+// again until none is left. Then the meaning index is built for what was added.
+function DocRead({ kbId, doc, onDone }: { kbId: string; doc: Doc; onDone: () => Promise<void> }) {
+  const [waiting, setWaiting] = useState<{ empty: number; tables: number; read: number } | null>(null);
+  const [state, setState] = useState<{ left: number } | "failed" | null>(null);
+  const url = `/api/admin/kbs/${kbId}/docs/${doc.id}/read`;
+
+  useEffect(() => {
+    if (doc.unit !== "page") return;
+    let stop = false;
+    void fetch(url)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((w) => !stop && setWaiting(w))
+      .catch(() => {});
+    return () => {
+      stop = true;
+    };
+  }, [url, doc.unit, doc.pictured?.length]);
+
+  const run = async () => {
+    let left = (waiting?.empty ?? 0) + (waiting?.tables ?? 0);
+    setState({ left });
+    for (let misses = 0; left > 0 && misses < 2; ) {
+      const res = await fetch(url, { method: "POST" }).catch(() => null);
+      const body = (await res?.json().catch(() => null)) as { read?: number; left?: number } | null;
+      if (!res?.ok || !body) return setState("failed");
+      if (!body.read) misses++;
+      left = body.left ?? 0;
+      setState({ left });
+    }
+    setState(null);
+    await onDone();
+  };
+
+  const total = (waiting?.empty ?? 0) + (waiting?.tables ?? 0);
+  if (!waiting || (!total && !waiting.read)) return null;
+  return (
+    <p className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-[13px] text-graphite">
+      {waiting.read > 0 && (
+        <span>
+          <span>{A.read.done}</span> <span className="font-mono">{waiting.read}</span>
+        </span>
+      )}
+      {state && state !== "failed" ? (
+        <span role="status">
+          <span>{A.read.working}</span> <span className="font-mono">{state.left}</span>
+        </span>
+      ) : total > 0 ? (
+        <>
+          <span>{A.read.waiting(waiting.empty, waiting.tables)}</span>
+          <button onClick={() => void run()} className="rounded-lg border border-edge px-2.5 py-1 text-[13px] font-medium text-primary">
+            {A.read.start}
+          </button>
+        </>
+      ) : null}
+      {state === "failed" && (
+        <span role="alert" className="text-danger-ink">
+          {A.read.failed}
+        </span>
+      )}
+    </p>
+  );
+}
+
 function Documents({ kb, embeddings, onChanged }: { kb: Kb; embeddings: string | null; onChanged: () => Promise<void> }) {
   const [origin, setOrigin] = useState<DocOrigin>("manufacturer");
   const [uploads, setUploads] = useState<Upload[]>([]);
@@ -793,6 +858,7 @@ function Documents({ kb, embeddings, onChanged }: { kb: Kb; embeddings: string |
                   <span className="font-mono uppercase">{d.ext.slice(1)}</span>
                 </p>
                 <DocAbout key={`${d.id}:${d.about ?? ""}:${d.years ?? ""}`} kbId={kb.id} doc={d} suggest={fresh.includes(d.id)} onSaved={onChanged} />
+                <DocRead kbId={kb.id} doc={d} onDone={onChanged} />
                 {embeddings && (
                   <p className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-[13px] text-graphite">
                     {indexing?.docId === d.id && !indexing.error ? (

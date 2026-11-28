@@ -1,0 +1,9 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["kind", "text"],
+  "properties": {
+    "kind": { "enum": ["table", "text", "drawing", "nothing"] },
+    "text": { "type": "string" }
+  }
+}
