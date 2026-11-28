@@ -9,14 +9,16 @@ import type { PartialAnswer } from "@/lib/docs/ask";
 import type { CandidateView, ChatItem, CheckView, MarkView, Screen, TreeView } from "@/lib/screen";
 import type { StepView } from "@/lib/safety";
 import { T } from "@/lib/ui-text";
-import { Caution, DocAnswer, docAnswerWords, DocAsk, DocHazard, DocNote, Ideas, QuickReplies } from "./DocChat";
+import { Caution, DocAnswer, docAnswerChars, DocAsk, DocHazard, DocNote, Ideas, QuickReplies } from "./DocChat";
 import { CheckIcon, DocIcon, WarningIcon } from "./icons";
 
 export type Media = Record<number, string[]>;
 
 // Live-chat typing: reveals a message word by word (~40 words a second). Without `animate` the
 // whole text is there at once (history, server render, reduced motion).
-export const WORD_MS = 25;
+// Text is written letter by letter, like someone typing: about 80 letters a second.
+export const CHAR_MS = 12;
+const TICK_MS = 16;
 
 // English terms inside Hebrew text ("battery cover", "29 psi (200 kPa)") are kept together and
 // read left to right, so a bracket or a unit never lands on the wrong side or the next line.
@@ -49,40 +51,46 @@ export function Mixed({ text }: { text: string }) {
 }
 
 export function Reveal({ text, animate = false, delay = 0, mixed = false }: { text: string; animate?: boolean; delay?: number; mixed?: boolean }) {
-  const words = text.split(" ");
-  const [shown, setShown] = useState(animate ? 0 : words.length);
+  const [shown, setShown] = useState(animate ? 0 : text.length);
   useEffect(() => {
     if (!animate) return;
     if (window.matchMedia?.("(prefers-reduced-motion: reduce)").matches) {
-      const done = setTimeout(() => setShown(words.length), 0);
+      const done = setTimeout(() => setShown(text.length), 0);
       return () => clearTimeout(done);
     }
-    let n = 0;
     let tick: ReturnType<typeof setInterval> | undefined;
     const start = setTimeout(() => {
+      const began = Date.now();
+      // By the clock, not by counting ticks: a busy phone skips ticks, and the text still ends on time.
       tick = setInterval(() => {
-        n += 1;
+        const n = Math.min(text.length, Math.ceil((Date.now() - began) / CHAR_MS));
         setShown(n);
-        if (n >= words.length && tick) clearInterval(tick);
-      }, WORD_MS);
+        if (n >= text.length && tick) clearInterval(tick);
+      }, TICK_MS);
     }, delay);
     return () => {
       clearTimeout(start);
       if (tick) clearInterval(tick);
     };
-  }, [animate, delay, words.length]);
-  const typing = shown < words.length;
+  }, [animate, delay, text.length]);
+  return <Typed text={text} shown={shown} mixed={mixed} />;
+}
+
+// A text of which the first `shown` letters are written. While it is being written a caret
+// follows the last letter, and a screen reader gets the whole text at once.
+export function Typed({ text, shown, mixed = false }: { text: string; shown: number; mixed?: boolean }) {
+  const typing = shown < text.length;
   return (
     <>
-      <span aria-hidden={typing || undefined}>{!typing && mixed ? <Mixed text={text} /> : words.slice(0, shown).join(" ")}</span>
-      {typing && <span aria-hidden className="anim-caret ms-0.5 inline-block h-[18px] w-0.5 translate-y-[3px] bg-ink" />}
+      <span aria-hidden={typing || undefined}>{!typing && mixed ? <Mixed text={text} /> : text.slice(0, Math.max(0, shown))}</span>
+      {typing && shown > 0 && <span aria-hidden className="anim-caret ms-0.5 inline-block h-[18px] w-0.5 translate-y-[3px] bg-ink" />}
       {typing && <span className="sr-only">{text}</span>}
     </>
   );
 }
 
-export function wordCount(text: string): number {
-  return text.split(" ").length;
+export function charCount(text: string): number {
+  return text.length;
 }
 
 // The assistant writes on the page itself, with no bubble and no badge, like a person's note; the
@@ -493,7 +501,7 @@ function Item({
         </div>
       );
     case "doc_answer":
-      return <DocAnswer item={item} kbId={handlers.kbId ?? ""} frames={media[item.eventIndex]} animate={animate} delay={delay} feedback={fresh} time={time} />;
+      return <DocAnswer item={item} kbId={handlers.kbId ?? ""} frames={media[item.eventIndex]} animate={animate} resume={fresh && !animate} delay={delay} feedback={fresh} time={time} />;
     case "doc_ask":
       return <DocAsk item={item} interactive={interactive} animate={animate} delay={delay} onOption={handlers.onOption} time={time} />;
     case "doc_hazard":
@@ -677,18 +685,18 @@ const selfFramed = (item: ChatItem) => SELF_FRAMED.has(item.kind) || (item.kind 
 // The whole conversation, in reading order. Returns the typing time of new messages so the
 // caller can hold the answer buttons until the question is complete.
 export function chatTypingMs(screen: Screen, animateFrom: number): number {
-  let words = 0;
+  let chars = 0;
   screen.items.slice(animateFrom).forEach((item) => {
-    if (item.kind === "candidates") words += wordCount(item.list.length > 1 ? T.chat.candidatesMany : T.chat.candidatesOne);
-    if (item.kind === "repeat") words += wordCount(T.chat.repeat);
-    if (item.kind === "track_resolved") words += wordCount(item.resolution);
-    if (item.kind === "track_closed") words += wordCount(item.detail ?? T.chat.unclear);
-    if (item.kind === "stopped" && item.reason !== "danger") words += wordCount(T.ended[item.reason]);
-    if (item.kind === "doc_answer") words += docAnswerWords(item);
-    if (item.kind === "doc_ask") words += wordCount(item.question);
+    if (item.kind === "candidates") chars += charCount(item.list.length > 1 ? T.chat.candidatesMany : T.chat.candidatesOne);
+    if (item.kind === "repeat") chars += charCount(T.chat.repeat);
+    if (item.kind === "track_resolved") chars += charCount(item.resolution);
+    if (item.kind === "track_closed") chars += charCount(item.detail ?? T.chat.unclear);
+    if (item.kind === "stopped" && item.reason !== "danger") chars += charCount(T.ended[item.reason]);
+    if (item.kind === "doc_answer") chars += docAnswerChars(item);
+    if (item.kind === "doc_ask") chars += charCount(item.question);
   });
-  if (screen.current && animateFrom <= screen.items.length) words += wordCount(screen.current.view.check);
-  return words * WORD_MS;
+  if (screen.current && animateFrom <= screen.items.length) chars += charCount(screen.current.view.check);
+  return chars * CHAR_MS;
 }
 
 export function ChatView({ screen, media, animateFrom = Number.MAX_SAFE_INTEGER, maps = [], mapFrom = "text", progress = [], streamed = false, live = null, pending, times, paired = false, day, notice, ...handlers }: ChatProps) {
@@ -732,11 +740,11 @@ export function ChatView({ screen, media, animateFrom = Number.MAX_SAFE_INTEGER,
       />
     );
     nodes.push(selfFramed(item) ? node : <BotBubble key={i} wide={item.kind === "need_more" || item.kind === "done"}>{node}</BotBubble>);
-    if (animate && item.kind === "candidates") delay += wordCount(item.list.length > 1 ? T.chat.candidatesMany : T.chat.candidatesOne) * WORD_MS;
-    if (animate && (item.kind === "track_resolved" || item.kind === "track_closed")) delay += wordCount(item.kind === "track_resolved" ? item.resolution : (item.detail ?? T.chat.unclear)) * WORD_MS;
-    if (animate && item.kind === "repeat") delay += wordCount(T.chat.repeat) * WORD_MS;
-    if (animate && item.kind === "doc_answer") delay += docAnswerWords(item) * WORD_MS;
-    if (animate && item.kind === "doc_ask") delay += wordCount(item.question) * WORD_MS;
+    if (animate && item.kind === "candidates") delay += charCount(item.list.length > 1 ? T.chat.candidatesMany : T.chat.candidatesOne) * CHAR_MS;
+    if (animate && (item.kind === "track_resolved" || item.kind === "track_closed")) delay += charCount(item.kind === "track_resolved" ? item.resolution : (item.detail ?? T.chat.unclear)) * CHAR_MS;
+    if (animate && item.kind === "repeat") delay += charCount(T.chat.repeat) * CHAR_MS;
+    if (animate && item.kind === "doc_answer") delay += docAnswerChars(item) * CHAR_MS;
+    if (animate && item.kind === "doc_ask") delay += charCount(item.question) * CHAR_MS;
     pushMaps(i + 1);
   });
 

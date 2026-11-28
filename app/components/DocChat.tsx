@@ -2,11 +2,11 @@
 // their source, a clarifying question, "not in the documents", and the hazard stop.
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type { DocFigure, DocIdea, DocMark, HazardTopic, SourceView } from "@/lib/docs/ask";
 import type { ChatItem } from "@/lib/screen";
 import { T } from "@/lib/ui-text";
-import { BotBubble, MarkedImage, Mixed, Reveal, WORD_MS, wordCount } from "./Chat";
+import { BotBubble, MarkedImage, Mixed, Reveal, Typed, CHAR_MS, charCount } from "./Chat";
 import { ArrowIcon, DocIcon, WarningIcon } from "./icons";
 
 type Answer = Extract<ChatItem, { kind: "doc_answer" }>;
@@ -74,8 +74,11 @@ export function answerSources(steps: { source: SourceView }[]): { source: Source
 
 const isHebrew = (text: string) => /[֐-׿]/.test(text);
 
-export function docAnswerWords(item: Answer): number {
-  return wordCount(item.title) + item.steps.reduce((n, s) => n + wordCount(s.text), 0);
+// The letter the answer had reached while it was still arriving, for the whole answer that replaces it.
+const written = { n: 0 };
+
+export function docAnswerChars(item: Answer): number {
+  return charCount(item.title) + item.steps.reduce((n, s) => n + charCount(s.text), 0);
 }
 
 export function MarksLegend({ marks }: { marks: DocMark[] }) {
@@ -276,6 +279,7 @@ export function DocAnswer({
   delay,
   feedback = false,
   writing = false,
+  resume = false,
   time,
 }: {
   item: Answer;
@@ -287,26 +291,50 @@ export function DocAnswer({
   feedback?: boolean;
   // Still being written: more steps are on the way, and there is nothing to rate yet.
   writing?: boolean;
+  // The answer that was being written while it arrived is now whole: go on from the letter reached.
+  resume?: boolean;
   time?: string;
 }) {
   // The sources are shown once, under the steps: the steps themselves stay a clean list to follow.
   const sources = answerSources(item.steps);
   // The manual's own wording, for every step at once: one switch, not a link under each step.
   const [quotes, setQuotes] = useState(false);
-  // When each step starts typing: after the title and the steps before it.
-  const starts = item.steps.reduce<number[]>((list, s, i) => [...list, (list[i - 1] ?? delay + wordCount(item.title) * WORD_MS) + (i ? wordCount(item.steps[i - 1].text) * WORD_MS : 0)], []);
+  // The title and the steps are written as one text, letter by letter. While the answer is
+  // still arriving the text grows, and the writing goes on from where it is.
+  const texts = [item.title, ...item.steps.map((s) => s.text)];
+  const total = texts.reduce((n, t) => n + t.length, 0);
+  const [shown, setShown] = useState(() => (resume ? Math.min(total, written.n) : writing || animate ? -Math.round(delay / CHAR_MS) : total));
+  const typing = shown < total;
+  // The source, the drawing and the buttons come when the text has been written, not while it is.
+  const settled = !writing && !typing;
+  useEffect(() => {
+    if (!typing) return;
+    if (window.matchMedia?.("(prefers-reduced-motion: reduce)").matches) {
+      const done = setTimeout(() => setShown(total), 0);
+      return () => clearTimeout(done);
+    }
+    const tick = setInterval(() => setShown((n) => Math.min(total, n + 2)), 2 * CHAR_MS);
+    return () => clearInterval(tick);
+  }, [typing, total]);
+  useEffect(() => {
+    if (writing) written.n = shown;
+  }, [writing, shown]);
+  // How many letters of each text are written: the title first, then each step in turn.
+  const from = texts.reduce<number[]>((list, t, i) => [...list, i ? list[i - 1] + texts[i - 1].length : 0], []);
   return (
     <article className="flex flex-col gap-2">
       {item.caution && <Caution topic={item.caution} />}
-      <BotBubble wide time={writing ? undefined : time}>
+      <BotBubble wide time={settled ? time : undefined}>
         <div className="flex flex-col gap-2">
           <Marks marks={item.marks} frames={frames} />
           <h2 className="text-[16px] font-bold leading-[24px] tracking-[-0.01em] text-ink">
-            <Reveal text={item.title} animate={animate} delay={delay} mixed />
+            <Typed text={item.title} shown={shown} mixed />
           </h2>
           <ol className="flex flex-col gap-3">
             {item.steps.map((step, i) => {
               const marked = item.marks.flatMap((m, n) => (m.step === i ? [n + 1] : []));
+              // A step appears when its first letter is written, not as an empty number before it.
+              if (typing && shown <= from[i + 1]) return null;
               return (
                 <li key={i} className="flex gap-2.5">
                   {item.steps.length > 1 && (
@@ -316,7 +344,7 @@ export function DocAnswer({
                   )}
                   <div className="flex min-w-0 flex-1 flex-col gap-2">
                     <p>
-                      <Reveal text={step.text} animate={animate} delay={starts[i]} mixed />
+                      <Typed text={step.text} shown={shown - from[i + 1]} mixed />
                       {marked.map((n) => (
                         <span key={n} aria-hidden className="ms-1.5 inline-grid h-5 w-5 translate-y-[-1px] place-items-center rounded-full bg-signal font-mono text-[13px] font-medium text-night">
                           {n}
@@ -339,9 +367,9 @@ export function DocAnswer({
               );
             })}
           </ol>
-          {!writing && item.figures?.map((f, i) => <Figure key={i} kbId={kbId} figure={f} />)}
-          {!writing && sources.map((e) => <SourceLink key={e.source.docId} kbId={kbId} source={e.source} pages={e.pages} />)}
-          {!writing && (
+          {settled && item.figures?.map((f, i) => <Figure key={i} kbId={kbId} figure={f} />)}
+          {settled && sources.map((e) => <SourceLink key={e.source.docId} kbId={kbId} source={e.source} pages={e.pages} />)}
+          {settled && (
             <button onClick={() => setQuotes((q) => !q)} aria-expanded={quotes} className="flex min-h-11 items-center gap-2 self-start text-[14px] font-medium text-primary">
               <ArrowIcon className={`h-3.5 w-3.5 transition-transform ${quotes ? "-rotate-90" : "rotate-90"}`} />
               <span>{quotes ? T.doc.hideOriginal : T.doc.original}</span>
@@ -349,8 +377,8 @@ export function DocAnswer({
           )}
         </div>
       </BotBubble>
-      {!writing && item.ideas?.length ? <Ideas ideas={item.ideas} /> : null}
-      {!writing && feedback && <Feedback kbId={kbId} />}
+      {settled && item.ideas?.length ? <Ideas ideas={item.ideas} /> : null}
+      {settled && feedback && <Feedback kbId={kbId} />}
     </article>
   );
 }
