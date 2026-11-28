@@ -35,7 +35,7 @@ const obj = (required: string[], properties: Record<string, unknown>) => ({ type
 const source = obj(["docId", "docName", "origin", "unit", "n"], {
   docId: text(80),
   docName: text(200),
-  origin: { enum: ["manufacturer", "customer", "team"] },
+  origin: { enum: ["manufacturer", "customer", "team", "field"] },
   unit: { enum: ["page", "part"] },
   n: { type: "integer", minimum: 1 },
   years: text(40),

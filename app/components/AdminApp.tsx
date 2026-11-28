@@ -733,7 +733,7 @@ function TeamNotes({ kbId, onChanged }: { kbId: string; onChanged: () => Promise
           {pending.map((n) => (
             <li key={n.id} className="flex flex-col gap-2 rounded-xl border border-edge bg-paper p-3">
               <p className="text-[13px] text-graphite">
-                <span>{A.notes.waiting}</span> · <span>{A.notes.from[n.from]}</span> · <span className="font-mono">{n.createdAt.slice(0, 10)}</span>
+                <span className={n.f !== undefined && !n.held ? "font-medium text-warn" : ""}>{n.f !== undefined && !n.held ? A.notes.shownNow : n.held ? A.notes.heldNow : A.notes.waiting}</span> · <span>{A.notes.from[n.from]}</span> · <span className="font-mono">{n.createdAt.slice(0, 10)}</span>
               </p>
               <textarea dir="auto" aria-label={A.notes.text} value={edits[n.id] ?? n.text} maxLength={1200} rows={3} onChange={(e) => setEdits((now) => ({ ...now, [n.id]: e.target.value }))} className="rounded-xl border border-edge bg-white px-3 py-2 text-[15px] text-ink focus:border-primary" />
               <div className="flex flex-wrap gap-2">
@@ -1001,7 +1001,7 @@ function Documents({ kb, embeddings, onChanged }: { kb: Kb; embeddings: string |
                   {d.name}
                 </p>
                 <p className="flex flex-wrap gap-x-2 text-[13px] text-stone">
-                  <span className="rounded bg-mist px-1.5 text-graphite">{d.origin === "customer" ? T.doc.customer : d.origin === "team" ? T.doc.team : T.doc.manufacturer}</span>
+                  <span className="rounded bg-mist px-1.5 text-graphite">{d.origin === "customer" ? T.doc.customer : d.origin === "team" ? T.doc.team : d.origin === "field" ? T.doc.field : T.doc.manufacturer}</span>
                   <span>
                     <span className="font-mono">{d.passages}</span> <span>{d.unit === "page" ? A.pages : A.parts}</span>
                   </span>

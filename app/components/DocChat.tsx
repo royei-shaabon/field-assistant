@@ -71,6 +71,8 @@ export function SourceLink({ kbId, source, pages, dark = false }: { kbId: string
         {source.read && <span>{T.doc.sourceRead}</span>}
         {/* Field experience of the customer's own team, approved by the implementer: never shown as the manufacturer's word. */}
         {source.origin === "team" && <span>{T.doc.sourceTeam}</span>}
+        {/* One technician reported it and nobody checked it yet: said plainly beside the source. */}
+        {source.origin === "field" && <span className="font-medium text-warn">{T.doc.sourceField}</span>}
       </span>
       <a
         href={sourceHref(kbId, { ...source, n: list[0] })}

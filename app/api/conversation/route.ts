@@ -9,6 +9,7 @@ import { handleDocConversation } from "@/lib/docs/conversation";
 import { embedder } from "@/lib/docs/embed";
 import { pageImage } from "@/lib/docs/page-image";
 import { AnthropicModelClient } from "@/lib/llm";
+import { addFieldNote } from "@/lib/server/field-note";
 import { lookAtPicture } from "@/lib/voice/look";
 import { needsCode, technicianAllowed } from "@/lib/server/access";
 import { measuringRun } from "@/lib/server/admin-auth";
@@ -83,8 +84,7 @@ export async function POST(request: Request) {
             remember: isMeasuring(meta.conversationId)
               ? undefined
               : async (text) => {
-                  await store.addNote(kbId, { text, from: "conversations" });
-                  log.info("note.added", { env: envId, kb: kbId, from: "conversations", chars: text.length });
+                  await addFieldNote(store, envId, kbId, text, "conversations");
                   return true;
                 },
             // Where the time went: numbers only, for the log and for scripts/live-check.ts.

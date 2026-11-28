@@ -21,6 +21,12 @@ export class Invalid extends Error {}
 // The document that holds the team's approved field notes, one note per part.
 export const TEAM_DOC = "team-notes";
 export const TEAM_DOC_NAME = "ידע מהצוות";
+// The document that holds what technicians reported and nobody has checked yet.
+export const FIELD_DOC = "field-notes";
+export const FIELD_DOC_NAME = "דיווחים מהשטח";
+const fromPhone = (from: NoteFrom) => from === "technician" || from === "conversations";
+// A note that technicians see before it was checked: reported from a phone, still waiting, not held.
+export const shownUnchecked = (n: Note) => n.status === "pending" && fromPhone(n.from) && !n.held && n.f !== undefined;
 export const MAX_NOTE_CHARS = 1200;
 const MAX_PENDING_NOTES = 200;
 // One paragraph of plain text: no markup, bounded.
@@ -247,19 +253,33 @@ export class KbStore {
   }
 
   // A new note waits for the implementer. The implementer's own note may be approved at once.
-  async addNote(kbId: string, input: { text: string; from: NoteFrom; approve?: boolean }): Promise<Note> {
+  // A new note. From a technician's phone it is shown to technicians at once, marked as not yet
+  // checked, unless it is held (it touches a hazard topic): then it waits like any other note.
+  // The implementer's own note may be approved at once.
+  async addNote(kbId: string, input: { text: string; from: NoteFrom; approve?: boolean; hold?: boolean; by?: string }): Promise<Note> {
     if (!(await this.getKb(kbId))) throw new NotFound("kb");
     const text = cleanNote(input.text);
     if (text.length < 10) throw new Invalid("text");
     const all = await this.listNotes(kbId);
     // The bound is on what technicians send: a full queue never locks the implementer out.
-    const fromPhone = (from: NoteFrom) => from === "technician" || from === "conversations";
     if (fromPhone(input.from) && all.filter((n) => n.status === "pending" && fromPhone(n.from)).length >= MAX_PENDING_NOTES) throw new Invalid("full");
     // The same words again add nothing.
     const same = all.find((n) => n.text === text && n.status !== "rejected");
     if (same) return same;
-    const note: Note = { id: `n${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`, kbId, text, from: input.from, status: "pending", createdAt: new Date().toISOString() };
+    const open = fromPhone(input.from) && !input.hold && !input.approve;
+    const note: Note = {
+      id: `n${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`,
+      kbId,
+      text,
+      from: input.from,
+      status: "pending",
+      ...(open ? { f: Math.max(0, ...all.map((x) => x.f ?? 0)) + 1 } : {}),
+      ...(input.hold ? { held: true as const } : {}),
+      ...(input.by ? { by: input.by.slice(0, 60) } : {}),
+      createdAt: new Date().toISOString(),
+    };
     await this.driver.write(`kbs/${kbId}/notes/${note.id}.json`, json(note));
+    if (open) await this.rebuildNotesDoc(kbId, "field", []);
     return input.approve ? this.decideNote(kbId, note.id, { status: "approved" }) : note;
   }
 
@@ -277,27 +297,33 @@ export class KbStore {
     const n = status === "approved" ? (note.n ?? Math.max(0, ...all.map((x) => x.n ?? 0)) + 1) : note.n;
     const next: Note = { ...note, text, status, ...(n ? { n } : {}), decidedAt: new Date().toISOString() };
     await this.driver.write(key, json(next));
-    if (status === "approved" || note.status === "approved") await this.rebuildTeamDoc(kbId, note.n !== undefined && text !== note.text ? [note.n] : []);
+    const reworded = text !== note.text;
+    if (status === "approved" || note.status === "approved") await this.rebuildNotesDoc(kbId, "team", note.n !== undefined && reworded ? [note.n] : []);
+    // It was shown unchecked: it leaves that document (approved or removed), or its words changed there.
+    if (note.f !== undefined) await this.rebuildNotesDoc(kbId, "field", reworded ? [note.f] : []);
     return next;
   }
 
-  // Writes the team's document from the approved notes: each note is a part, under its own number.
-  private async rebuildTeamDoc(kbId: string, changed: number[]): Promise<void> {
-    const approved = (await this.listNotes(kbId)).filter((n) => n.status === "approved" && n.n).sort((a, b) => a.n! - b.n!);
-    const base = `kbs/${kbId}/docs/${TEAM_DOC}`;
-    if (!approved.length) {
-      await this.deleteDoc(kbId, TEAM_DOC);
+  // Writes one of the two documents made of notes: the team's (approved notes) or the field
+  // reports (shown before they were checked). Each note is a part, under its own number.
+  private async rebuildNotesDoc(kbId: string, which: "team" | "field", changed: number[]): Promise<void> {
+    const docId = which === "team" ? TEAM_DOC : FIELD_DOC;
+    const all = await this.listNotes(kbId);
+    const parts = (which === "team" ? all.filter((n) => n.status === "approved" && n.n).map((n) => ({ n: n.n!, text: n.text })) : all.filter(shownUnchecked).map((n) => ({ n: n.f!, text: n.text }))).sort((a, b) => a.n - b.n);
+    const base = `kbs/${kbId}/docs/${docId}`;
+    if (!parts.length) {
+      await this.deleteDoc(kbId, docId);
       return;
     }
-    const passages: Passage[] = approved.map((n) => ({ n: n.n!, text: n.text }));
-    const file = Buffer.from(approved.map((n) => `${n.n}. ${n.text}`).join("\n\n"), "utf8");
+    const passages: Passage[] = parts.map((p) => ({ n: p.n, text: p.text }));
+    const file = Buffer.from(parts.map((p) => `${p.n}. ${p.text}`).join("\n\n"), "utf8");
     const before = parse<DocMeta>(await this.driver.read(`${base}.meta.json`));
     const meta: DocMeta = {
-      id: TEAM_DOC,
+      id: docId,
       kbId,
-      name: before?.name ?? TEAM_DOC_NAME,
+      name: before?.name ?? (which === "team" ? TEAM_DOC_NAME : FIELD_DOC_NAME),
       ...(before?.about ? { about: before.about } : {}),
-      origin: "team",
+      origin: which,
       unit: "part",
       mime: "text/plain; charset=utf-8",
       ext: ".txt",
@@ -310,11 +336,11 @@ export class KbStore {
     await this.driver.write(`${base}.file`, file);
     await this.driver.write(`${base}.text.json`, json(passages));
     // A note whose words changed: its old vectors describe the old words.
-    const vectors = changed.length ? await this.getVectors(kbId, TEAM_DOC) : null;
+    const vectors = changed.length ? await this.getVectors(kbId, docId) : null;
     if (vectors) {
       const gone = new Set(changed);
       for (const k of [...vectors.byN.keys()]) if (gone.has(Math.floor(k / 1000))) vectors.byN.delete(k);
-      await this.putVectors(kbId, TEAM_DOC, vectors);
+      await this.putVectors(kbId, docId, vectors);
     }
     await this.driver.write(`${base}.meta.json`, json(meta));
     await this.touch(kbId);

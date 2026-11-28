@@ -42,6 +42,13 @@ answer, give the manual's steps first and the note after them. When they disagre
 and say which is which; never drop the manual's instruction for a note, and never present a
 note as the manufacturer's procedure.
 
+A document whose `from` is "field" holds reports that single technicians sent from their
+phones and that nobody has checked yet. Use such a report only when it speaks to the fault in
+front of you, give it after everything the manuals and the team's approved notes say, and say
+in the step itself that it is one technician's report that has not been checked. Never let it
+replace or contradict a manual's instruction without saying so, and never build a hazard-topic
+procedure on it.
+
 Refer to a page only through `ref`. Page numbers printed inside the passage text can differ
 from the document's own page count, so do not quote them to the technician.
 

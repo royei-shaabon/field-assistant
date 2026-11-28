@@ -3,13 +3,17 @@
 // (a PDF page, or a slice of a longer text) so every answer can point at its source.
 
 // "team": what the customer's own technicians learned in the field, approved by the implementer.
-export type DocOrigin = "manufacturer" | "customer" | "team";
+// "field": what one technician reported and nobody has checked yet. It is searched at once and
+// shown as exactly that, until the implementer approves it (then it is "team") or removes it.
+export type DocOrigin = "manufacturer" | "customer" | "team" | "field";
 
 // One piece of field knowledge: a fault and what solved it, in the words of whoever wrote it.
 // It waits as `pending` until the implementer approves it; only approved notes are searched.
 // `n`: its number in the team's document, given once at approval and never reused.
 export type NoteFrom = "technician" | "implementer" | "whatsapp" | "conversations";
-export type Note = { id: string; kbId: string; text: string; from: NoteFrom; status: "pending" | "approved" | "rejected"; n?: number; createdAt: string; decidedAt?: string };
+// `f`: its number among the notes that are shown before they were checked. `held`: it touches
+// a hazard topic, so it is not shown to anybody until the implementer approves it.
+export type Note = { id: string; kbId: string; text: string; from: NoteFrom; status: "pending" | "approved" | "rejected"; n?: number; f?: number; held?: true; by?: string; createdAt: string; decidedAt?: string };
 
 export type KbMeta = {
   id: string;

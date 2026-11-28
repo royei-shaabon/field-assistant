@@ -2031,16 +2031,17 @@ test("pages read from their picture: only pages that need it, added after the pa
   assert.deepEqual([down.read, down.failed, (await s2.listDocs(kb2.meta.id))[0].pictured], [0, 1, undefined]);
 });
 
-test("field notes: a technician's note waits, only an approved note is searched, and it is shown as the team's experience", async () => {
+test("field notes: a note that waits is not searched, an approved note is, and it is shown as the team's experience", async () => {
   const { TEAM_DOC, cleanNote } = await import("../lib/store");
   assert.equal(cleanNote("  SAMPLE <b>x</b>  y\n\n\n\nz "), "SAMPLE bx/b y\n\nz");
   const { store, kb, docId } = await sampleKb();
   const text = "SAMPLE תקלה: המנוע כבה ברמזור. פתרון: מחבר רופף מתחת למושב, אחרי חיזוק התקלה לא חזרה.";
-  const note = await store.addNote(kb.meta.id, { text, from: "technician" });
+  // (A note found in an imported chat waits for the implementer; a technician's own report is shown at once: see "automatic learning".)
+  const note = await store.addNote(kb.meta.id, { text, from: "whatsapp" });
   assert.equal(note.status, "pending");
   await assert.rejects(store.addNote(kb.meta.id, { text: "קצר", from: "technician" }));
   await assert.rejects(store.addNote("no-such-kb", { text, from: "technician" }));
-  assert.equal((await store.addNote(kb.meta.id, { text, from: "technician" })).id, note.id, "the same words are one note");
+  assert.equal((await store.addNote(kb.meta.id, { text, from: "whatsapp" })).id, note.id, "the same words are one note");
   // Waiting: not a document, not in search.
   assert.equal((await store.listDocs(kb.meta.id)).some((d) => d.id === TEAM_DOC), false);
   assert.equal(new SearchIndex(await store.loadDocs(kb.meta.id)).search("מחבר רופף", 3).length, 0);
@@ -2265,4 +2266,42 @@ test("marks on a sent picture are placed by the careful look; a picture with no 
   // A look that fails or never answers is a mark not drawn, never an error.
   const failing = await placedMarks({ kind: "ask", question: "x", options: [], marks: [{ frame: 0, step: 0, label: "x", box: { x: 1, y: 1, w: 9, h: 9 } }] }, draft({}) as never, async () => { throw new Error("down"); });
   assert.equal("marks" in failing, false);
+});
+
+test("automatic learning: a technician's report is searched at once as an unchecked field report; a hazard topic waits; approval moves it to the team's notes", async () => {
+  const { FIELD_DOC, TEAM_DOC, shownUnchecked } = await import("../lib/store");
+  const { touchesHazard } = await import("../lib/server/field-note");
+  assert.ok(touchesHazard("SAMPLE החלפתי את רפידות הבלמים וזה נפתר"));
+  assert.ok(touchesHazard("SAMPLE drained the fuel tank and it runs"));
+  assert.equal(touchesHazard("SAMPLE חיזקתי את המחבר מתחת למושב והתקלה נעלמה"), false);
+
+  const { store, kb } = await sampleKb();
+  const report = await store.addNote(kb.meta.id, { text: "SAMPLE מה פתר: חיזקתי את המחבר מתחת למושב והתקלה נעלמה", from: "conversations", by: "SAMPLE טכנאי" });
+  assert.deepEqual([report.status, report.f, shownUnchecked(report), report.by], ["pending", 1, true, "SAMPLE טכנאי"]);
+  // Shown at once, in its own document, with its own origin.
+  let docs = await store.listDocs(kb.meta.id);
+  const field = docs.find((d) => d.id === FIELD_DOC)!;
+  assert.deepEqual([field.origin, field.unit, field.passages], ["field", "part", 1]);
+  const index = new SearchIndex(await store.loadDocs(kb.meta.id));
+  const hit = index.search("מחבר מתחת למושב", 1)[0];
+  assert.deepEqual([hit.docId, hit.origin], [FIELD_DOC, "field"]);
+  assert.ok(!hit.text.includes("SAMPLE טכנאי"), "who reported it is not in what technicians read");
+
+  // A hazard topic is held: stored, waiting, in no document.
+  const held = await store.addNote(kb.meta.id, { text: "SAMPLE מה פתר: החלפתי רפידות בלמים קדמיות והרעש נעלם", from: "technician", hold: true });
+  assert.deepEqual([held.status, held.f, held.held, shownUnchecked(held)], ["pending", undefined, true, false]);
+  assert.equal((await store.getPassages(kb.meta.id, FIELD_DOC))!.passages.length, 1);
+  // A note from an imported chat still waits for the implementer.
+  const imported = await store.addNote(kb.meta.id, { text: "SAMPLE תקלה: נורית מהבהבת. פתרון: מחבר נוקה.", from: "whatsapp" });
+  assert.equal(shownUnchecked(imported), false);
+
+  // Approved: it leaves the field reports and joins the team's notes. Rejected: it is gone.
+  const approved = await store.decideNote(kb.meta.id, report.id, { status: "approved" });
+  assert.equal(approved.n, 1);
+  docs = await store.listDocs(kb.meta.id);
+  assert.deepEqual([docs.some((d) => d.id === FIELD_DOC), docs.some((d) => d.id === TEAM_DOC)], [false, true]);
+  const second = await store.addNote(kb.meta.id, { text: "SAMPLE מה פתר: ייבשתי את התקע של החיישן והנורית כבתה", from: "technician" });
+  assert.equal(second.f, 2, "a number is never reused");
+  await store.decideNote(kb.meta.id, second.id, { status: "rejected" });
+  assert.equal((await store.listDocs(kb.meta.id)).some((d) => d.id === FIELD_DOC), false);
 });
