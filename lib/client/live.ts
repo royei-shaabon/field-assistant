@@ -139,7 +139,15 @@ export class LiveCall {
   // silence. A voice counts only when two pieces in a row (~200 ms) are loud: the technician
   // talking over it, close to the phone. Then everything goes through, the held piece first.
   private held: number[] | null = null;
+  // The opening: from the moment the model is asked to say hello until it has said it (or
+  // eight seconds). Nothing from the microphone goes out then. A "hello" from the technician,
+  // or the room, arriving while the greeting was being made cut it, and the model greeted twice.
+  private openingUntil = 0;
   private gate(piece: number[]): number[][] {
+    if (Date.now() < this.openingUntil) {
+      this.held = null;
+      return [new Array<number>(piece.length).fill(0)];
+    }
     const talking = this.sources.length > 0 || this.ctx!.currentTime < this.quietAt;
     if (!talking) {
       this.held = null;
@@ -269,6 +277,7 @@ export class LiveCall {
     }
     if (msg.setupComplete) {
       this.trace({ type: "state", text: "connected" });
+      this.openingUntil = Date.now() + 8000;
       this.send({ realtimeInput: { text: "START" } });
     }
     const c = msg.serverContent;
@@ -304,6 +313,8 @@ export class LiveCall {
       }
       for (const part of c.modelTurn?.parts ?? []) if (part.inlineData?.data && !this.dropUntilTurn) this.play(part.inlineData.data);
       if (c.turnComplete) {
+        // The greeting is out: from here the usual gate decides (quiet while the sound still plays).
+        this.openingUntil = 0;
         this.newTurn = true;
         this.dropUntilTurn = false;
         this.flushSaid(false);
