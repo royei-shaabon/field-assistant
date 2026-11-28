@@ -1123,6 +1123,8 @@ test("video call: the live model names what to mark and a careful look finds it;
   assert.deepEqual(checkedLook({ visible: true, quality: "ok", name: " SAMPLE מכסה ", box: { x: 200, y: 400, w: 100, h: 160 }, seen: "" }, size), { visible: true, quality: "ok", name: "SAMPLE מכסה", seen: "", onMachine: true, box: { x: 250, y: 250, w: 125, h: 100 } });
   assert.equal(checkedLook({ visible: false, quality: "dark", name: "", box: { x: 0, y: 0, w: 0, h: 0 }, seen: "SAMPLE חשוך" }, size).visible, false);
   assert.equal(checkedLook({ visible: true, quality: "ok", name: "x", box: { x: 10, y: 10, w: 2, h: 2 }, seen: "" }, size).visible, false, "a dot is not a mark");
+  const unsure = checkedLook({ visible: true, certain: false, quality: "ok", name: "SAMPLE מכסה", box: { x: 200, y: 400, w: 100, h: 160 }, seen: "SAMPLE אולי זה המכסה" }, size);
+  assert.deepEqual([unsure.visible, unsure.box, unsure.seen], [false, undefined, "SAMPLE אולי זה המכסה"], "a guess is said, not marked");
   assert.equal(checkedLook({ visible: true, quality: "ok", name: "x", box: { x: 10, y: 10, w: 100, h: 100 }, seen: "" }, null).visible, false, "no size, no place");
   assert.equal(checkedLook({ visible: true, quality: "??", name: "x", box: {}, seen: 7 }, size).visible, false);
   assert.equal(checkedLook("nonsense", size).visible, false);

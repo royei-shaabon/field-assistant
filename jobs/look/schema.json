@@ -6,6 +6,7 @@
     "quality",
     "name",
     "on_machine",
+    "certain",
     "box",
     "seen"
   ],
@@ -26,6 +27,9 @@
       "type": "string"
     },
     "on_machine": {
+      "type": "boolean"
+    },
+    "certain": {
       "type": "boolean"
     },
     "box": {

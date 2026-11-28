@@ -47,14 +47,15 @@ const QUALITY = new Set(["ok", "dark", "blurry", "far"]);
 
 // What the model returned, checked: a box must lie inside the picture and be more than a dot.
 export function checkedLook(raw: unknown, size: { width: number; height: number } | null): Look {
-  const r = raw as { visible?: unknown; quality?: unknown; name?: unknown; on_machine?: unknown; box?: { x?: unknown; y?: unknown; w?: unknown; h?: unknown }; seen?: unknown } | null;
+  const r = raw as { visible?: unknown; quality?: unknown; name?: unknown; on_machine?: unknown; certain?: unknown; box?: { x?: unknown; y?: unknown; w?: unknown; h?: unknown }; seen?: unknown } | null;
   if (!r || typeof r !== "object") return NOTHING;
   const quality = (QUALITY.has(r.quality as string) ? r.quality : "ok") as Look["quality"];
   const seen = typeof r.seen === "string" ? r.seen.trim().slice(0, 400) : "";
   const name = typeof r.name === "string" ? r.name.trim().slice(0, 40) : "";
   const b = r.box;
   const numbers = b && [b.x, b.y, b.w, b.h].every((n) => typeof n === "number" && Number.isFinite(n));
-  const box = r.visible === true && numbers && size ? toThousandths({ x: b!.x as number, y: b!.y as number, w: b!.w as number, h: b!.h as number }, size) : null;
+  // A box says "this is it". When the model itself is not sure, there is no mark: what it saw is still said.
+  const box = r.visible === true && r.certain !== false && numbers && size ? toThousandths({ x: b!.x as number, y: b!.y as number, w: b!.w as number, h: b!.h as number }, size) : null;
   const usable = box && box.w >= 10 && box.h >= 10 ? box : undefined;
   // Only an explicit "no" keeps a mark off: a thing in the room is named, not circled.
   return { visible: Boolean(usable), quality, name, seen, onMachine: r.on_machine !== false, ...(usable ? { box: usable } : {}) };
