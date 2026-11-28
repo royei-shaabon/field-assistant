@@ -2263,6 +2263,6 @@ test("marks on a sent picture are placed by the careful look; a picture with no 
   assert.equal((again.screen.items.find((i) => i.kind === "doc_ask") as { marks?: unknown[] }).marks?.length, 1, "the marks pass the request check");
 
   // A look that fails or never answers is a mark not drawn, never an error.
-  const failing = await placedMarks({ kind: "ask", question: "x", options: [], marks: [{ frame: 0, step: 0, label: "x", english: "", box: { x: 1, y: 1, w: 9, h: 9 } }] }, draft({}) as never, async () => { throw new Error("down"); });
+  const failing = await placedMarks({ kind: "ask", question: "x", options: [], marks: [{ frame: 0, step: 0, label: "x", box: { x: 1, y: 1, w: 9, h: 9 } }] }, draft({}) as never, async () => { throw new Error("down"); });
   assert.equal("marks" in failing, false);
 });
