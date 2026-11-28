@@ -1987,6 +1987,16 @@ test("pages read from their picture: only pages that need it, added after the pa
   const page3 = (await store.getPassages(kb.meta.id, docId))!.passages.find((p) => p.n === 3)!;
   assert.ok(page3.text.startsWith(before.find((p) => p.n === 3)!.text) && page3.text.endsWith("SAMPLE Rear: 225 kPa: Cold") && page3.own === before.find((p) => p.n === 3)!.text.length);
 
+  // Taking the reading back: every page is the file's own text again, and waits again.
+  {
+    const { store: s3, kb: kb3, docId: d3 } = await sampleKb();
+    const own = (await s3.getPassages(kb3.meta.id, d3))!.passages;
+    await s3.addSeen(kb3.meta.id, d3, [{ n: 3, seen: "SAMPLE x" }, { n: 5, seen: "SAMPLE y" }]);
+    const cleared = await s3.clearSeen(kb3.meta.id, d3);
+    assert.deepEqual((await s3.getPassages(kb3.meta.id, d3))!.passages, own);
+    assert.deepEqual([cleared.pictured, cleared.empty], [undefined, 1]);
+  }
+
   // A step quoted from the file's own text is plain; one quoted from what was read is marked.
   const index = new SearchIndex(await store.loadDocs(kb.meta.id));
   const docs = await store.listDocs(kb.meta.id);

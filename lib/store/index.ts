@@ -201,6 +201,31 @@ export class KbStore {
     return updated;
   }
 
+  // Takes back everything that was read from pictures: every page is again only the file's own
+  // text, and waits to be read again (after the reading was improved).
+  async clearSeen(kbId: string, docId: string): Promise<DocMeta> {
+    this.checkId(kbId);
+    this.checkId(docId);
+    const base = `kbs/${kbId}/docs/${docId}`;
+    const meta = parse<DocMeta>(await this.driver.read(`${base}.meta.json`));
+    const passages = parse<Passage[]>(await this.driver.read(`${base}.text.json`));
+    if (!meta || !passages) throw new NotFound("doc");
+    const changed = passages.filter((p) => p.own !== undefined).map((p) => p.n);
+    const next = passages.flatMap((p): Passage[] => (p.own === undefined ? [p] : p.own > 0 ? [{ n: p.n, text: p.text.slice(0, p.own) }] : []));
+    const updated: DocMeta = { ...meta, empty: meta.passages - next.length, chars: next.reduce((sum, p) => sum + p.text.length, 0) };
+    delete updated.pictured;
+    await this.driver.write(`${base}.text.json`, json(next));
+    const vectors = await this.getVectors(kbId, docId);
+    if (vectors && changed.length) {
+      const gone = new Set(changed);
+      for (const key of [...vectors.byN.keys()]) if (gone.has(Math.floor(key / 1000))) vectors.byN.delete(key);
+      await this.putVectors(kbId, docId, vectors);
+    }
+    await this.driver.write(`${base}.meta.json`, json(updated));
+    await this.touch(kbId);
+    return updated;
+  }
+
   async deleteDoc(kbId: string, docId: string): Promise<void> {
     this.checkId(kbId);
     this.checkId(docId);

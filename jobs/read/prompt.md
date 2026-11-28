@@ -6,7 +6,10 @@ Write down what is printed on the page, and nothing else:
 - A table: one line per row. Start with the row's name, then each cell as "column heading:
   value". When a cell holds a symbol, write the word the page's own legend gives for it (for
   example the legend says "I: Inspect", so the cell reads "Inspect"). When the page has no
-  legend for a symbol, write the symbol as it is. Leave empty cells out.
+  legend for a symbol, write the symbol as it is. Leave empty cells out. A column heading is
+  written whole every time, with the unit the table prints for it, and with every scale the
+  table gives for the same column (for example "at 16 × 1,000 mi (25.6 × 1,000 km): Replace"),
+  so that a single line taken out of the table still says what the number counts.
 - Running text on a scanned page: the text, in reading order.
 - A drawing: only the labels and numbers printed in it, each on its own line.
 - Keep the page's own language and its own numbers and units, exactly. Do not translate, do not

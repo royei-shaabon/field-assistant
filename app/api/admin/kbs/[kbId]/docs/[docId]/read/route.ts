@@ -46,3 +46,16 @@ export async function POST(request: Request, { params }: { params: Promise<{ kbI
     return Response.json({ error: "read_failed" }, { status: 502 });
   }
 }
+
+// Takes back what was read from pictures, so the pages can be read again.
+export async function DELETE(_request: Request, { params }: { params: Promise<{ kbId: string; docId: string }> }) {
+  if (!(await isAdmin())) return forbidden();
+  const { kbId, docId } = await params;
+  try {
+    const doc = await (await envStore()).clearSeen(kbId, docId);
+    return Response.json({ doc });
+  } catch (e) {
+    if (e instanceof NotFound) return Response.json({ error: "not found" }, { status: 404 });
+    throw e;
+  }
+}
