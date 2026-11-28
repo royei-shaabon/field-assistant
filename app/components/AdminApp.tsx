@@ -748,9 +748,15 @@ function TeamNotes({ kbId, onChanged }: { kbId: string; onChanged: () => Promise
   const importChat = async (file: File) => {
     setImporting(A.notes.importing);
     setFailed(false);
-    const res = await fetch(`${url}/import`, { method: "POST", headers: { "Content-Type": "text/plain; charset=utf-8" }, body: await file.text() }).catch(() => null);
-    const body = (await res?.json().catch(() => null)) as { added?: number; messages?: number } | null;
-    setImporting(res?.ok && body ? A.notes.imported(body.added ?? 0, body.messages ?? 0) : null);
+    const { readChatExport } = await import("@/lib/client/chat-export");
+    const exported = await readChatExport(file).catch(() => null);
+    if (!exported?.chat.trim()) {
+      setImporting(null);
+      return setFailed(true);
+    }
+    const res = await fetch(`${url}/import`, exported.pictures.length ? { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(exported) } : { method: "POST", headers: { "Content-Type": "text/plain; charset=utf-8" }, body: exported.chat }).catch(() => null);
+    const body = (await res?.json().catch(() => null)) as { added?: number; messages?: number; pictures?: number } | null;
+    setImporting(res?.ok && body ? A.notes.imported(body.added ?? 0, body.messages ?? 0, body.pictures ?? 0) : null);
     if (!res?.ok) setFailed(true);
     await load();
   };
@@ -825,7 +831,7 @@ function TeamNotes({ kbId, onChanged }: { kbId: string; onChanged: () => Promise
         </button>
         <label className="flex h-11 cursor-pointer items-center rounded-xl border border-edge px-4 text-[15px] font-medium text-primary focus-within:border-primary">
           <span>{A.notes.importChat}</span>
-          <input type="file" accept=".txt,text/plain" className="sr-only" onChange={(e) => (e.target.files?.[0] ? void importChat(e.target.files[0]) : undefined)} />
+          <input type="file" accept=".txt,.zip,text/plain,application/zip" className="sr-only" onChange={(e) => (e.target.files?.[0] ? void importChat(e.target.files[0]) : undefined)} />
         </label>
       </div>
       <p className="text-[13px] text-stone">{A.notes.importHint}</p>

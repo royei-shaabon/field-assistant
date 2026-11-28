@@ -2328,3 +2328,35 @@ test("who asked: a name from the implementer's list is kept with the question an
   // Other technicians never read who reported: the name is not in the text that is searched.
   assert.ok(!/by/.test(read("lib", "store", "index.ts").split("private async rebuildNotesDoc")[1].split("async deleteDoc")[0].replace(/\/\/.*$/gm, "").replace(/\bbytes\b|\bbyN\b/g, "")));
 });
+
+test("a WhatsApp export with pictures: the pictures the chat names go to the model beside the message, and nothing but notes is kept", async () => {
+  const { chatWindows, notesFromChat, parseChat, pictureNamesIn, withoutPeople } = await import("../lib/docs/whatsapp");
+  const raw = [
+    "[12/03/2024, 10:15:22] SAMPLE Yossi: המנוע כבה ברמזור",
+    "[12/03/2024, 10:16:01] SAMPLE Yossi: ‎<attached: 00000012-PHOTO-2024-03-12-10-16-01.jpg>",
+    "12/03/2024, 10:17 - SAMPLE Dana: IMG-20240312-WA0003.jpg (file attached)",
+    "זה המחבר הרופף",
+    "12/03/2024, 10:18 - SAMPLE Dana: VID-20240312-WA0004.mp4 (file attached)",
+    "[12/03/2024, 10:30:00] SAMPLE Yossi: חיזקתי והתקלה נעלמה",
+  ].join("\n");
+  assert.deepEqual(pictureNamesIn(raw), ["00000012-PHOTO-2024-03-12-10-16-01.jpg", "IMG-20240312-WA0003.jpg"], "a video is not a picture");
+  const messages = withoutPeople(parseChat(raw));
+  assert.deepEqual(messages.map((m) => m.picture), [undefined, "00000012-PHOTO-2024-03-12-10-16-01.jpg", "IMG-20240312-WA0003.jpg", undefined, undefined]);
+  assert.ok(messages[2].text.includes("זה המחבר הרופף") && !messages[2].text.includes("IMG-"), "the file's name is not part of what was said");
+  // Only a picture that was really sent along is shown; the other is said to be there, not shown.
+  const sent = new Map([["IMG-20240312-WA0003.jpg", { data: "/9j/AAAA", mediaType: "image/jpeg" as const }]]);
+  const [window] = chatWindows(messages, sent);
+  assert.deepEqual(window.pictures.map((p) => p.n), [1]);
+  assert.ok(window.text.includes("[a picture, not shown]") && window.text.includes("[picture 1]"));
+  // The model gets the picture before the chat, introduced by its number.
+  const seen: { type: string; text?: string }[][] = [];
+  const model = { complete: async (r: { content: { type: string; text?: string }[] }) => (seen.push(r.content), { text: JSON.stringify({ notes: [{ problem: "SAMPLE המנוע כבה ברמזור", fix: "SAMPLE חיזוק המחבר הרופף", confirmed: true }] }) }) };
+  const found = await notesFromChat(model as never, raw, sent);
+  assert.deepEqual(seen[0].map((c) => c.type), ["text", "image", "text"]);
+  assert.equal(seen[0][0].text, "picture 1:");
+  assert.deepEqual([found.notes.length, found.pictures], [1, 1]);
+  // The route keeps only JPEG data of a bounded size, and still never stores the file.
+  const route = fs.readFileSync(path.join(process.cwd(), "app", "api", "admin", "kbs", "[kbId]", "notes", "import", "route.ts"), "utf8");
+  assert.match(route, /MAX_PICTURES/);
+  assert.ok(route.indexOf("tooLarge(") < route.indexOf("request.json()") && !/driver\.write|addDoc|putPageImage/.test(route));
+});

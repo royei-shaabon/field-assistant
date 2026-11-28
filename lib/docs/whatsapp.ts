@@ -7,7 +7,16 @@ import fs from "node:fs";
 import path from "node:path";
 import type { ModelClient } from "../llm";
 
-export type ChatMessage = { by: string; text: string };
+// `picture`: the name of a picture file sent with the message, when the export names one.
+export type ChatMessage = { by: string; text: string; picture?: string };
+// A picture from the exported chat, made small by the implementer's browser. It is shown to the
+// model so it understands what was said about it, and is never stored.
+export type ChatPicture = { data: string; mediaType: "image/jpeg" };
+export const MAX_PICTURES = 30;
+const PICTURES_PER_WINDOW = 5;
+// "<attached: NAME>" (iPhone) or "NAME (file attached)" (Android), for a picture file.
+const ATTACHED = /<attached:\s*([^>]{1,120}\.(?:jpe?g|png|webp))>|(\S{1,120}\.(?:jpe?g|png|webp))\s*\((?:file attached|קובץ מצורף)\)/i;
+export const pictureNamesIn = (raw: string): string[] => [...new Set([...raw.matchAll(new RegExp(ATTACHED.source, "gi"))].map((m) => (m[1] ?? m[2]).trim()))];
 
 export const MAX_CHAT_BYTES = 2_000_000;
 const WINDOW_CHARS = 9000;
@@ -24,14 +33,17 @@ export function parseChat(raw: string): ChatMessage[] {
   for (const line of raw.replace(/\r/g, "").split("\n")) {
     const m = LINE.exec(line);
     if (m) {
-      const text = m[3].trim();
-      if (text && !NO_TEXT.test(text)) out.push({ by: m[2].trim(), text });
-      else out.push({ by: m[2].trim(), text: "" });
+      const attached = ATTACHED.exec(m[3]);
+      const text = m[3].replace(ATTACHED, "").replace(/\u200e/g, "").trim();
+      const picture = attached ? (attached[1] ?? attached[2]).trim() : undefined;
+      if (text && !NO_TEXT.test(text)) out.push({ by: m[2].trim(), text, ...(picture ? { picture } : {}) });
+      else out.push({ by: m[2].trim(), text: "", ...(picture ? { picture } : {}) });
     } else if (out.length && line.trim() && !/^‎?\[?\d{1,2}[./]\d{1,2}[./]\d{2,4}/.test(line)) {
       out[out.length - 1].text += `\n${line.trim()}`;
     }
   }
-  return out.filter((m) => m.text.trim());
+  // A message that is only a picture is kept: the picture may be what the next message is about.
+  return out.filter((m) => m.text.trim() || m.picture);
 }
 
 // Seven digits and up: a local number with no area code is still a phone number.
@@ -65,22 +77,30 @@ export function withoutPeople(messages: ChatMessage[]): ChatMessage[] {
     const t = text.slice(0, MAX_MESSAGE).replace(EMAIL, "[כתובת]").replace(/@\u2068?[^\s\u2069]{2,40}\u2069?/g, "[טכנאי]").replace(PHONE, "[מספר]");
     return names ? t.replace(names, (w) => byWord.get(w.toLowerCase()) ?? "[טכנאי]") : t;
   };
-  return messages.map((m) => ({ by: alias.get(m.by)!, text: scrub(m.text) }));
+  return messages.map((m) => ({ by: alias.get(m.by)!, text: scrub(m.text), ...(m.picture ? { picture: m.picture } : {}) }));
 }
 
 // The chat in pieces a model can read at once, the newest pieces first (bounded).
-export function chatWindows(messages: ChatMessage[]): string[] {
-  const windows: string[] = [];
-  let current = "";
+export type ChatWindow = { text: string; pictures: { n: number; picture: ChatPicture }[] };
+
+// The chat in pieces a model can read at once, the newest pieces first (bounded). A message
+// whose picture was sent along is marked "[picture N]", and the picture goes with the piece.
+export function chatWindows(messages: ChatMessage[], pictures: Map<string, ChatPicture> = new Map()): ChatWindow[] {
+  const windows: ChatWindow[] = [];
+  let current: ChatWindow = { text: "", pictures: [] };
+  let n = 0;
   for (const m of messages) {
-    const line = `${m.by}: ${m.text}\n`;
-    if (current.length + line.length > WINDOW_CHARS && current) {
+    const shown = m.picture ? pictures.get(m.picture) : undefined;
+    const mark = shown && current.pictures.length < PICTURES_PER_WINDOW ? ` [picture ${++n}]` : m.picture ? " [a picture, not shown]" : "";
+    const line = `${m.by}: ${m.text}${mark}\n`;
+    if (current.text.length + line.length > WINDOW_CHARS && current.text) {
       windows.push(current);
-      current = "";
+      current = { text: "", pictures: [] };
     }
-    current += line;
+    current.text += line;
+    if (shown && mark.startsWith(" [picture ")) current.pictures.push({ n, picture: shown });
   }
-  if (current) windows.push(current);
+  if (current.text) windows.push(current);
   return windows.slice(-MAX_WINDOWS);
 }
 
@@ -94,10 +114,18 @@ export type FoundNote = { problem: string; fix: string };
 
 // The faults and fixes one piece of the chat shows as solved. A piece the model could not read
 // gives none: the rest of the chat is still read.
-export async function notesIn(client: ModelClient, window: string): Promise<FoundNote[]> {
+export async function notesIn(client: ModelClient, window: ChatWindow | string): Promise<FoundNote[]> {
   const { prompt, schema } = job();
+  const piece: ChatWindow = typeof window === "string" ? { text: window, pictures: [] } : window;
   try {
-    const response = await client.complete({ system: prompt, schema, content: [{ type: "text", text: `<chat>\n${window.replace(/<\/?chat>/gi, "")}\n</chat>` }] });
+    const response = await client.complete({
+      system: prompt,
+      schema,
+      content: [
+        ...piece.pictures.flatMap(({ n, picture }) => [{ type: "text" as const, text: `picture ${n}:` }, { type: "image" as const, mediaType: picture.mediaType, data: picture.data }]),
+        { type: "text" as const, text: `<chat>\n${piece.text.replace(/<\/?chat>/gi, "")}\n</chat>` },
+      ],
+    });
     const reply = JSON.parse(response.text ?? "") as { notes?: { problem?: unknown; fix?: unknown; confirmed?: unknown }[] };
     return (reply.notes ?? [])
       .filter((n) => n.confirmed === true && typeof n.problem === "string" && typeof n.fix === "string" && n.problem.trim().length > 5 && n.fix.trim().length > 5)
@@ -111,14 +139,14 @@ export async function notesIn(client: ModelClient, window: string): Promise<Foun
 export const noteText = (n: FoundNote) => `תקלה: ${n.problem}\nפתרון: ${n.fix}`;
 
 // The whole import: read, remove people, pick out what was solved. Nothing is stored here.
-export async function notesFromChat(client: ModelClient, raw: string): Promise<{ messages: number; notes: FoundNote[] }> {
+export async function notesFromChat(client: ModelClient, raw: string, pictures: Map<string, ChatPicture> = new Map()): Promise<{ messages: number; notes: FoundNote[]; pictures: number }> {
   const messages = withoutPeople(parseChat(raw));
   const found: FoundNote[] = [];
-  const windows = chatWindows(messages);
+  const windows = chatWindows(messages, pictures);
   for (let i = 0; i < windows.length; i += 3) {
     const part = await Promise.all(windows.slice(i, i + 3).map((w) => notesIn(client, w)));
     found.push(...part.flat());
   }
   // A fix that the people-remover could not clean of a number is cleaned once more.
-  return { messages: messages.length, notes: found.map((n) => ({ problem: n.problem.replace(PHONE, "[מספר]"), fix: n.fix.replace(PHONE, "[מספר]") })) };
+  return { messages: messages.length, pictures: windows.reduce((sum, w) => sum + w.pictures.length, 0), notes: found.map((n) => ({ problem: n.problem.replace(PHONE, "[מספר]"), fix: n.fix.replace(PHONE, "[מספר]") })) };
 }
