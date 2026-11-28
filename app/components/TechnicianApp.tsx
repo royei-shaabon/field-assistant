@@ -204,8 +204,11 @@ function Menu({
   onOpen,
   onNew,
   onDelete,
+  onShare,
   onClose,
 }: {
+  // Opens "share what worked". Absent for the sample fault trees, which take tips another way.
+  onShare?: () => void;
   kbs: KbSummary[];
   kbId: string;
   // Fault-tree cases have a status (checking, stopped, done); document chats do not.
@@ -236,6 +239,11 @@ function Menu({
               <PlusIcon />
               <span>{T.header.newCase}</span>
             </button>
+            {onShare && (
+              <button onClick={onShare} className="mt-2 flex h-12 w-full items-center gap-3 rounded-[10px] border border-edge px-4 text-[16px] font-medium text-ink active:bg-mist">
+                <span>{T.share.open}</span>
+              </button>
+            )}
           </div>
 
           {kbs.length > 1 && (
@@ -570,6 +578,55 @@ type SurveyAbout = { kbId: string; conversationId: string; channel: "voice" | "v
 
 // After a call: was the problem solved, what to improve, would they call again. One tap each,
 // all optional, and "skip" is always there. Only the chosen answers are sent.
+// "Share what worked": a technician writes the fault and what solved it. It goes to the person
+// who manages the manuals, and reaches other technicians only after that person approves it.
+function ShareFix({ kbId, onClose }: { kbId: string; onClose: () => void }) {
+  const ref = useDialog(onClose);
+  const [text, setText] = useState("");
+  const [state, setState] = useState<"idle" | "sending" | "sent" | "failed">("idle");
+  const send = async () => {
+    setState("sending");
+    const res = await fetch("/api/notes", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ kbId, text }) }).catch(() => null);
+    setState(res?.ok ? "sent" : "failed");
+  };
+  return (
+    <div className="fixed inset-0 z-50 mx-auto flex max-w-md items-end">
+      <div aria-hidden onClick={onClose} className="absolute inset-0 bg-night/50" />
+      <div ref={ref} role="dialog" aria-modal="true" aria-label={T.share.title} className="anim-rise relative flex max-h-[88dvh] w-full flex-col gap-4 overflow-y-auto rounded-t-[18px] bg-paper px-4 pb-[max(16px,env(safe-area-inset-bottom))] pt-5">
+        <div>
+          <h2 className="text-[20px] font-bold tracking-[-0.02em]">{T.share.title}</h2>
+          <p className="pt-1 text-[15px] text-graphite">{T.share.lead}</p>
+        </div>
+        {state === "sent" ? (
+          <p role="status" className="text-[16px]">
+            {T.share.sent}
+          </p>
+        ) : (
+          <label className="flex flex-col gap-2 text-[15px] font-medium">
+            <span>{T.share.ask}</span>
+            <textarea value={text} maxLength={1200} rows={5} onChange={(e) => setText(e.target.value)} placeholder={T.share.example} className="rounded-[12px] border border-edge bg-white px-3 py-2.5 text-[16px] font-normal leading-[24px] text-night focus:border-primary" />
+          </label>
+        )}
+        {state === "failed" && (
+          <p role="alert" className="text-[15px] text-danger-ink">
+            {T.share.failed}
+          </p>
+        )}
+        <div className="flex gap-2">
+          {state !== "sent" && (
+            <button onClick={send} disabled={text.trim().length < 10 || state === "sending"} className="h-12 flex-1 rounded-[10px] bg-action px-4 text-[16px] font-medium text-white disabled:opacity-40">
+              {T.share.send}
+            </button>
+          )}
+          <button onClick={onClose} className="h-12 flex-1 rounded-[10px] border border-edge px-4 text-[16px] font-medium text-ink active:bg-mist">
+            {state === "sent" ? T.header.close : T.share.cancel}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function Survey({ about, onClose }: { about: SurveyAbout; onClose: () => void }) {
   const ref = useDialog(onClose);
   const [answers, setAnswers] = useState<SurveyAnswers>({});
@@ -715,6 +772,7 @@ export function TechnicianApp() {
   const [machines, setMachines] = useState(false);
   const [call, setCall] = useState<"voice" | "video" | null>(null);
   const [survey, setSurvey] = useState<SurveyAbout | null>(null);
+  const [sharing, setSharing] = useState(false);
   const callRef = useRef(call);
   useEffect(() => {
     callRef.current = call;
@@ -1098,6 +1156,7 @@ export function TechnicianApp() {
           currentId={conversation.id}
           onOpen={openSaved}
           onNew={() => open(fresh())}
+          onShare={isDocs ? () => (setMenu(false), setSharing(true)) : undefined}
           onDelete={(c) => {
             if (!window.confirm(T.header.confirmDelete)) return;
             deleteConversation(c.id);
@@ -1110,6 +1169,7 @@ export function TechnicianApp() {
       )}
 
       {survey && <Survey about={survey} onClose={() => setSurvey(null)} />}
+      {sharing && <ShareFix kbId={kbId} onClose={() => setSharing(false)} />}
 
       {call && (
         <CallView

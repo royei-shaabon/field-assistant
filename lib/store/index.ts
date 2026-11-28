@@ -7,9 +7,9 @@ import path from "node:path";
 import { Activity } from "./activity";
 import { ENV_ID, EnvRegistry, MAIN_ENV, PrefixDriver } from "./envs";
 import { FsDriver } from "./fs-driver";
-import type { BlobDriver, DocMeta, DocVectors, KbMeta, Passage, StoredDoc, Usage } from "./types";
+import type { BlobDriver, DocMeta, DocVectors, KbMeta, Note, NoteFrom, Passage, StoredDoc, Usage } from "./types";
 
-export type { BlobDriver, DocMeta, DocOrigin, KbMeta, Passage, StoredDoc, Usage } from "./types";
+export type { BlobDriver, DocMeta, DocOrigin, KbMeta, Note, NoteFrom, Passage, StoredDoc, Usage } from "./types";
 
 export const EMPTY_USAGE: Usage = { questions: 0, answer: 0, ask: 0, not_found: 0, ideas: 0, hazard: 0, error: 0, helpful: 0, unhelpful: 0 };
 
@@ -17,6 +17,14 @@ const ID = /^[a-z0-9][a-z0-9-]{1,60}$/;
 
 export class NotFound extends Error {}
 export class Invalid extends Error {}
+
+// The document that holds the team's approved field notes, one note per part.
+export const TEAM_DOC = "team-notes";
+export const TEAM_DOC_NAME = "ידע מהצוות";
+export const MAX_NOTE_CHARS = 1200;
+const MAX_PENDING_NOTES = 500;
+// One paragraph of plain text: no markup, bounded.
+export const cleanNote = (text: unknown): string => (typeof text === "string" ? text.replace(/[<>]/g, "").replace(/[ \t]+/g, " ").replace(/\n{3,}/g, "\n\n").trim().slice(0, MAX_NOTE_CHARS) : "");
 
 const json = (v: unknown) => Buffer.from(JSON.stringify(v));
 // A damaged file reads as missing, so one bad write cannot take the admin screen down.
@@ -224,6 +232,87 @@ export class KbStore {
     await this.driver.write(`${base}.meta.json`, json(updated));
     await this.touch(kbId);
     return updated;
+  }
+
+  // --- field notes: what the team learned, approved by the implementer ----------------------
+
+  async listNotes(kbId: string): Promise<Note[]> {
+    this.checkId(kbId);
+    const keys = (await this.driver.list(`kbs/${kbId}/notes/`)).filter((k) => k.endsWith(".json"));
+    const all = await Promise.all(keys.map(async (k) => parse<Note>(await this.driver.read(k))));
+    return all.filter((n): n is Note => Boolean(n)).sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  }
+
+  // A new note waits for the implementer. The implementer's own note may be approved at once.
+  async addNote(kbId: string, input: { text: string; from: NoteFrom; approve?: boolean }): Promise<Note> {
+    if (!(await this.getKb(kbId))) throw new NotFound("kb");
+    const text = cleanNote(input.text);
+    if (text.length < 10) throw new Invalid("text");
+    const all = await this.listNotes(kbId);
+    if (all.filter((n) => n.status === "pending").length >= MAX_PENDING_NOTES) throw new Invalid("full");
+    // The same words again add nothing.
+    const same = all.find((n) => n.text === text && n.status !== "rejected");
+    if (same) return same;
+    const note: Note = { id: `n${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`, kbId, text, from: input.from, status: "pending", createdAt: new Date().toISOString() };
+    await this.driver.write(`kbs/${kbId}/notes/${note.id}.json`, json(note));
+    return input.approve ? this.decideNote(kbId, note.id, { status: "approved" }) : note;
+  }
+
+  // The implementer approves, rejects or corrects a note. Approved notes are the team's document.
+  async decideNote(kbId: string, id: string, patch: { status?: Note["status"]; text?: string }): Promise<Note> {
+    this.checkId(kbId);
+    this.checkId(id);
+    const key = `kbs/${kbId}/notes/${id}.json`;
+    const note = parse<Note>(await this.driver.read(key));
+    if (!note) throw new NotFound("note");
+    const text = patch.text === undefined ? note.text : cleanNote(patch.text);
+    if (text.length < 10) throw new Invalid("text");
+    const status = patch.status ?? note.status;
+    const all = await this.listNotes(kbId);
+    const n = status === "approved" ? (note.n ?? Math.max(0, ...all.map((x) => x.n ?? 0)) + 1) : note.n;
+    const next: Note = { ...note, text, status, ...(n ? { n } : {}), decidedAt: new Date().toISOString() };
+    await this.driver.write(key, json(next));
+    if (status === "approved" || note.status === "approved") await this.rebuildTeamDoc(kbId, note.n !== undefined && text !== note.text ? [note.n] : []);
+    return next;
+  }
+
+  // Writes the team's document from the approved notes: each note is a part, under its own number.
+  private async rebuildTeamDoc(kbId: string, changed: number[]): Promise<void> {
+    const approved = (await this.listNotes(kbId)).filter((n) => n.status === "approved" && n.n).sort((a, b) => a.n! - b.n!);
+    const base = `kbs/${kbId}/docs/${TEAM_DOC}`;
+    if (!approved.length) {
+      await this.deleteDoc(kbId, TEAM_DOC);
+      return;
+    }
+    const passages: Passage[] = approved.map((n) => ({ n: n.n!, text: n.text }));
+    const file = Buffer.from(approved.map((n) => `${n.n}. ${n.text}`).join("\n\n"), "utf8");
+    const before = parse<DocMeta>(await this.driver.read(`${base}.meta.json`));
+    const meta: DocMeta = {
+      id: TEAM_DOC,
+      kbId,
+      name: before?.name ?? TEAM_DOC_NAME,
+      ...(before?.about ? { about: before.about } : {}),
+      origin: "team",
+      unit: "part",
+      mime: "text/plain; charset=utf-8",
+      ext: ".txt",
+      bytes: file.length,
+      passages: Math.max(...passages.map((p) => p.n)),
+      empty: 0,
+      chars: passages.reduce((sum, p) => sum + p.text.length, 0),
+      uploadedAt: before?.uploadedAt ?? new Date().toISOString(),
+    };
+    await this.driver.write(`${base}.file`, file);
+    await this.driver.write(`${base}.text.json`, json(passages));
+    // A note whose words changed: its old vectors describe the old words.
+    const vectors = changed.length ? await this.getVectors(kbId, TEAM_DOC) : null;
+    if (vectors) {
+      const gone = new Set(changed);
+      for (const k of [...vectors.byN.keys()]) if (gone.has(Math.floor(k / 1000))) vectors.byN.delete(k);
+      await this.putVectors(kbId, TEAM_DOC, vectors);
+    }
+    await this.driver.write(`${base}.meta.json`, json(meta));
+    await this.touch(kbId);
   }
 
   async deleteDoc(kbId: string, docId: string): Promise<void> {

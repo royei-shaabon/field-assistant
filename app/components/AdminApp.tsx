@@ -3,7 +3,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { DocMeta, DocOrigin, KbMeta, Usage } from "@/lib/store/types";
+import type { DocMeta, DocOrigin, KbMeta, Note, Usage } from "@/lib/store/types";
 import { T } from "@/lib/ui-text";
 import { BRAND } from "@/lib/brand";
 import { CheckIcon, CloseIcon, DocIcon, LockIcon, PlusIcon, WarningIcon } from "./icons";
@@ -644,6 +644,127 @@ function DocRead({ kbId, doc, onDone }: { kbId: string; doc: Doc; onDone: () => 
   );
 }
 
+// What the team learned in the field. A technician's note (or one found in an imported chat)
+// waits here until the implementer reads it; only an approved note is searched and quoted.
+function TeamNotes({ kbId, onChanged }: { kbId: string; onChanged: () => Promise<void> }) {
+  const [notes, setNotes] = useState<Note[] | null>(null);
+  const [text, setText] = useState("");
+  const [edits, setEdits] = useState<Record<string, string>>({});
+  const [busy, setBusy] = useState(false);
+  const [failed, setFailed] = useState(false);
+  const [importing, setImporting] = useState<string | null>(null);
+  const url = `/api/admin/kbs/${kbId}/notes`;
+
+  const load = useCallback(async () => {
+    const res = await fetch(url).catch(() => null);
+    const body = (await res?.json().catch(() => null)) as { notes?: Note[] } | null;
+    if (body?.notes) setNotes(body.notes);
+  }, [url]);
+  useEffect(() => {
+    const t = setTimeout(() => void load(), 0);
+    return () => clearTimeout(t);
+  }, [load]);
+
+  const call = async (method: "POST" | "PATCH", body: object) => {
+    setBusy(true);
+    setFailed(false);
+    const res = await fetch(url, { method, headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }).catch(() => null);
+    setBusy(false);
+    if (!res?.ok) return setFailed(true);
+    await load();
+    await onChanged();
+  };
+
+  // A chat exported from a group: the server removes names and numbers, a model picks out
+  // faults with their fixes, and each one lands here as a waiting note.
+  const importChat = async (file: File) => {
+    setImporting(A.notes.importing);
+    setFailed(false);
+    const res = await fetch(`${url}/import`, { method: "POST", headers: { "Content-Type": "text/plain; charset=utf-8" }, body: await file.text() }).catch(() => null);
+    const body = (await res?.json().catch(() => null)) as { added?: number; messages?: number } | null;
+    setImporting(res?.ok && body ? A.notes.imported(body.added ?? 0, body.messages ?? 0) : null);
+    if (!res?.ok) setFailed(true);
+    await load();
+  };
+
+  const pending = (notes ?? []).filter((n) => n.status === "pending");
+  const approved = (notes ?? []).filter((n) => n.status === "approved");
+  return (
+    <section aria-labelledby="notes-title" className="flex flex-col gap-3">
+      <div>
+        <h3 id="notes-title" className="text-lg font-bold tracking-[-0.01em]">
+          {A.notes.title}
+        </h3>
+        <p className="text-[14px] text-graphite">{A.notes.lead}</p>
+      </div>
+
+      {pending.length > 0 && (
+        <ul className="flex flex-col gap-2" aria-label={A.notes.waiting}>
+          {pending.map((n) => (
+            <li key={n.id} className="flex flex-col gap-2 rounded-xl border border-edge bg-paper p-3">
+              <p className="text-[13px] text-graphite">
+                <span>{A.notes.waiting}</span> · <span>{A.notes.from[n.from]}</span> · <span className="font-mono">{n.createdAt.slice(0, 10)}</span>
+              </p>
+              <textarea dir="auto" aria-label={A.notes.text} value={edits[n.id] ?? n.text} maxLength={1200} rows={3} onChange={(e) => setEdits((now) => ({ ...now, [n.id]: e.target.value }))} className="rounded-xl border border-edge bg-white px-3 py-2 text-[15px] text-ink focus:border-primary" />
+              <div className="flex flex-wrap gap-2">
+                <button disabled={busy} onClick={() => void call("PATCH", { id: n.id, status: "approved", text: edits[n.id] ?? n.text })} className="h-11 rounded-xl bg-primary px-4 text-[15px] font-medium text-white disabled:opacity-40">
+                  {A.notes.approve}
+                </button>
+                <button disabled={busy} onClick={() => void call("PATCH", { id: n.id, status: "rejected" })} className="h-11 rounded-xl border border-edge px-4 text-[15px] text-graphite disabled:opacity-40">
+                  {A.notes.reject}
+                </button>
+              </div>
+            </li>
+          ))}
+        </ul>
+      )}
+      {notes && pending.length === 0 && <p className="text-[14px] text-stone">{A.notes.noneWaiting}</p>}
+
+      {approved.length > 0 && (
+        <details className="rounded-xl border border-edge bg-paper px-3 py-2">
+          <summary className="cursor-pointer text-[15px] font-medium">
+            <span>{A.notes.approved}</span> <span className="font-mono">{approved.length}</span>
+          </summary>
+          <ul className="flex flex-col gap-2 pt-2">
+            {approved.map((n) => (
+              <li key={n.id} className="flex items-start gap-2 border-t border-edge pt-2 text-[15px]">
+                <span className="font-mono text-[13px] text-stone">{n.n}</span>
+                <p dir="auto" className="min-w-0 flex-1 whitespace-pre-wrap">
+                  {n.text}
+                </p>
+                <button disabled={busy} onClick={() => void call("PATCH", { id: n.id, status: "rejected" })} className="rounded-lg px-2.5 py-1.5 text-sm text-danger-ink active:bg-mist disabled:opacity-40">
+                  {A.notes.remove}
+                </button>
+              </li>
+            ))}
+          </ul>
+        </details>
+      )}
+
+      <label className="flex flex-col gap-1 text-[13px] font-medium text-graphite">
+        <span>{A.notes.add}</span>
+        <textarea dir="auto" value={text} maxLength={1200} rows={2} onChange={(e) => setText(e.target.value)} placeholder={T.share.example} className="rounded-xl border border-edge bg-paper px-3 py-2 text-[15px] font-normal text-ink focus:border-primary" />
+      </label>
+      <div className="flex flex-wrap items-center gap-2">
+        <button disabled={busy || text.trim().length < 10} onClick={() => void call("POST", { text }).then(() => setText(""))} className="h-11 rounded-xl border border-edge px-4 text-[15px] font-medium text-primary disabled:opacity-40">
+          {A.notes.save}
+        </button>
+        <label className="flex h-11 cursor-pointer items-center rounded-xl border border-edge px-4 text-[15px] font-medium text-primary focus-within:border-primary">
+          <span>{A.notes.importChat}</span>
+          <input type="file" accept=".txt,text/plain" className="sr-only" onChange={(e) => (e.target.files?.[0] ? void importChat(e.target.files[0]) : undefined)} />
+        </label>
+      </div>
+      <p className="text-[13px] text-stone">{A.notes.importHint}</p>
+      {importing && <p role="status" className="text-[14px] text-graphite">{importing}</p>}
+      {failed && (
+        <p role="alert" className="text-[14px] text-danger-ink">
+          {A.notes.failed}
+        </p>
+      )}
+    </section>
+  );
+}
+
 function Documents({ kb, embeddings, onChanged }: { kb: Kb; embeddings: string | null; onChanged: () => Promise<void> }) {
   const [origin, setOrigin] = useState<DocOrigin>("manufacturer");
   const [uploads, setUploads] = useState<Upload[]>([]);
@@ -850,7 +971,7 @@ function Documents({ kb, embeddings, onChanged }: { kb: Kb; embeddings: string |
                   {d.name}
                 </p>
                 <p className="flex flex-wrap gap-x-2 text-[13px] text-stone">
-                  <span className="rounded bg-mist px-1.5 text-graphite">{d.origin === "customer" ? T.doc.customer : T.doc.manufacturer}</span>
+                  <span className="rounded bg-mist px-1.5 text-graphite">{d.origin === "customer" ? T.doc.customer : d.origin === "team" ? T.doc.team : T.doc.manufacturer}</span>
                   <span>
                     <span className="font-mono">{d.passages}</span> <span>{d.unit === "page" ? A.pages : A.parts}</span>
                   </span>
@@ -1156,6 +1277,7 @@ export function AdminApp() {
               {!accessCode && <p className="text-[13px] leading-5 text-stone">{A.openAccess}</p>}
               <p className="text-[13px] leading-5 text-stone">{embeddings ? <><span>{A.semantic.on}</span> <span dir="ltr" className="font-mono">{embeddings}</span></> : A.semantic.off}</p>
               <Documents key={kb.id} kb={kb} embeddings={embeddings} onChanged={load} />
+              <TeamNotes key={`notes-${kb.id}`} kbId={kb.id} onChanged={load} />
               {kb.docs.length > 0 && <TryQuestion key={`try-${kb.id}`} kbId={kb.id} />}
             </>
           ) : (

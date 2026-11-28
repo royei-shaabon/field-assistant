@@ -59,6 +59,8 @@ export function SourceLink({ kbId, source, pages, dark = false }: { kbId: string
         </span>
         {/* A model read this page from its picture: said on its own line, so it is never cut off. */}
         {source.read && <span>{T.doc.sourceRead}</span>}
+        {/* Field experience of the customer's own team, approved by the implementer: never shown as the manufacturer's word. */}
+        {source.origin === "team" && <span>{T.doc.sourceTeam}</span>}
       </span>
       <a
         href={sourceHref(kbId, { ...source, n: list[0] })}

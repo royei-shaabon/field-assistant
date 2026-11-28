@@ -2022,3 +2022,93 @@ test("pages read from their picture: only pages that need it, added after the pa
   const down = await readPages(s2, { complete: async () => { throw new Error("down"); } } as never, kb2.meta.id, d2, async () => ({ data: "AAAA", mediaType: "image/png" }));
   assert.deepEqual([down.read, down.failed, (await s2.listDocs(kb2.meta.id))[0].pictured], [0, 1, undefined]);
 });
+
+test("field notes: a technician's note waits, only an approved note is searched, and it is shown as the team's experience", async () => {
+  const { TEAM_DOC, cleanNote } = await import("../lib/store");
+  assert.equal(cleanNote("  SAMPLE <b>x</b>  y\n\n\n\nz "), "SAMPLE bx/b y\n\nz");
+  const { store, kb, docId } = await sampleKb();
+  const text = "SAMPLE תקלה: המנוע כבה ברמזור. פתרון: מחבר רופף מתחת למושב, אחרי חיזוק התקלה לא חזרה.";
+  const note = await store.addNote(kb.meta.id, { text, from: "technician" });
+  assert.equal(note.status, "pending");
+  await assert.rejects(store.addNote(kb.meta.id, { text: "קצר", from: "technician" }));
+  await assert.rejects(store.addNote("no-such-kb", { text, from: "technician" }));
+  assert.equal((await store.addNote(kb.meta.id, { text, from: "technician" })).id, note.id, "the same words are one note");
+  // Waiting: not a document, not in search.
+  assert.equal((await store.listDocs(kb.meta.id)).some((d) => d.id === TEAM_DOC), false);
+  assert.equal(new SearchIndex(await store.loadDocs(kb.meta.id)).search("מחבר רופף", 3).length, 0);
+
+  // Approved (with a correction by the implementer): the team's document, part 1.
+  const approved = await store.decideNote(kb.meta.id, note.id, { status: "approved", text: `${text} SAMPLE נבדק.` });
+  assert.deepEqual([approved.status, approved.n], ["approved", 1]);
+  const docs = await store.listDocs(kb.meta.id);
+  const team = docs.find((d) => d.id === TEAM_DOC)!;
+  assert.deepEqual([team.origin, team.unit, team.passages], ["team", "part", 1]);
+  const index = new SearchIndex(await store.loadDocs(kb.meta.id));
+  const hit = index.search("מחבר רופף מתחת למושב", 1)[0];
+  assert.deepEqual([hit.docId, hit.origin, hit.n], [TEAM_DOC, "team", 1]);
+
+  // An answer may quote it like any passage, and its source says where it is from.
+  const agent = new FakeAgent([{ final: draft({ steps: [{ text: "SAMPLE חזקו את המחבר", ref: `${TEAM_DOC}:1`, quote: "מחבר רופף מתחת למושב, אחרי חיזוק התקלה לא חזרה." }] }) }]);
+  agent.plan = ["מחבר רופף מתחת למושב"];
+  const run = await askDocuments(agent, index, { kbName: "x", docs, question: "המנוע כבה ברמזור", images: [], history: [] });
+  const answer = run.result as Extract<DocResult, { kind: "answer" }>;
+  assert.equal(answer.steps[0].source.origin, "team");
+  assert.match(JSON.stringify(agent.turns[0].messages[0]), /from\\": \\"team/);
+  const again = await handleDocConversation({ meta: kb.meta, docs, index }, agent, { events: [{ type: "DOC_TURN", said: "x", result: answer }], input: { kind: "view" } });
+  assert.equal(again.screen.items.length, 2);
+
+  // A second note gets the next number; rejecting the first leaves the second under its own number.
+  const second = await store.addNote(kb.meta.id, { text: "SAMPLE תקלה: נורית שמן מהבהבת. פתרון: חיישן מלוכלך, נוקה.", from: "implementer", approve: true });
+  assert.equal(second.n, 2);
+  await store.decideNote(kb.meta.id, note.id, { status: "rejected" });
+  assert.deepEqual((await store.getPassages(kb.meta.id, TEAM_DOC))!.passages.map((p) => p.n), [2]);
+  await store.decideNote(kb.meta.id, second.id, { status: "rejected" });
+  assert.equal((await store.listDocs(kb.meta.id)).some((d) => d.id === TEAM_DOC), false, "no approved notes, no document");
+  assert.ok((await store.listDocs(kb.meta.id)).some((d) => d.id === docId), "the manuals are untouched");
+
+  // The technician's route: the access gate, the size check and the limiter, in that order, and it cannot approve.
+  const route = fs.readFileSync(path.join(process.cwd(), "app", "api", "notes", "route.ts"), "utf8");
+  assert.ok(route.indexOf("technicianAllowed()") < route.indexOf("tooLarge(") && route.indexOf("tooLarge(") < route.indexOf("allow(") && route.indexOf("allow(") < route.indexOf("request.json()"));
+  assert.ok(!/approve|decideNote/.test(route));
+});
+
+test("a WhatsApp export: messages are read, people are removed before a model sees anything, and only confirmed fixes become notes", async () => {
+  const { chatWindows, notesFromChat, noteText, parseChat, withoutPeople } = await import("../lib/docs/whatsapp");
+  const raw = [
+    "[12/03/2024, 10:15:22] SAMPLE Yossi Cohen: המנוע של הרבל כבה ברמזור",
+    "[12/03/2024, 10:16:01] SAMPLE Dana: ‎image omitted",
+    "[12/03/2024, 10:17:40] SAMPLE Dana: תבדוק את המחבר מתחת למושב",
+    "זה קרה לי גם, 050-1234567 תתקשר",
+    "12/03/2024, 10:30 - SAMPLE Yossi Cohen: תודה Dana, חיזקתי והתקלה נעלמה. המייל שלי sample@example.com",
+    "12/03/2024, 10:31 - SAMPLE Yossi Cohen: <Media omitted>",
+    "12/03/2024, 10:32 - Messages and calls are end-to-end encrypted.",
+  ].join("\n");
+  const messages = parseChat(raw);
+  assert.deepEqual(messages.map((m) => m.by), ["SAMPLE Yossi Cohen", "SAMPLE Dana", "SAMPLE Yossi Cohen"]);
+  assert.ok(messages[1].text.includes("זה קרה לי גם"), "a line with no date continues the message");
+  const clean = withoutPeople(messages);
+  const all = JSON.stringify(clean);
+  for (const secret of ["Yossi", "Cohen", "Dana", "050", "1234567", "sample@example.com"]) assert.ok(!all.includes(secret), `${secret} is gone`);
+  assert.deepEqual(clean.map((m) => m.by), ["טכנאי 1", "טכנאי 2", "טכנאי 1"]);
+  assert.ok(clean[2].text.includes("תודה טכנאי 2"));
+  assert.equal(chatWindows(clean).length, 1);
+
+  // The model sees only the cleaned chat; an unconfirmed fix is not a note.
+  const seen: string[] = [];
+  const model = {
+    complete: async (r: { content: { text?: string }[] }) => {
+      seen.push(String(r.content[0].text));
+      return { text: JSON.stringify({ notes: [{ problem: "SAMPLE המנוע כבה ברמזור", fix: "SAMPLE חיזוק המחבר מתחת למושב, התקשרו 052-7654321", confirmed: true }, { problem: "SAMPLE רעש", fix: "SAMPLE אולי שרשרת", confirmed: false }] }) };
+    },
+  };
+  const found = await notesFromChat(model as never, raw);
+  assert.ok(!seen[0].includes("Yossi") && !seen[0].includes("050") && seen[0].includes("טכנאי 1"));
+  assert.equal(found.messages, 3);
+  assert.equal(found.notes.length, 1);
+  assert.ok(!noteText(found.notes[0]).includes("052"), "a number in the model's words is removed too");
+  assert.equal((await notesFromChat({ complete: async () => { throw new Error("down"); } } as never, raw)).notes.length, 0);
+  // The route stores notes only, never the file.
+  const route = fs.readFileSync(path.join(process.cwd(), "app", "api", "admin", "kbs", "[kbId]", "notes", "import", "route.ts"), "utf8");
+  assert.ok(route.indexOf("isAdmin()") < route.indexOf("allow(") && route.indexOf("allow(") < route.indexOf("tooLarge(") && route.indexOf("tooLarge(") < route.indexOf("request.text()"));
+  assert.ok(!/driver\.write|addDoc|log\.[a-z]+\([^)]*raw/.test(route));
+});

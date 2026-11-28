@@ -2,7 +2,14 @@
 // A knowledge base is a named set of documents; each document is stored as numbered passages
 // (a PDF page, or a slice of a longer text) so every answer can point at its source.
 
-export type DocOrigin = "manufacturer" | "customer";
+// "team": what the customer's own technicians learned in the field, approved by the implementer.
+export type DocOrigin = "manufacturer" | "customer" | "team";
+
+// One piece of field knowledge: a fault and what solved it, in the words of whoever wrote it.
+// It waits as `pending` until the implementer approves it; only approved notes are searched.
+// `n`: its number in the team's document, given once at approval and never reused.
+export type NoteFrom = "technician" | "implementer" | "whatsapp" | "conversations";
+export type Note = { id: string; kbId: string; text: string; from: NoteFrom; status: "pending" | "approved" | "rejected"; n?: number; createdAt: string; decidedAt?: string };
 
 export type KbMeta = {
   id: string;

@@ -16,6 +16,10 @@ export const LIMITS = {
   ask: { max: 30, windowMs: 5 * 60_000 },
   askDaily: { max: Number(process.env.DAILY_QUESTION_LIMIT) || 1000, windowMs: 24 * 60 * 60_000 },
   upload: { max: 60, windowMs: 10 * 60_000 },
+  // An exported group chat: up to fourteen calls to the main model for each.
+  importChat: { max: 6, windowMs: 10 * 60_000 },
+  // A field note from a technician or the implementer: text only, a few an hour.
+  note: { max: 20, windowMs: 10 * 60_000 },
   // Reading pages from their pictures: each call reads a few pages with the main model.
   readPages: { max: 120, windowMs: 10 * 60_000 },
   // A draft of a document's description: one model call for each.
