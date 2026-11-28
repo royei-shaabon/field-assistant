@@ -15,12 +15,19 @@ export const MAX_TABLE_PAGES = 80;
 const MAX_READ_CHARS = 6000;
 const AT_ONCE = 3;
 
-// A page whose text is mostly numbers standing alone: the layout of a table that lost its cells.
+// A page that reads like a table that lost its cells. Two signs: most of the words are numbers
+// standing alone (a grid of values), or the page is a column of short row names of which several
+// end in a bare dash or colon (the cells were symbols or pictures, and nothing came out for them).
 export function looksLikeTable(text: string): boolean {
   const words = text.split(/\s+/).filter(Boolean);
   if (words.length < 60) return false;
   const numbers = words.filter((w) => /^[\d.,×x*\-–/()%°±]+$/.test(w) && /\d/.test(w)).length;
-  return numbers / words.length >= 0.3;
+  if (numbers / words.length >= 0.3) return true;
+  const lines = text.split("\n").map((l) => l.trim()).filter(Boolean);
+  if (lines.length < 18) return false;
+  const short = lines.filter((l) => l.split(/\s+/).length <= 4).length;
+  const dangling = lines.filter((l) => /(^|\s)[–\-:]$/.test(l)).length;
+  return short / lines.length >= 0.6 && dangling >= 4;
 }
 
 export type ToRead = { empty: number[]; tables: number[] };

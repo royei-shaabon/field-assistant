@@ -1956,6 +1956,11 @@ test("pages read from their picture: only pages that need it, added after the pa
   assert.ok(looksLikeTable(table));
   assert.equal(looksLikeTable("SAMPLE Check the oil level with the engine stopped. ".repeat(10)), false);
   assert.equal(looksLikeTable("1 2 3"), false, "too short to judge");
+  // A schedule whose cells were symbols: row names, most ending in a bare dash.
+  const symbols = ["SAMPLE Items Frequency × 1,000 km 1.0 6.4 12.8", ...Array.from({ length: 22 }, (_, i) => (i % 3 ? `SAMPLE Item ${i} –` : `SAMPLE Item ${i} 87`)), "SAMPLE Legend", ":", ":", "SAMPLE Inspect and replace if necessary when the vehicle is serviced by your dealer"].join("\n");
+  assert.ok(looksLikeTable(symbols));
+  // A table of contents is short lines too, but each ends in a page number.
+  assert.equal(looksLikeTable(Array.from({ length: 40 }, (_, i) => `SAMPLE Chapter ${i} about things p. ${i + 3}`).join("\n")), false);
 
   const { store, kb, docId } = await sampleKb();
   const before = (await store.getPassages(kb.meta.id, docId))!.passages;
