@@ -17,6 +17,8 @@ export type QaRecord = {
   // The conversation on the technician's phone this belongs to.
   conversationId?: string;
   channel: Channel;
+  // Which technician asked, when the environment keeps a list of names and the phone picked one.
+  who?: string;
   question: string;
   // How it ended: answer, ask, not_found, ideas, hazard, error, or "voice" for a spoken answer
   // (the live model spoke from the passages; the checked answer is a separate record).
@@ -104,6 +106,7 @@ export class Activity {
       id: `${now.getTime().toString(36)}-${randomBytes(4).toString("hex")}`,
       at: now.toISOString(),
       question: clip(entry.question, 600),
+      who: entry.who && clip(entry.who, 60),
       title: entry.title && clip(entry.title, 200),
       steps: entry.steps?.slice(0, 12).map((s) => clip(s, 500)),
       ideas: entry.ideas?.slice(0, 6).map((s) => clip(s, 300)),

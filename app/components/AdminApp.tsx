@@ -224,6 +224,44 @@ type LiveVoices = { enabled: boolean; current: string; language: string; languag
 
 // The live call's voice: every voice has a Hebrew name, a play button and a choose button.
 // The sample is the live model itself, so what is heard here is what a technician hears.
+// The names technicians pick from on first entry: who asked, who reported a fix. Not a login.
+function TechnicianNames() {
+  const [text, setText] = useState<string | null>(null);
+  const [saved, setSaved] = useState(false);
+  useEffect(() => {
+    let stop = false;
+    void fetch("/api/admin/technicians")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((b) => !stop && b && setText((b.technicians as string[]).join("\n")))
+      .catch(() => {});
+    return () => {
+      stop = true;
+    };
+  }, []);
+  const save = async () => {
+    const res = await fetch("/api/admin/technicians", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ technicians: (text ?? "").split("\n") }) }).catch(() => null);
+    const body = (await res?.json().catch(() => null)) as { technicians?: string[] } | null;
+    if (res?.ok && body?.technicians) {
+      setText(body.technicians.join("\n"));
+      setSaved(true);
+    }
+  };
+  if (text === null) return null;
+  return (
+    <label className="flex flex-col gap-1">
+      <span className="text-[15px] font-bold">{A.technicians.title}</span>
+      <span className="text-[13px] text-stone">{A.technicians.hint}</span>
+      <textarea value={text} rows={5} dir="auto" onChange={(e) => (setText(e.target.value), setSaved(false))} className="mt-1 w-80 max-w-full rounded-[8px] border border-edge bg-paper px-2.5 py-2 text-[15px] focus:border-primary" />
+      <span className="flex items-center gap-3">
+        <button type="button" onClick={() => void save()} className="h-11 rounded-xl border border-edge px-4 text-[15px] font-medium text-primary">
+          {A.technicians.save}
+        </button>
+        <span role="status" className="text-[13px] text-graphite">{saved ? A.technicians.saved : ""}</span>
+      </span>
+    </label>
+  );
+}
+
 // Who the answers are for, which decides how much the assistant warns.
 function AudiencePicker() {
   const [audience, setAudience] = useState<"qualified" | "general" | null>(null);
@@ -734,6 +772,12 @@ function TeamNotes({ kbId, onChanged }: { kbId: string; onChanged: () => Promise
             <li key={n.id} className="flex flex-col gap-2 rounded-xl border border-edge bg-paper p-3">
               <p className="text-[13px] text-graphite">
                 <span className={n.f !== undefined && !n.held ? "font-medium text-warn" : ""}>{n.f !== undefined && !n.held ? A.notes.shownNow : n.held ? A.notes.heldNow : A.notes.waiting}</span> · <span>{A.notes.from[n.from]}</span> · <span className="font-mono">{n.createdAt.slice(0, 10)}</span>
+                {n.by && (
+                  <>
+                    {" "}
+                    · <span>{A.technicians.by}</span> <bdi>{n.by}</bdi>
+                  </>
+                )}
               </p>
               <textarea dir="auto" aria-label={A.notes.text} value={edits[n.id] ?? n.text} maxLength={1200} rows={3} onChange={(e) => setEdits((now) => ({ ...now, [n.id]: e.target.value }))} className="rounded-xl border border-edge bg-white px-3 py-2 text-[15px] text-ink focus:border-primary" />
               <div className="flex flex-wrap gap-2">
@@ -1339,6 +1383,7 @@ export function AdminApp() {
           <section className="flex flex-col gap-6">
             <Diagnose />
             <AudiencePicker />
+            <TechnicianNames />
             <LiveVoicePicker />
             <VoicePicker />
           </section>

@@ -2305,3 +2305,26 @@ test("automatic learning: a technician's report is searched at once as an unchec
   await store.decideNote(kb.meta.id, second.id, { status: "rejected" });
   assert.equal((await store.listDocs(kb.meta.id)).some((d) => d.id === FIELD_DOC), false);
 });
+
+test("who asked: a name from the implementer's list is kept with the question and the report; any other name is nobody", async () => {
+  const { cleanTechnicians, knownTechnician } = await import("../lib/store");
+  assert.deepEqual(cleanTechnicians(["  SAMPLE יוסי ", "SAMPLE יוסי", "x", 7, "SAMPLE <b>דנה</b>", ""]), ["SAMPLE יוסי", "SAMPLE bדנה/b"]);
+  assert.equal(cleanTechnicians("not a list").length, 0);
+  assert.equal(cleanTechnicians(Array.from({ length: 500 }, (_, i) => `SAMPLE טכנאי ${i}`)).length, 200);
+  const settings = { technicians: ["SAMPLE יוסי", "SAMPLE דנה"] };
+  assert.equal(knownTechnician(settings, "SAMPLE דנה"), "SAMPLE דנה");
+  for (const other of ["SAMPLE אחר", "", undefined, 5, ["SAMPLE דנה"]]) assert.equal(knownTechnician(settings, other), undefined);
+  assert.equal(knownTechnician({}, "SAMPLE דנה"), undefined, "no list, nobody is named");
+  // The record keeps the name; a record without one is as before.
+  const book = new Activity(new FsDriver(fs.mkdtempSync(path.join(os.tmpdir(), "who-"))));
+  const kept = await book.record({ kbId: "kb1", channel: "chat", question: "SAMPLE שאלה", kind: "answer", who: "SAMPLE דנה" });
+  assert.equal(kept.who, "SAMPLE דנה");
+  // The routes take the name only through the list, and the list's own route is the implementer's.
+  const read = (...parts: string[]) => fs.readFileSync(path.join(process.cwd(), ...parts), "utf8");
+  assert.match(read("app", "api", "conversation", "route.ts"), /knownTechnician\(settings, /);
+  assert.match(read("app", "api", "notes", "route.ts"), /knownTechnician\(/);
+  const admin = read("app", "api", "admin", "technicians", "route.ts");
+  assert.ok(admin.indexOf("isAdmin()") < admin.indexOf("allow(") && admin.indexOf("allow(") < admin.indexOf("tooLarge(") && admin.indexOf("tooLarge(") < admin.indexOf("request.json()"));
+  // Other technicians never read who reported: the name is not in the text that is searched.
+  assert.ok(!/by/.test(read("lib", "store", "index.ts").split("private async rebuildNotesDoc")[1].split("async deleteDoc")[0].replace(/\/\/.*$/gm, "").replace(/\bbytes\b|\bbyN\b/g, "")));
+});

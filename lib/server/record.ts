@@ -8,7 +8,7 @@ import { log } from "./log";
 
 export const channelOf = (value: unknown): Channel => (value === "voice" || value === "video" ? value : "chat");
 
-export async function recordTurn(envId: string, kb: { id: string; name: string }, event: DocTurn, meta: { conversationId?: string; channel: Channel }, timing?: AskTiming): Promise<void> {
+export async function recordTurn(envId: string, kb: { id: string; name: string }, event: DocTurn, meta: { conversationId?: string; channel: Channel; who?: string }, timing?: AskTiming): Promise<void> {
   if (isMeasuring(meta.conversationId)) return;
   const r = event.result;
   const source = (s: { docName: string; unit: string; n: number }) => `${s.docName} · ${s.n}`;
@@ -19,6 +19,7 @@ export async function recordTurn(envId: string, kb: { id: string; name: string }
       kbName: kb.name,
       conversationId: meta.conversationId,
       channel: meta.channel,
+      ...(meta.who ? { who: meta.who } : {}),
       // A question with a picture and no words is noted as such.
       question: event.said ?? (event.media ? `[${event.media}]` : ""),
       kind: r.kind,

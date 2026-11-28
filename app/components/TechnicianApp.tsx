@@ -25,6 +25,7 @@ import {
   subscribeConversations,
   type SavedConversation,
 } from "@/lib/client/conversations";
+import { savedWho, saveWho } from "@/lib/client/who";
 import { SURVEY, type SurveyAnswers } from "@/lib/survey";
 import { T } from "@/lib/ui-text";
 import { CallView, type Speech } from "./Call";
@@ -75,7 +76,7 @@ async function post(
   input: Input,
   // Which conversation this is and how it was asked (typed, voice call, video call): written
   // in the environment's log beside the question.
-  meta: { conversationId: string; channel: "chat" | "voice" | "video" },
+  meta: { conversationId: string; channel: "chat" | "voice" | "video"; who?: string },
   onProgress: (p: Progress) => void,
   onPartial: (p: PartialAnswer) => void,
   signal: AbortSignal,
@@ -205,8 +206,13 @@ function Menu({
   onNew,
   onDelete,
   onShare,
+  who,
+  onWho,
   onClose,
 }: {
+  // The technician's name and the way to change it, when the implementer keeps a list of names.
+  who?: string;
+  onWho?: () => void;
   // Opens "share what worked". Absent for the sample fault trees, which take tips another way.
   onShare?: () => void;
   kbs: KbSummary[];
@@ -239,6 +245,14 @@ function Menu({
               <PlusIcon />
               <span>{T.header.newCase}</span>
             </button>
+            {onWho && (
+              <button onClick={onWho} className="mt-2 flex min-h-12 w-full items-center justify-between gap-3 rounded-[10px] border border-edge px-4 text-[15px] text-ink active:bg-mist">
+                <span>
+                  <span className="text-graphite">{T.who.youAre}</span> <bdi className="font-medium">{who || T.who.nobody}</bdi>
+                </span>
+                <span className="text-primary">{T.who.change}</span>
+              </button>
+            )}
             {onShare && (
               <button onClick={onShare} className="mt-2 flex h-12 w-full items-center gap-3 rounded-[10px] border border-edge px-4 text-[16px] font-medium text-ink active:bg-mist">
                 <span>{T.share.open}</span>
@@ -580,13 +594,44 @@ type SurveyAbout = { kbId: string; conversationId: string; channel: "voice" | "v
 // all optional, and "skip" is always there. Only the chosen answers are sent.
 // "Share what worked": a technician writes the fault and what solved it. It goes to the person
 // who manages the manuals, and reaches other technicians only after that person approves it.
-function ShareFix({ kbId, onClose }: { kbId: string; onClose: () => void }) {
+// "Who are you?": the technician picks their name from the implementer's list. Asked once on
+// this phone. It is not a password; it tells the implementer who asked and who reported a fix.
+function WhoAmI({ people, current, onPick, onClose }: { people: string[]; current: string; onPick: (name: string) => void; onClose?: () => void }) {
+  const ref = useDialog(onClose ?? (() => {}));
+  return (
+    <div className="fixed inset-0 z-50 mx-auto flex max-w-md items-end">
+      <div aria-hidden onClick={onClose} className="absolute inset-0 bg-night/50" />
+      <div ref={ref} role="dialog" aria-modal="true" aria-label={T.who.title} className="anim-rise relative flex max-h-[88dvh] w-full flex-col gap-4 overflow-y-auto rounded-t-[18px] bg-paper px-4 pb-[max(16px,env(safe-area-inset-bottom))] pt-5">
+        <div>
+          <h2 className="text-[20px] font-bold tracking-[-0.02em]">{T.who.title}</h2>
+          <p className="pt-1 text-[15px] text-graphite">{T.who.lead}</p>
+        </div>
+        <ul className="flex flex-col gap-2">
+          {people.map((name) => (
+            <li key={name}>
+              <button onClick={() => onPick(name)} aria-pressed={name === current} className={`flex min-h-12 w-full items-center rounded-[10px] border px-4 text-start text-[16px] ${name === current ? "border-primary bg-primary-soft font-medium" : "border-edge bg-paper active:bg-mist"}`}>
+                <bdi>{name}</bdi>
+              </button>
+            </li>
+          ))}
+        </ul>
+        {onClose && (
+          <button onClick={onClose} className="h-12 rounded-[10px] border border-edge px-4 text-[16px] font-medium text-ink active:bg-mist">
+            {T.header.close}
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function ShareFix({ kbId, who, onClose }: { kbId: string; who?: string; onClose: () => void }) {
   const ref = useDialog(onClose);
   const [text, setText] = useState("");
   const [state, setState] = useState<"idle" | "sending" | "sent" | "failed">("idle");
   const send = async () => {
     setState("sending");
-    const res = await fetch("/api/notes", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ kbId, text }) }).catch(() => null);
+    const res = await fetch("/api/notes", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ kbId, text, ...(who ? { who } : {}) }) }).catch(() => null);
     setState(res?.ok ? "sent" : "failed");
   };
   return (
@@ -723,6 +768,9 @@ export function TechnicianApp() {
     docsRef.current = isDocs;
   });
 
+  // The names to pick from (when the implementer keeps a list) and the one picked on this phone.
+  const [people, setPeople] = useState<string[]>([]);
+  const [who, setWho] = useState("");
   // The knowledge bases come from the server; the last one used is remembered on this phone.
   useEffect(() => {
     let cancelled = false;
@@ -732,8 +780,14 @@ export function TechnicianApp() {
         if (!r.ok) throw new HttpError(r.status);
         return r.json();
       })
-      .then((data: { kbs: KbSummary[] }) => {
+      .then((data: { kbs: KbSummary[]; technicians?: string[] }) => {
         if (cancelled) return;
+        const names = data.technicians ?? [];
+        const mine = savedWho();
+        // A name that is no longer on the list is asked for again.
+        if (mine && !names.includes(mine)) saveWho("");
+        setPeople(names);
+        setWho(names.includes(mine) ? mine : "");
         const wanted = new URLSearchParams(window.location.search).get("kb") ?? selectedKb();
         setKbs(data.kbs);
         setKbId(data.kbs.find((k) => k.id === wanted)?.id ?? data.kbs[0]?.id ?? "");
@@ -773,6 +827,12 @@ export function TechnicianApp() {
   const [call, setCall] = useState<"voice" | "video" | null>(null);
   const [survey, setSurvey] = useState<SurveyAbout | null>(null);
   const [sharing, setSharing] = useState(false);
+  const [picking, setPicking] = useState(false);
+  const chooseWho = (name: string) => {
+    saveWho(name);
+    setWho(name);
+    setPicking(false);
+  };
   const callRef = useRef(call);
   useEffect(() => {
     callRef.current = call;
@@ -855,7 +915,8 @@ export function TechnicianApp() {
         base.conversation.kbId || kbRef.current,
         base.conversation.events,
         input,
-        { conversationId: base.conversation.id, channel: callRef.current ?? "chat" },
+        // Which technician this is: the name picked on this phone (the server keeps it only if it is on the implementer's list).
+        { conversationId: base.conversation.id, channel: callRef.current ?? "chat", ...(savedWho() ? { who: savedWho() } : {}) },
         // The same stage reported twice in a row is one line.
         (p) => setProgress((steps) => (steps.at(-1)?.key === p ? steps : [...steps.map((s) => ({ ...s, done: true })), { key: p, done: false }])),
         (p) => {
@@ -1157,6 +1218,8 @@ export function TechnicianApp() {
           onOpen={openSaved}
           onNew={() => open(fresh())}
           onShare={isDocs ? () => (setMenu(false), setSharing(true)) : undefined}
+          who={who}
+          onWho={people.length ? () => (setMenu(false), setPicking(true)) : undefined}
           onDelete={(c) => {
             if (!window.confirm(T.header.confirmDelete)) return;
             deleteConversation(c.id);
@@ -1169,7 +1232,8 @@ export function TechnicianApp() {
       )}
 
       {survey && <Survey about={survey} onClose={() => setSurvey(null)} />}
-      {sharing && <ShareFix kbId={kbId} onClose={() => setSharing(false)} />}
+      {sharing && <ShareFix kbId={kbId} who={who} onClose={() => setSharing(false)} />}
+      {people.length > 0 && (!who || picking) && <WhoAmI people={people} current={who} onPick={chooseWho} onClose={who ? () => setPicking(false) : undefined} />}
 
       {call && (
         <CallView

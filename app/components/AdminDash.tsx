@@ -375,6 +375,11 @@ export function Conversations() {
             <summary className="flex cursor-pointer flex-wrap items-center gap-x-3 gap-y-1 px-4 py-3">
               <span className="min-w-0 flex-1 text-[15px] font-medium">
                 <bdi>{r.kind === "survey" ? A.survey.title : r.question || A.talks.noWords}</bdi>
+                {r.who && (
+                  <span className="ms-2 text-[13px] font-normal text-graphite">
+                    {A.technicians.by} <bdi>{r.who}</bdi>
+                  </span>
+                )}
               </span>
               <span className={`text-[13px] ${r.kind === "error" ? "text-danger-ink" : r.kind === "answer" || r.kind === "spoken" ? "text-ok" : "text-graphite"}`}>{kinds[r.kind] ?? r.kind}</span>
               <span className="text-[13px] text-stone">{A.talks.channel[r.channel]}</span>

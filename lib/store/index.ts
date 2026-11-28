@@ -54,7 +54,12 @@ export function slug(name: string): string {
 
 // `language`: the language of this environment's calls (he, en, ru, ar).
 // `audience`: who reads the answers of this environment (see Audience in lib/docs/ask.ts).
-export type Settings = { voice?: string; liveVoice?: string; language?: string; audience?: "qualified" | "general" };
+// `technicians`: the names a technician picks from on first entry (not a login).
+export type Settings = { voice?: string; liveVoice?: string; language?: string; audience?: "qualified" | "general"; technicians?: string[] };
+// Short names, each once, a bounded list.
+export const cleanTechnicians = (raw: unknown): string[] => [...new Set((Array.isArray(raw) ? raw : []).map((n) => (typeof n === "string" ? n.replace(/[<>]/g, "").replace(/\s+/g, " ").trim().slice(0, 40) : "")).filter((n) => n.length >= 2))].slice(0, 200);
+// The name, when it is one the implementer listed. Anything else a phone sends is nobody.
+export const knownTechnician = (settings: Settings, who: unknown): string | undefined => (typeof who === "string" && settings.technicians?.includes(who) ? who : undefined);
 // An environment that never chose is for qualified technicians: the product's audience.
 export const audienceOf = (settings: Settings): "qualified" | "general" => (settings.audience === "general" ? "general" : "qualified");
 
