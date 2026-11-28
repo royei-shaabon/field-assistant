@@ -58,7 +58,7 @@ async function sampleKb() {
   return { store, kb: { meta, docs, index: new SearchIndex(await store.loadDocs(meta.id)) }, docId: d.id };
 }
 
-const draft = (over: object) => ({ kind: "answer", hazard: "none", title: "SAMPLE כותרת", steps: [], checks: [], figures: [], question: "", options: [], marks: [], ...over });
+const draft = (over: object) => ({ kind: "answer", hazard: "none", title: "SAMPLE כותרת", steps: [], checks: [], figures: [], question: "", options: [], marks: [], reports_fix: false, ...over });
 
 test("ingest keeps real PDF page numbers and counts pages without text", async () => {
   const { doc, passages } = await ingest("sample_manual.pdf", makePdf(PAGES));
@@ -2153,4 +2153,75 @@ test("hostile input stays cheap: a huge chat message, a crowd of senders, parts 
   const { store, kb: kb2 } = await sampleKb();
   const own = await store.addNote(kb2.meta.id, { text: "SAMPLE פתרון של המטמיע עצמו, ארוך מספיק", from: "implementer", approve: true });
   assert.equal(own.status, "approved");
+});
+
+test("a qualified audience is warned only where the manual itself warns; a hazard topic with no source is still a stop", async () => {
+  const { hasMakerNotice } = await import("../lib/docs/ask");
+  assert.ok(hasMakerNotice("SAMPLE Remove the cap.\nWARNING\nSAMPLE Hot coolant can burn you."));
+  assert.ok(hasMakerNotice("SAMPLE text CAUTION: SAMPLE do not overfill"));
+  assert.ok(hasMakerNotice("SAMPLE שלב\nאזהרה: SAMPLE נוזל חם"));
+  assert.equal(hasMakerNotice("SAMPLE Warning lights are explained on the next page. Use caution when parking."), false, "the word in a sentence is not a notice");
+
+  const { kb, docId } = await sampleKb();
+  const brakes = () => {
+    const agent = new FakeAgent([{ final: draft({ hazard: "brakes", steps: [{ text: "SAMPLE קדמי 200", ref: `${docId}:3`, quote: "Front tyre pressure is 200 kPa when cold." }] }) }]);
+    agent.plan = ["tyre pressure"];
+    return agent;
+  };
+  const ask = { kbName: "x", docs: kb.docs, question: "איך מחליפים רפידות בלמים?", images: [], history: [] };
+  // General audience: as before, the topic warning.
+  const general = (await askDocuments(brakes(), kb.index, ask)).result as Extract<DocResult, { kind: "answer" }>;
+  assert.equal(general.caution, "brakes");
+  // Qualified audience, a page with no notice of the manufacturer: no warning at all.
+  const partials: PartialAnswer[] = [];
+  const qualified = (await askDocuments(brakes(), kb.index, { ...ask, audience: "qualified" }, () => {}, undefined, (p) => partials.push(p))).result as Extract<DocResult, { kind: "answer" }>;
+  assert.equal(qualified.caution, undefined);
+  assert.ok(partials.every((p) => !p.caution));
+  // Nothing verified on a hazard topic: a stop for both audiences.
+  const none = new FakeAgent([{ final: draft({ hazard: "brakes", steps: [{ text: "SAMPLE מומצא", ref: `${docId}:3`, quote: "Bleed the brakes with compressed air first." }] }) }]);
+  none.plan = ["brakes"];
+  assert.equal((await askDocuments(none, kb.index, { ...ask, audience: "qualified", ideas: false })).result.kind, "hazard");
+
+  // Replay: a general audience gets the topic warning back even when the log left it out; a
+  // qualified one keeps only the manufacturer's notice the answer recorded.
+  const event = (caution?: "maker" | "brakes") => [{ type: "DOC_TURN" as const, said: "איך מחליפים רפידות בלמים?", result: { ...qualified, ...(caution ? { caution } : {}) } }];
+  const shown = (events: ReturnType<typeof event>, audience: "qualified" | "general") => (docScreen(events, true, true, audience).items.find((i) => i.kind === "doc_answer") as { caution?: string }).caution;
+  assert.equal(shown(event(), "general"), "brakes");
+  assert.equal(shown(event(), "qualified"), undefined);
+  assert.equal(shown(event("brakes"), "qualified"), undefined);
+  assert.equal(shown(event("maker"), "qualified"), "maker");
+  // Spoken: one short line for the manufacturer's notice.
+  const { cautionLines } = await import("../lib/speech");
+  assert.equal(cautionLines("maker").length, 1);
+  assert.equal(cautionLines("brakes").length, 3);
+  // An environment that never chose is for qualified technicians.
+  const { audienceOf } = await import("../lib/store");
+  assert.deepEqual([audienceOf({}), audienceOf({ audience: "general" })], ["qualified", "general"]);
+});
+
+test("memory: when a technician tells what solved a fault, their own words are kept as a waiting note and the chat says so", async () => {
+  const { kb } = await sampleKb();
+  const earlier: DocEvent = { type: "DOC_TURN", said: "SAMPLE המנוע כבה ברמזור, מה לבדוק?", result: { kind: "not_found" } };
+  const told = "SAMPLE חיזקתי את המחבר מתחת למושב וזה עובד מצוין";
+  const kept: string[] = [];
+  const reporting = () => new FakeAgent([{ final: draft({ kind: "not_found", reports_fix: true }) }]);
+  const after = await handleDocConversation({ meta: kb.meta, docs: kb.docs, index: kb.index }, reporting(), { events: [earlier], input: { kind: "ask", text: told } }, undefined, undefined, { remember: async (text) => (kept.push(text), true) });
+  // The note is the technician's words with the question before them: nothing the model wrote.
+  assert.deepEqual(kept, [`הקשר: SAMPLE המנוע כבה ברמזור, מה לבדוק?\nמה פתר: ${told}`]);
+  const turn = after.events[1] as Extract<DocEvent, { type: "DOC_TURN" }>;
+  assert.equal(turn.remembered, true);
+  assert.deepEqual(after.screen.items.map((i) => i.kind), ["text", "doc_not_found", "text", "doc_saved"], "no 'not found' for a message that only told what worked");
+  // The log comes back from the phone with the mark and passes the check.
+  const again = await handleDocConversation({ meta: kb.meta, docs: kb.docs, index: kb.index }, reporting(), { events: after.events, input: { kind: "view" } });
+  assert.equal(again.screen.items.at(-1)!.kind, "doc_saved");
+
+  // Not kept: a plain question, a message too short to be a fix, a store that refused, no memory at all.
+  const question = await handleDocConversation({ meta: kb.meta, docs: kb.docs, index: kb.index }, new FakeAgent([{ final: draft({ kind: "not_found", reports_fix: false }) }]), { events: [], input: { kind: "ask", text: told } }, undefined, undefined, { remember: async (text) => (kept.push(text), true) });
+  assert.equal((question.events[0] as { remembered?: boolean }).remembered, undefined);
+  const short = await handleDocConversation({ meta: kb.meta, docs: kb.docs, index: kb.index }, reporting(), { events: [], input: { kind: "ask", text: "SAMPLE עובד" } }, undefined, undefined, { remember: async (text) => (kept.push(text), true) });
+  assert.equal((short.events[0] as { remembered?: boolean }).remembered, undefined);
+  const refused = await handleDocConversation({ meta: kb.meta, docs: kb.docs, index: kb.index }, reporting(), { events: [], input: { kind: "ask", text: told } }, undefined, undefined, { remember: async () => { throw new Error("full"); } });
+  assert.equal((refused.events[0] as { remembered?: boolean }).remembered, undefined);
+  assert.equal(refused.screen.items.at(-1)!.kind, "doc_not_found");
+  assert.equal(kept.length, 1);
 });

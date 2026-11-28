@@ -47,7 +47,10 @@ export function slug(name: string): string {
 }
 
 // `language`: the language of this environment's calls (he, en, ru, ar).
-export type Settings = { voice?: string; liveVoice?: string; language?: string };
+// `audience`: who reads the answers of this environment (see Audience in lib/docs/ask.ts).
+export type Settings = { voice?: string; liveVoice?: string; language?: string; audience?: "qualified" | "general" };
+// An environment that never chose is for qualified technicians: the product's audience.
+export const audienceOf = (settings: Settings): "qualified" | "general" => (settings.audience === "general" ? "general" : "qualified");
 
 // The name a manual is shown under: what the implementer wrote, or else the uploaded file's
 // name without its ending ("Rebel 500 owners manual.pdf" -> "Rebel 500 owners manual").
@@ -250,7 +253,8 @@ export class KbStore {
     if (text.length < 10) throw new Invalid("text");
     const all = await this.listNotes(kbId);
     // The bound is on what technicians send: a full queue never locks the implementer out.
-    if (input.from === "technician" && all.filter((n) => n.status === "pending" && n.from === "technician").length >= MAX_PENDING_NOTES) throw new Invalid("full");
+    const fromPhone = (from: NoteFrom) => from === "technician" || from === "conversations";
+    if (fromPhone(input.from) && all.filter((n) => n.status === "pending" && fromPhone(n.from)).length >= MAX_PENDING_NOTES) throw new Invalid("full");
     // The same words again add nothing.
     const same = all.find((n) => n.text === text && n.status !== "rejected");
     if (same) return same;

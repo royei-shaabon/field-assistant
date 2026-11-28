@@ -30,9 +30,9 @@ function lineFor(item: ChatItem, screen: Screen): string[] {
       return [screen.candidates.some((c) => c.status === "resolved") ? T.chat.doneSome : T.chat.doneNone, T.chat.newHint];
     // Document knowledge bases: the verified steps are read out; the sources stay on screen.
     case "doc_answer":
-      return [...(item.caution ? [T.doc.cautionTitle, T.doc.topics[item.caution], T.doc.cautionBody] : []), item.title, ...item.steps.map((s) => s.text), T.doc.sourceSpoken, ...(item.ideas?.length ? [T.doc.ideasSpoken, ...item.ideas.map((i) => i.text)] : [])];
+      return [...cautionLines(item.caution), item.title, ...item.steps.map((s) => s.text), T.doc.sourceSpoken, ...(item.ideas?.length ? [T.doc.ideasSpoken, ...item.ideas.map((i) => i.text)] : [])];
     case "doc_ideas":
-      return [...(item.caution ? [T.doc.cautionTitle, T.doc.topics[item.caution], T.doc.cautionBody] : []), T.doc.ideasNotFound, T.doc.ideasSpoken, ...item.ideas.map((i) => i.text)];
+      return [...cautionLines(item.caution), T.doc.ideasNotFound, T.doc.ideasSpoken, ...item.ideas.map((i) => i.text)];
     case "doc_ask":
       return [item.question, ...(item.options.length ? [T.call.sayClosest, ...item.options] : [])];
     case "doc_hazard":
@@ -41,6 +41,8 @@ function lineFor(item: ChatItem, screen: Screen): string[] {
       return [T.doc.notFound];
     case "doc_error":
       return [T.doc.error];
+    case "doc_saved":
+      return [T.doc.saved];
     case "doc_empty":
       return [T.doc.empty];
     default:
@@ -69,10 +71,16 @@ export function forVoice(line: string): string {
 
 // What a call can already say while the answer is still being written: the warning first,
 // then the title and every verified step. The caller says only the lines it has not said yet.
+// What is said for a warning: the manufacturer's notice is one short line, a topic warning is the full one.
+export function cautionLines(topic?: keyof typeof T.doc.topics): string[] {
+  if (!topic) return [];
+  return topic === "maker" ? [T.doc.makerNotice] : [T.doc.cautionTitle, `${T.doc.topics[topic]}.`, T.doc.cautionBody];
+}
+
 export function partialSpeech(partial: PartialAnswer): string[] {
   // A title alone is not said: nothing is spoken before a step has been verified.
   if (!partial.steps.length) return [];
-  return [...(partial.caution ? [T.doc.cautionTitle, T.doc.topics[partial.caution], T.doc.cautionBody] : []), partial.title, ...partial.steps.map((s) => s.text)];
+  return [...cautionLines(partial.caution), partial.title, ...partial.steps.map((s) => s.text)];
 }
 
 // What the live model's tool returns: the reply the answer engine gave to one question, as
@@ -86,7 +94,7 @@ export type LiveToolResult =
   | { kind: "error"; note: string };
 
 export function liveToolResult(screen: Screen, from: number): LiveToolResult {
-  const caution = (topic?: keyof typeof T.doc.topics) => (topic ? `${T.doc.cautionTitle} ${T.doc.topics[topic]}. ${T.doc.cautionBody}` : undefined);
+  const caution = (topic?: keyof typeof T.doc.topics) => (topic ? cautionLines(topic).join(" ") : undefined);
   for (const item of screen.items.slice(from)) {
     if (item.kind === "doc_answer") {
       const warning = caution(item.caution);

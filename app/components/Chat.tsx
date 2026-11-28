@@ -517,6 +517,18 @@ function Item({
       );
     case "doc_not_found":
       return <DocNote time={time} title={T.doc.notFound} hint={T.doc.notFoundHint} actions={interactive ? [{ label: T.doc.rephrase, run: handlers.onOther }, { label: T.doc.addPhoto, run: handlers.onAttach }] : []} />;
+    case "doc_saved":
+      return (
+        <p role="status" className="anim-rise flex items-start gap-2 text-[14px] leading-5 text-graphite">
+          <span aria-hidden className="mt-[3px] grid h-4 w-4 shrink-0 place-items-center rounded-full bg-ok text-[11px] font-bold leading-none text-white">
+            ✓
+          </span>
+          <span className="flex flex-col">
+            <span className="font-medium">{T.doc.saved}</span>
+            <span className="text-[13px]">{T.doc.savedNote}</span>
+          </span>
+        </p>
+      );
     case "call_log":
       return <CallLog call={item.call} lines={item.lines} time={time} />;
     case "doc_error":
@@ -679,7 +691,7 @@ export type ChatProps = {
 const clock = (ms?: number) => (ms ? new Date(ms).toLocaleTimeString("he-IL", { hour: "2-digit", minute: "2-digit" }) : undefined);
 
 // Items that draw their own bubble or card. Everything else the assistant says goes in a bubble here.
-const SELF_FRAMED = new Set<ChatItem["kind"]>(["text", "media", "picked", "answer", "acknowledged", "track_stopped", "doc_answer", "doc_ask", "doc_hazard", "doc_ideas", "doc_not_found", "doc_error", "doc_empty", "call_log"]);
+const SELF_FRAMED = new Set<ChatItem["kind"]>(["text", "media", "picked", "answer", "acknowledged", "track_stopped", "doc_answer", "doc_ask", "doc_hazard", "doc_ideas", "doc_not_found", "doc_error", "doc_empty", "call_log", "doc_saved"]);
 const selfFramed = (item: ChatItem) => SELF_FRAMED.has(item.kind) || (item.kind === "stopped" && item.reason === "danger");
 
 // The whole conversation, in reading order. Returns the typing time of new messages so the

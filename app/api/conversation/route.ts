@@ -1,7 +1,7 @@
 import { currentEnvId, envStore } from "@/lib/server/env";
 import { log, span } from "@/lib/server/log";
 import { channelOf, recordTurn } from "@/lib/server/record";
-import { activity } from "@/lib/store";
+import { activity, audienceOf } from "@/lib/store";
 import type { AskTiming } from "@/lib/docs/ask";
 import { loadKnowledgeBase, type KnowledgeBase } from "@/lib/kb";
 import { BadRequest, handleConversation } from "@/lib/conversation";
@@ -44,6 +44,8 @@ export async function POST(request: Request) {
   const encoder = new TextEncoder();
   const envId = await currentEnvId();
   const store = await envStore();
+  // Who reads this environment's answers decides how much is warned (see Audience).
+  const audience = audienceOf(await store.getSettings().catch(() => ({})));
   const meta = { conversationId: typeof raw?.conversationId === "string" ? raw.conversationId : undefined, channel: channelOf(raw?.channel) };
   // One stage per question: loading the knowledge base, the answer (with the parts the answer
   // engine measures itself), and writing it down. Looking at a saved conversation is not timed.
@@ -69,6 +71,15 @@ export async function POST(request: Request) {
             onPartial: (partial) => send({ partial }),
             embedder: embedder(),
             firstSearch,
+            audience,
+            // What a technician tells worked is kept for the team as a waiting note. Not for a measuring run.
+            remember: isMeasuring(meta.conversationId)
+              ? undefined
+              : async (text) => {
+                  await store.addNote(kbId, { text, from: "conversations" });
+                  log.info("note.added", { env: envId, kb: kbId, from: "conversations", chars: text.length });
+                  return true;
+                },
             // Where the time went: numbers only, for the log and for scripts/live-check.ts.
             onTiming: (t) => {
               timing = t;
@@ -88,7 +99,9 @@ export async function POST(request: Request) {
           stage?.part("answer");
           const before = Array.isArray(body?.events) ? body.events.length : 0;
           const event = result.events.length > before ? result.events.at(-1)! : null;
-          if (event?.type === "DOC_TURN") {
+          // A message that only told what worked is not an unanswered question: it is not counted as one.
+          const onlyTold = event?.type === "DOC_TURN" && event.remembered && event.result.kind === "not_found";
+          if (event?.type === "DOC_TURN" && !onlyTold) {
             if (!isMeasuring(meta.conversationId)) await store.recordUsage(kbId, event.result.kind).catch(() => {});
             await recordTurn(envId, { id: kbId, name: kb.meta.name }, event, meta, timing);
             stage?.part("record");

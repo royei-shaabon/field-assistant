@@ -224,6 +224,36 @@ type LiveVoices = { enabled: boolean; current: string; language: string; languag
 
 // The live call's voice: every voice has a Hebrew name, a play button and a choose button.
 // The sample is the live model itself, so what is heard here is what a technician hears.
+// Who the answers are for, which decides how much the assistant warns.
+function AudiencePicker() {
+  const [audience, setAudience] = useState<"qualified" | "general" | null>(null);
+  useEffect(() => {
+    let stop = false;
+    void fetch("/api/admin/audience")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((b) => !stop && b && setAudience(b.audience))
+      .catch(() => {});
+    return () => {
+      stop = true;
+    };
+  }, []);
+  const choose = async (next: "qualified" | "general") => {
+    const res = await fetch("/api/admin/audience", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ audience: next }) }).catch(() => null);
+    if (res?.ok) setAudience(next);
+  };
+  if (!audience) return null;
+  return (
+    <label className="flex flex-col gap-1">
+      <span className="text-[15px] font-bold">{A.audience.title}</span>
+      <span className="text-[13px] text-stone">{A.audience.hint}</span>
+      <select value={audience} onChange={(e) => void choose(e.target.value === "general" ? "general" : "qualified")} className="mt-1 h-11 w-80 max-w-full rounded-[8px] border border-edge bg-paper px-2.5 text-[15px]">
+        <option value="qualified">{A.audience.qualified}</option>
+        <option value="general">{A.audience.general}</option>
+      </select>
+    </label>
+  );
+}
+
 function LiveVoicePicker() {
   const [list, setList] = useState<LiveVoices | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
@@ -1308,6 +1338,7 @@ export function AdminApp() {
         {page === "system" && (
           <section className="flex flex-col gap-6">
             <Diagnose />
+            <AudiencePicker />
             <LiveVoicePicker />
             <VoicePicker />
           </section>

@@ -29,7 +29,24 @@ const MAX_FIGURES = 2;
 // Checks suggested from the model's own professional knowledge, shown apart from the manual's steps.
 export const MAX_IDEAS = 4;
 
-export type HazardTopic = "brakes" | "fuel" | "hot_coolant" | "running_engine" | "other";
+// "maker": the manufacturer's own warning stands on a page the answer cites. It is what a
+// qualified audience is shown, as one quiet line, in place of the topic warnings.
+export type HazardTopic = "brakes" | "fuel" | "hot_coolant" | "running_engine" | "other" | "maker";
+
+// Who reads the answers. "general": a warning whenever the question or the answer touches a
+// hazard topic. "qualified": trained technicians, who are warned only where the manual itself
+// warns. Either way a hazard topic with no verified step is a stop, never an improvised answer.
+export type Audience = "qualified" | "general";
+
+// The manufacturer's notice as manuals print it: the word alone, in capitals (or its Hebrew form at the start of a line).
+const MAKER_NOTICE = /(^|[\s>])(WARNING|CAUTION|DANGER)(?![a-z])|(^|\n)\s*(אזהרה|זהירות|סכנה)\s*[:!\n]/;
+export const hasMakerNotice = (pageText: string) => MAKER_NOTICE.test(pageText);
+
+// The warning an answer with verified steps is shown under.
+function answerCaution(audience: Audience, topic: HazardTopic | null, kept: { notice: boolean }[]): HazardTopic | null {
+  if (audience === "general") return topic;
+  return kept.some((k) => k.notice) ? "maker" : null;
+}
 
 export type SourceView = { docId: string; docName: string; origin: DocMeta["origin"]; unit: DocMeta["unit"]; n: number; years?: string; read?: true };
 export type Box = { x: number; y: number; w: number; h: number };
@@ -91,6 +108,8 @@ export type AskInput = {
   pageImage?: (hit: Hit) => Promise<PageShot | null>;
   // False when this knowledge base answers from its documents only. Default: suggestions allowed.
   ideas?: boolean;
+  // Who reads the answers (see Audience). Default: a general audience, warned on every hazard topic.
+  audience?: Audience;
   // Search by meaning next to keywords, when configured and the documents have a meaning index.
   embedder?: Embedder | null;
   // How the first search is run when search by meaning is available (see `firstSearch`).
@@ -105,6 +124,8 @@ type Draft = {
   question: string;
   options: string[];
   marks: DocMark[];
+  // The technician's message tells what solved a fault (the model only classifies; the words kept are the technician's).
+  reports_fix?: boolean;
   figures: { ref: string; caption: string; box: Box; parts?: { name: string; printed: string; asked: boolean; box: Box }[] }[];
   hazard: "none" | HazardTopic;
 };
@@ -252,7 +273,7 @@ export function rankIdeas(checks: unknown): DocIdea[] {
     .map((x) => x.idea);
 }
 
-type KeptStep = { text: string; quote: string; source: SourceView; from: number };
+type KeptStep = { text: string; quote: string; source: SourceView; from: number; notice: boolean };
 
 // A step is kept only when it cites a passage that was retrieved in this turn and quotes text
 // that is really in it.
@@ -263,7 +284,7 @@ function keepSteps(steps: Draft["steps"], seen: Map<string, Hit>): KeptStep[] {
     if (hit && typeof s.text === "string" && s.text.trim() && typeof s.quote === "string" && quoteInPassage(s.quote, hit.text)) {
       // A quote that the file's own text does not carry was read from the page's picture by a model.
       const read = hit.own !== undefined && !quoteInPassage(s.quote, hit.text.slice(0, hit.own));
-      kept.push({ text: s.text.trim().slice(0, 600), quote: s.quote.trim().slice(0, 400), source: { ...sourceOf(hit), ...(read ? { read: true as const } : {}) }, from });
+      kept.push({ text: s.text.trim().slice(0, 600), quote: s.quote.trim().slice(0, 400), source: { ...sourceOf(hit), ...(read ? { read: true as const } : {}) }, from, notice: hasMakerNotice(hit.text) });
     }
   });
   return kept;
@@ -280,6 +301,7 @@ export function verifyDraft(
   shots: Map<string, PageShot> = new Map(),
   // False when the knowledge base answers from its documents only.
   allowIdeas = true,
+  audience: Audience = "general",
 ): DocResult {
   if (draft.kind === "ask") {
     const question2 = draft.question.trim();
@@ -294,7 +316,8 @@ export function verifyDraft(
   // Suggestions from general knowledge. On a hazard topic they are shown under the warning.
   const ideas = allowIdeas ? rankIdeas(draft.checks) : [];
   if (draft.kind === "not_found" || kept.length === 0) {
-    if (ideas.length) return { kind: "ideas", ideas, ...(topic ? { caution: topic } : {}) };
+    // Suggested checks stand under the topic warning for a general audience only.
+    if (ideas.length) return { kind: "ideas", ideas, ...(topic && audience === "general" ? { caution: topic } : {}) };
     return topic ? { kind: "hazard", topic, sources: [] } : { kind: "not_found" };
   }
 
@@ -312,6 +335,7 @@ export function verifyDraft(
   );
   // A drawing is shown only from a page the model really saw, and only from a page the answer cites.
   const cited = new Set(kept.map((k) => `${k.source.docId}:${k.source.n}`));
+  const caution = answerCaution(audience, topic, kept);
   const figures: DocFigure[] = (draft.figures ?? [])
     .flatMap((f) => {
       const shot = shots.get(f.ref);
@@ -327,7 +351,7 @@ export function verifyDraft(
     steps: kept.map(({ text, quote, source }) => ({ text, quote, source })),
     marks,
     ...(figures.length ? { figures } : {}),
-    ...(topic ? { caution: topic } : {}),
+    ...(caution ? { caution } : {}),
     ...(ideas.length ? { ideas } : {}),
   };
 }
@@ -375,7 +399,7 @@ function completeSteps(text: string): Draft["steps"] {
 
 // What can already be shown from a partly written answer: verified steps only, and the
 // warning as soon as anything calls for it.
-export function partialAnswer(text: string, seen: Map<string, Hit>, question: string | undefined): PartialAnswer | null {
+export function partialAnswer(text: string, seen: Map<string, Hit>, question: string | undefined, audience: Audience = "general"): PartialAnswer | null {
   if (jsonString(text, "kind") !== "answer") return null;
   const title = jsonString(text, "title");
   if (title === undefined) return null;
@@ -384,7 +408,7 @@ export function partialAnswer(text: string, seen: Map<string, Hit>, question: st
   if (!kept.length) return null;
   const flagged = jsonString(text, "hazard");
   const hazard = flagged && flagged !== "none" ? (flagged as HazardTopic) : "none";
-  const topic = hazardTopic(question, { hazard, steps });
+  const topic = answerCaution(audience, hazardTopic(question, { hazard, steps }), kept);
   return { title: title.trim().slice(0, 80), steps: kept.map(({ text: t, quote, source }) => ({ text: t, quote, source })), ...(topic ? { caution: topic } : {}) };
 }
 
@@ -501,7 +525,7 @@ export type AskTiming = {
   total: number;
 };
 
-export type AskRun = { result: DocResult; searches: string[][]; errors: string[]; timing: AskTiming };
+export type AskRun = { result: DocResult; searches: string[][]; errors: string[]; timing: AskTiming; reported?: boolean };
 
 export async function askDocuments(
   client: ModelClient,
@@ -555,6 +579,7 @@ export async function askDocuments(
   content.push({ type: "text", text: context + found });
   const messages: AgentMessage[] = [{ role: "user", content }];
 
+  const audience: Audience = input.audience ?? "general";
   let shown = 0;
   let titled = false;
   let turnStarted = started;
@@ -570,11 +595,12 @@ export async function askDocuments(
         timing.firstTitle = Date.now() - started;
         // The warning goes with the title: on a hazard topic nothing is shown without it.
         const flagged = jsonString(snapshot, "hazard");
-        const topic = hazardTopic(input.question, { hazard: flagged && flagged !== "none" ? (flagged as HazardTopic) : "none", steps: [] });
+        // (A qualified audience is warned only where the manual warns, which a step will show.)
+        const topic = audience === "general" ? hazardTopic(input.question, { hazard: flagged && flagged !== "none" ? (flagged as HazardTopic) : "none", steps: [] }) : null;
         onPartial({ title, steps: [], ...(topic ? { caution: topic } : {}) });
       }
     }
-    const partial = partialAnswer(snapshot, seen, input.question);
+    const partial = partialAnswer(snapshot, seen, input.question, audience);
     if (partial && partial.steps.length > shown) {
       shown = partial.steps.length;
       timing.firstStep ??= Date.now() - started;
@@ -637,7 +663,7 @@ export async function askDocuments(
         break;
       }
       timing.written = draft.steps.length;
-      return done(verifyDraft(draft, seen, input.question, frameSizes, shots, input.ideas !== false));
+      return { ...done(verifyDraft(draft, seen, input.question, frameSizes, shots, input.ideas !== false, audience)), ...(draft.reports_fix === true && input.question ? { reported: true } : {}) };
     }
     if (!errors.length) errors.push("too many turns");
   } catch (e) {

@@ -86,6 +86,12 @@ message: the technician is still talking about what is in them. When the questio
 a part, or asks to be shown or guided on the machine itself, mark in them the parts your steps
 name; when the question has nothing to do with the pictures, ignore them and return no marks.
 
+`reports_fix`: true only when the technician's message itself tells what they did that solved
+a fault, and that it is solved (it works now, the fault is gone). False for a question, for a
+fault that is still there, for a guess, and for everything else. When it is true and the
+message asks nothing, return `kind` `not_found` with empty lists; the application thanks them
+and keeps their words for the team.
+
 `hazard`: see "Safety" above. One of `brakes`, `fuel`, `hot_coolant`, `running_engine`, `other`, `none`.
 
 Fields that do not apply to the chosen `kind` are still required by the format: use an empty

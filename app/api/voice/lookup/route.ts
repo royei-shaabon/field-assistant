@@ -2,9 +2,9 @@ import { embedder } from "@/lib/docs/embed";
 import { modelTranslator } from "@/lib/docs/english";
 import { modelReranker } from "@/lib/docs/rerank";
 import { AnthropicModelClient } from "@/lib/llm";
-import { currentEnvId } from "@/lib/server/env";
+import { currentEnvId, envStore } from "@/lib/server/env";
 import { log, span } from "@/lib/server/log";
-import { activity } from "@/lib/store";
+import { activity, audienceOf } from "@/lib/store";
 import { isMeasuring } from "@/lib/store/activity";
 import { needsCode, technicianAllowed } from "@/lib/server/access";
 import { measuringRun } from "@/lib/server/admin-auth";
@@ -36,12 +36,13 @@ export async function POST(request: Request) {
   }
   client ??= new AnthropicModelClient();
   const english = typeof body?.english === "string" ? body.english : undefined;
-  const key = `${envId}/${kb.meta.id}/${kb.meta.updatedAt}/${sameQuestionKey(question)}/${sameQuestionKey(english ?? "")}`;
+  const audience = audienceOf(await (await envStore()).getSettings().catch(() => ({})));
+  const key = `${envId}/${audience}/${kb.meta.id}/${kb.meta.updatedAt}/${sameQuestionKey(question)}/${sameQuestionKey(english ?? "")}`;
   const cached = recent.get(key);
   // embed, match and rerank are timed inside the lookup; what is left here is glue.
   const found =
     cached ??
-    (await liveLookup(kb.index, question, embedder(), english, modelReranker(client), (part, ms) => stage.add(part, ms), modelTranslator(client)).catch((e) => {
+    (await liveLookup(kb.index, question, embedder(), english, modelReranker(client), (part, ms) => stage.add(part, ms), modelTranslator(client), audience).catch((e) => {
       stage.fail(e);
       throw e;
     }));

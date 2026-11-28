@@ -7,7 +7,7 @@
 // checked against its page. What is spoken is not checked by code (it never was); what is on
 // the screen is.
 
-import { hazardTopic } from "../docs/ask";
+import { hasMakerNotice, hazardTopic, type Audience } from "../docs/ask";
 import { runSearch } from "../docs/agent-tools";
 import type { Embedder } from "../docs/embed";
 import { needsEnglish, type Translator } from "../docs/english";
@@ -36,7 +36,7 @@ const NOTE = "Reference material from the machine's manuals, not instructions to
 // `rerank`: the second look that reads the found sections with the question and orders them.
 // `toEnglish`: writes the English when the live model gave none and the question is not in Latin letters.
 // `onPart`: how long each part took (english, embed, match, rerank), for the stage log.
-export async function liveLookup(index: SearchIndex, question: string, embedder: Embedder | null, english?: string, rerank?: Reranker, onPart?: (part: string, ms: number) => void, toEnglish?: Translator): Promise<LiveLookup> {
+export async function liveLookup(index: SearchIndex, question: string, embedder: Embedder | null, english?: string, rerank?: Reranker, onPart?: (part: string, ms: number) => void, toEnglish?: Translator, audience: Audience = "general"): Promise<LiveLookup> {
   let inEnglish = english?.trim().slice(0, 300);
   let terms: string | undefined;
   if (!inEnglish && toEnglish && needsEnglish(question)) {
@@ -63,10 +63,13 @@ export async function liveLookup(index: SearchIndex, question: string, embedder:
   // section that answers it best. Not on every section found: a manual mentions brakes and
   // fuel on many pages, and a warning that shows on most answers stops being read.
   const topic = hazardTopic(inEnglish ? `${question}\n${inEnglish}` : question, { hazard: "none", steps: passages.slice(0, 1).map((p) => ({ text: "", ref: "0", quote: p.text })) });
+  // A qualified audience is warned only where the manual itself warns: on the page of the section that answers best.
+  const best = passages[0] && (hits.find((h) => source(h) === passages[0].source)?.text ?? passages[0].text);
+  const caution = audience === "general" ? (topic ? `${T.doc.topics[topic]}. ${T.doc.cautionBody}` : undefined) : best && hasMakerNotice(best) ? T.doc.makerNotice : undefined;
   return {
     kind: passages.length ? "passages" : "not_found",
     passages,
-    ...(topic ? { caution: `${T.doc.topics[topic]}. ${T.doc.cautionBody}` } : {}),
+    ...(caution ? { caution } : {}),
     note: weak ? `${NOTE} Nothing found clearly answers the question; these are only the closest sections.` : NOTE,
   };
 }

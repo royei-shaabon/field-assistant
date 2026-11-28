@@ -261,6 +261,15 @@ function Feedback({ kbId }: { kbId: string }) {
 }
 
 export function Caution({ topic }: { topic: HazardTopic }) {
+  // The manufacturer's own notice, for a qualified audience: one quiet line, not a card.
+  if (topic === "maker") {
+    return (
+      <p role="note" className="flex items-center gap-2 text-[14px] leading-5 text-graphite">
+        <WarningIcon className="h-4 w-4 shrink-0 text-warn" />
+        <span>{T.doc.makerNotice}</span>
+      </p>
+    );
+  }
   return (
     <div role="alert" className="flex gap-2.5 rounded-[10px] border border-signal bg-signal-soft px-3.5 py-3">
       <WarningIcon className="mt-0.5 h-6 w-6 shrink-0 text-warn" />
