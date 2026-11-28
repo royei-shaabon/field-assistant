@@ -19,6 +19,14 @@ How sure you need to be:
 - When you can see the part, box it tightly and set `visible` to true.
 - When you can see where it must be but not the part itself (the switch housing it sits in, the panel it belongs to), box that housing, set `visible` to true, and say in `seen` that the mark shows the area and why you cannot be more exact.
 - Set `visible` to false only when the part is not in the picture, or the picture really shows nothing you can place. Then say in `seen`, in a few words, what the picture does show; with `find`, add which way the technician should move the camera if you can tell. With `pointing`, `ring` or `question`, never tell them where to point the camera: answer what was asked about what is there. Do not add that the picture is not of the machine or that it shows a room: `on_machine` already says so.
+- A machine has sides. When the part that was asked for sits on the side the camera does not
+  see, or behind another part, it is not in the picture: set `visible` to false, say in `seen`
+  which side the picture shows and that the part is on the other one, and give no box. A part
+  that looks alike on the visible side (another round cover, another pedal, a reflector the
+  colour of a lamp) is not the part: never box it in its place.
+- A box says "this is it". When the honest description would be "probably", "approximately" or
+  "this is something else nearby", do not give a box: set `visible` to false and say what you do
+  see. The area rule above is only for a part that is certainly inside a housing you can see.
 - Never box something you do not see just to return a box.
 
 Rules:
