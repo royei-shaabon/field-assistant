@@ -38,8 +38,10 @@ export type HazardTopic = "brakes" | "fuel" | "hot_coolant" | "running_engine" |
 // warns. Either way a hazard topic with no verified step is a stop, never an improvised answer.
 export type Audience = "qualified" | "general";
 
-// The manufacturer's notice as manuals print it: the word alone, in capitals (or its Hebrew form at the start of a line).
-const MAKER_NOTICE = /(^|[\s>])(WARNING|CAUTION|DANGER)(?![a-z])|(^|\n)\s*(אזהרה|זהירות|סכנה)\s*[:!\n]/;
+// The manufacturer's notice as manuals print it: the word alone, in capitals (or its Hebrew form
+// at the start of a line). Extraction often glues the notice's symbol to it ("3WARNING"), so
+// anything but a letter may stand before it.
+const MAKER_NOTICE = /(?<![A-Za-z])(WARNING|CAUTION|DANGER)(?![A-Za-z])|(^|\n)\s*(אזהרה|זהירות|סכנה)\s*[:!\n]/;
 export const hasMakerNotice = (pageText: string) => MAKER_NOTICE.test(pageText);
 
 // The warning an answer with verified steps is shown under.

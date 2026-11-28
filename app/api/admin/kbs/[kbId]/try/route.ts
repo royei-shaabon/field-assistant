@@ -1,3 +1,5 @@
+import { envStore } from "@/lib/server/env";
+import { audienceOf } from "@/lib/store";
 import { embedder } from "@/lib/docs/embed";
 import { modelTranslator } from "@/lib/docs/english";
 import { modelReranker } from "@/lib/docs/rerank";
@@ -31,7 +33,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ kbI
   const model = aiConfigured() ? (client ??= new AnthropicModelClient()) : null;
   const parts: Record<string, number> = {};
   try {
-    const found = await liveLookup(kb.index, question, embedder(), undefined, model ? modelReranker(model) : undefined, (part, ms) => ((parts[part] = ms), stage.add(part, ms)), model ? modelTranslator(model) : undefined);
+    const found = await liveLookup(kb.index, question, embedder(), undefined, model ? modelReranker(model) : undefined, (part, ms) => ((parts[part] = ms), stage.add(part, ms)), model ? modelTranslator(model) : undefined, audienceOf(await (await envStore()).getSettings().catch(() => ({}))));
     const ms = stage.end({ passages: found.passages.length });
     return Response.json(
       { kind: found.kind, passages: found.passages.map((p) => ({ source: p.source, text: p.text.slice(0, 1200) })), caution: found.caution ?? null, ms, parts, byMeaning: Boolean(embedder()) && kb.index.vectorCount > 0 },

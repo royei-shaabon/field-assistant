@@ -2159,6 +2159,8 @@ test("a qualified audience is warned only where the manual itself warns; a hazar
   const { hasMakerNotice } = await import("../lib/docs/ask");
   assert.ok(hasMakerNotice("SAMPLE Remove the cap.\nWARNING\nSAMPLE Hot coolant can burn you."));
   assert.ok(hasMakerNotice("SAMPLE text CAUTION: SAMPLE do not overfill"));
+  assert.ok(hasMakerNotice("SAMPLE Refuelling\n3WARNING\nSAMPLE Gasoline is highly flammable."), "the notice's symbol comes out glued to the word");
+  assert.equal(hasMakerNotice("SAMPLE FOREWARNINGS and PRECAUTIONS"), false);
   assert.ok(hasMakerNotice("SAMPLE שלב\nאזהרה: SAMPLE נוזל חם"));
   assert.equal(hasMakerNotice("SAMPLE Warning lights are explained on the next page. Use caution when parking."), false, "the word in a sentence is not a notice");
 

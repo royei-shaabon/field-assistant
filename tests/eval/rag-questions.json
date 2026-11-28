@@ -1,5 +1,5 @@
 {
- "note": "Drafted from the manuals by the assistant; not yet real technician questions. pages = PDF pages that answer. outside = questions a manual does not answer: the kinds that are acceptable, and whether a safety warning is expected. A set may name its documents (`docs`: a name for each, with a pattern its title matches); `pages` are pages of the first one, and a key with another document's name lists the pages of that one. Service-manual pages are page numbers of the PDF file, checked by reading the passages on 28/11/2026.",
+ "note": "Drafted from the manuals by the assistant; not yet real technician questions. pages = PDF pages that answer. outside = questions a manual does not answer: the kinds that are acceptable, and whether a safety warning is expected. A set may name its documents (`docs`: a name for each, with a pattern its title matches); `pages` are pages of the first one, and a key with another document's name lists the pages of that one. Service-manual pages are page numbers of the PDF file, checked by reading the passages on 28/11/2026. The Rebel environment is for qualified technicians (28/11/2026): a warning shows only where the manual itself prints one, so its outside-the-manual questions no longer expect a warning.",
  "sets": [
   {
    "env": "main",
@@ -438,7 +438,7 @@
       "hazard",
       "answer"
      ],
-     "caution": true
+     "caution": null
     },
     {
      "he": "איך מחליפים נוזל בלמים?",
@@ -447,7 +447,7 @@
       "hazard",
       "ideas"
      ],
-     "caution": true
+     "caution": null
     },
     {
      "he": "שלום",
