@@ -40,6 +40,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ kbI
 // Approve, reject or correct a note.
 export async function PATCH(request: Request, { params }: { params: Promise<{ kbId: string }> }) {
   if (!(await isAdmin())) return forbidden();
+  if (!allow(`note-decide:${clientKey(request)}`, LIMITS.index)) return tooMany();
   if (tooLarge(request, 6000)) return Response.json({ error: "too large" }, { status: 413 });
   const { kbId } = await params;
   const body = (await request.json().catch(() => null)) as { id?: unknown; status?: unknown; text?: unknown } | null;

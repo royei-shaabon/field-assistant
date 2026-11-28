@@ -3,7 +3,7 @@ import { forbidden, isAdmin } from "@/lib/server/admin-auth";
 import { log } from "@/lib/server/log";
 import { allow, clientKey, LIMITS, tooLarge, tooMany } from "@/lib/server/rate-limit";
 import { storeUpload } from "@/lib/server/store-upload";
-import { joinParts, PART_BYTES, partsRoot, savePart, sweepParts, validPart, validUploadId } from "@/lib/server/upload-parts";
+import { joinParts, PART_BYTES, partsRoot, savePart, TooMuchWaiting, validPart, validUploadId } from "@/lib/server/upload-parts";
 
 // A large document, in parts (see lib/server/upload-parts.ts).
 //   POST ?id=<upload>&index=<n>&total=<parts>   body: the bytes of one part
@@ -25,8 +25,12 @@ export async function POST(request: Request, { params }: { params: Promise<{ kbI
     if (tooLarge(request, PART_BYTES + 1000)) return Response.json({ error: "too_large" }, { status: 413 });
     const data = Buffer.from(await request.arrayBuffer().catch(() => new ArrayBuffer(0)));
     if (data.length === 0 || data.length > PART_BYTES) return Response.json({ error: "file" }, { status: 400 });
-    if (index === 0) await sweepParts(root);
-    await savePart(root, id, index, data);
+    try {
+      await savePart(root, id, index, data);
+    } catch (e) {
+      if (e instanceof TooMuchWaiting) return Response.json({ error: "busy" }, { status: 429 });
+      throw e;
+    }
     return Response.json({ ok: true });
   }
 

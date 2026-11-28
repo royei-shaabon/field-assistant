@@ -568,7 +568,10 @@ export async function askDocuments(
       if (title) {
         titled = true;
         timing.firstTitle = Date.now() - started;
-        onPartial({ title, steps: [] });
+        // The warning goes with the title: on a hazard topic nothing is shown without it.
+        const flagged = jsonString(snapshot, "hazard");
+        const topic = hazardTopic(input.question, { hazard: flagged && flagged !== "none" ? (flagged as HazardTopic) : "none", steps: [] });
+        onPartial({ title, steps: [], ...(topic ? { caution: topic } : {}) });
       }
     }
     const partial = partialAnswer(snapshot, seen, input.question);

@@ -34,23 +34,36 @@ export function parseChat(raw: string): ChatMessage[] {
   return out.filter((m) => m.text.trim());
 }
 
-const PHONE = /\+?\d[\d\s\-()]{7,}\d/g;
-const EMAIL = /[\w.+-]+@[\w-]+\.[\w.-]+/g;
+// Seven digits and up: a local number with no area code is still a phone number.
+const PHONE = /\+?\d[\d\s\-()]{5,}\d/g;
+// Bounded on both sides, so a long run of letters with no "@" costs nothing.
+const EMAIL = /[\w.+-]{1,64}@[\w-]{1,63}(?:\.[\w-]{1,63}){1,4}/g;
 const escape = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+// More senders than any real group: the file is not a chat, or was made to keep the server busy.
+export const MAX_SENDERS = 300;
+const MAX_MESSAGE = 1500;
 
-// Every sender becomes "טכנאי N", and names, phone numbers and e-mail addresses inside the
-// messages are replaced too. What comes out no longer says who anybody is.
+export class NotAChat extends Error {}
+
+// Every sender becomes "טכנאי N", and their names, phone numbers and e-mail addresses inside
+// the messages are replaced too. A name is known only from who wrote in the chat: a person who
+// is only mentioned, and never wrote, is not recognised.
 export function withoutPeople(messages: ChatMessage[]): ChatMessage[] {
   const alias = new Map<string, string>();
-  for (const m of messages) if (!alias.has(m.by)) alias.set(m.by, `טכנאי ${alias.size + 1}`);
-  // A sender's full name and each word of it (three letters or more), longest first.
-  const names = [...alias.entries()]
-    .flatMap(([name, a]) => [name, ...name.split(/\s+/)].filter((w) => w.replace(/[\d\s+\-()]/g, "").length >= 3).map((w) => [w, a] as const))
-    .sort((x, y) => y[0].length - x[0].length);
+  for (const m of messages) {
+    if (!alias.has(m.by)) alias.set(m.by, `טכנאי ${alias.size + 1}`);
+    if (alias.size > MAX_SENDERS) throw new NotAChat("too many senders");
+  }
+  // A sender's full name and each word of it (two letters or more), longest first, as one pattern
+  // that is built once: every message is then cleaned in a single pass.
+  const byWord = new Map<string, string>();
+  for (const [name, a] of alias) for (const w of [name, ...name.split(/\s+/)]) if (w.replace(/[\d\s+\-()]/g, "").length >= 2 && !byWord.has(w.toLowerCase())) byWord.set(w.toLowerCase(), a);
+  const words = [...byWord.keys()].sort((x, y) => y.length - x.length);
+  const names = words.length ? new RegExp(`(?<![\\p{L}\\p{N}])(?:${words.map(escape).join("|")})(?![\\p{L}\\p{N}])`, "giu") : null;
   const scrub = (text: string) => {
-    let t = text.replace(EMAIL, "[כתובת]").replace(/@⁨?[^\s⁩]{2,40}⁩?/g, "[טכנאי]").replace(PHONE, "[מספר]");
-    for (const [name, a] of names) t = t.replace(new RegExp(`(?<![\\p{L}\\p{N}])${escape(name)}(?![\\p{L}\\p{N}])`, "giu"), a);
-    return t;
+    // Cut first: nothing below ever runs over more than one bounded message.
+    const t = text.slice(0, MAX_MESSAGE).replace(EMAIL, "[כתובת]").replace(/@\u2068?[^\s\u2069]{2,40}\u2069?/g, "[טכנאי]").replace(PHONE, "[מספר]");
+    return names ? t.replace(names, (w) => byWord.get(w.toLowerCase()) ?? "[טכנאי]") : t;
   };
   return messages.map((m) => ({ by: alias.get(m.by)!, text: scrub(m.text) }));
 }
@@ -60,7 +73,7 @@ export function chatWindows(messages: ChatMessage[]): string[] {
   const windows: string[] = [];
   let current = "";
   for (const m of messages) {
-    const line = `${m.by}: ${m.text.slice(0, 1500)}\n`;
+    const line = `${m.by}: ${m.text}\n`;
     if (current.length + line.length > WINDOW_CHARS && current) {
       windows.push(current);
       current = "";

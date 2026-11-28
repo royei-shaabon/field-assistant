@@ -22,7 +22,7 @@ export class Invalid extends Error {}
 export const TEAM_DOC = "team-notes";
 export const TEAM_DOC_NAME = "ידע מהצוות";
 export const MAX_NOTE_CHARS = 1200;
-const MAX_PENDING_NOTES = 500;
+const MAX_PENDING_NOTES = 200;
 // One paragraph of plain text: no markup, bounded.
 export const cleanNote = (text: unknown): string => (typeof text === "string" ? text.replace(/[<>]/g, "").replace(/[ \t]+/g, " ").replace(/\n{3,}/g, "\n\n").trim().slice(0, MAX_NOTE_CHARS) : "");
 
@@ -249,7 +249,8 @@ export class KbStore {
     const text = cleanNote(input.text);
     if (text.length < 10) throw new Invalid("text");
     const all = await this.listNotes(kbId);
-    if (all.filter((n) => n.status === "pending").length >= MAX_PENDING_NOTES) throw new Invalid("full");
+    // The bound is on what technicians send: a full queue never locks the implementer out.
+    if (input.from === "technician" && all.filter((n) => n.status === "pending" && n.from === "technician").length >= MAX_PENDING_NOTES) throw new Invalid("full");
     // The same words again add nothing.
     const same = all.find((n) => n.text === text && n.status !== "rejected");
     if (same) return same;

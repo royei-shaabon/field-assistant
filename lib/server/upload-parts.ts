@@ -11,7 +11,20 @@ import { MAX_UPLOAD_BYTES } from "@/lib/docs/ingest";
 export const PART_BYTES = 8 * 1024 * 1024;
 export const MAX_PARTS = Math.ceil(MAX_UPLOAD_BYTES / PART_BYTES);
 // An upload that was abandoned is removed after this long.
-const STALE_MS = 60 * 60_000;
+const STALE_MS = 15 * 60_000;
+// The parts wait in the server's memory: one environment may hold one large file and a little more.
+export const MAX_WAITING_BYTES = MAX_UPLOAD_BYTES + 60 * 1024 * 1024;
+export const MAX_OPEN_UPLOADS = 3;
+
+export class TooMuchWaiting extends Error {}
+
+// How much is waiting under this root, and in how many uploads.
+async function waiting(root: string): Promise<{ bytes: number; ids: string[] }> {
+  const ids = await fs.readdir(root).catch(() => [] as string[]);
+  let bytes = 0;
+  for (const id of ids) for (const f of await fs.readdir(path.join(root, id)).catch(() => [] as string[])) bytes += await fs.stat(path.join(root, id, f)).then((s) => s.size).catch(() => 0);
+  return { bytes, ids };
+}
 
 const ID = /^[a-z0-9]{8,40}$/;
 export const validUploadId = (id: unknown): id is string => typeof id === "string" && ID.test(id);
@@ -23,6 +36,10 @@ export const partsRoot = (envId: string, base = os.tmpdir()) => path.join(base, 
 export async function savePart(root: string, id: string, index: number, data: Buffer): Promise<void> {
   if (!validUploadId(id) || !Number.isInteger(index) || index < 0 || index >= MAX_PARTS) throw new Error("bad part");
   if (data.length === 0 || data.length > PART_BYTES) throw new Error("bad part size");
+  // Abandoned uploads go first, then the bound: parts never pile up without limit.
+  await sweepParts(root);
+  const now = await waiting(root);
+  if (now.bytes + data.length > MAX_WAITING_BYTES || (!now.ids.includes(id) && now.ids.length >= MAX_OPEN_UPLOADS)) throw new TooMuchWaiting("too much waiting");
   const dir = path.join(root, id);
   await fs.mkdir(dir, { recursive: true });
   await fs.writeFile(path.join(dir, String(index)), data);

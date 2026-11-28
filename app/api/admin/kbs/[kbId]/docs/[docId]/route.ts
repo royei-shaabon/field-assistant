@@ -1,12 +1,13 @@
 import { envStore } from "@/lib/server/env";
 import { forbidden, isAdmin } from "@/lib/server/admin-auth";
 import { cleanAbout, cleanYears } from "@/lib/docs/describe";
-import { tooLarge } from "@/lib/server/rate-limit";
+import { allow, clientKey, LIMITS, tooLarge, tooMany } from "@/lib/server/rate-limit";
 import { Invalid, NotFound } from "@/lib/store";
 
 export async function PATCH(request: Request, { params }: { params: Promise<{ kbId: string; docId: string }> }) {
   if (!(await isAdmin())) return forbidden();
   const { kbId, docId } = await params;
+  if (!allow(`doc-edit:${clientKey(request)}`, LIMITS.index)) return tooMany();
   if (tooLarge(request, 10_000)) return Response.json({ error: "too large" }, { status: 413 });
   const body = (await request.json().catch(() => null)) as { name?: unknown; about?: unknown; years?: unknown } | null;
   try {

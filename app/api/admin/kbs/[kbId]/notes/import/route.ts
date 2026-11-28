@@ -1,4 +1,4 @@
-import { MAX_CHAT_BYTES, notesFromChat, noteText } from "@/lib/docs/whatsapp";
+import { MAX_CHAT_BYTES, NotAChat, notesFromChat, noteText } from "@/lib/docs/whatsapp";
 import { AnthropicModelClient } from "@/lib/llm";
 import { forbidden, isAdmin } from "@/lib/server/admin-auth";
 import { currentEnvId, envStore } from "@/lib/server/env";
@@ -36,6 +36,10 @@ export async function POST(request: Request, { params }: { params: Promise<{ kbI
     stage.end({ outcome: "read", messages, found: notes.length, added });
     return Response.json({ messages, found: notes.length, added });
   } catch (e) {
+    if (e instanceof NotAChat) {
+      stage.end({ outcome: "not_a_chat" });
+      return Response.json({ error: "file" }, { status: 400 });
+    }
     stage.fail(e);
     return Response.json({ error: "import_failed" }, { status: 502 });
   }

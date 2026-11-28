@@ -806,7 +806,7 @@ test("a call speaks the answer as it is written: the warning first, then the tit
   const two = partialSpeech({ title: "SAMPLE כותרת", steps: [{ text: "SAMPLE שלב א", quote: "q", source }, { text: "SAMPLE שלב ב", quote: "q", source }], caution: "brakes" });
   // The caller says only what is new: here, the second step.
   assert.deepEqual(two.filter((l) => !one.includes(l)), ["SAMPLE שלב ב"]);
-  assert.deepEqual(partialSpeech({ title: "SAMPLE כותרת", steps: [] }), ["SAMPLE כותרת"]);
+  assert.deepEqual(partialSpeech({ title: "SAMPLE כותרת", steps: [] }), [], "a title alone is not said: nothing is spoken before a verified step");
 });
 
 test("natural voice: request shape, the list of Hebrew voices, the next voice when one is refused, and no retry on a real failure", async () => {
@@ -2119,4 +2119,38 @@ test("a WhatsApp export: messages are read, people are removed before a model se
   const route = fs.readFileSync(path.join(process.cwd(), "app", "api", "admin", "kbs", "[kbId]", "notes", "import", "route.ts"), "utf8");
   assert.ok(route.indexOf("isAdmin()") < route.indexOf("allow(") && route.indexOf("allow(") < route.indexOf("tooLarge(") && route.indexOf("tooLarge(") < route.indexOf("request.text()"));
   assert.ok(!/driver\.write|addDoc|log\.[a-z]+\([^)]*raw/.test(route));
+});
+
+test("hostile input stays cheap: a huge chat message, a crowd of senders, parts that pile up", async () => {
+  const { withoutPeople, parseChat, MAX_SENDERS, NotAChat } = await import("../lib/docs/whatsapp");
+  // One message of a megabyte of letters with no "@": cleaned in a moment, and cut to one message's length.
+  const started = Date.now();
+  const cleaned = withoutPeople([{ by: "SAMPLE Avi", text: "a".repeat(1_000_000) }, { by: "SAMPLE Avi", text: "SAMPLE call 5551234 or sample.name@example.co.il, thanks Avi" }]);
+  assert.ok(Date.now() - started < 1500, `took ${Date.now() - started} ms`);
+  assert.ok(cleaned[0].text.length <= 1500);
+  assert.ok(!/5551234|example|Avi/.test(cleaned[1].text), "a seven-digit number, an address and a short name are all removed");
+  // A file with more senders than any group has is refused, not processed.
+  const crowd = Array.from({ length: MAX_SENDERS + 5 }, (_, i) => `[01/01/2026, 10:00:00] SAMPLE Sender${i}: SAMPLE message number ${i}`).join("\n");
+  assert.throws(() => withoutPeople(parseChat(crowd)), NotAChat);
+
+  // Parts that wait are bounded: a few uploads at a time, and a total.
+  const { MAX_OPEN_UPLOADS, partsRoot, savePart, TooMuchWaiting } = await import("../lib/server/upload-parts");
+  const root = partsRoot("main", fs.mkdtempSync(path.join(os.tmpdir(), "parts-cap-")));
+  for (let i = 0; i < MAX_OPEN_UPLOADS; i++) await savePart(root, `upload${i}abcdefgh`, 0, Buffer.from("SAMPLE"));
+  await assert.rejects(savePart(root, "onemoreupload00", 0, Buffer.from("SAMPLE")), TooMuchWaiting);
+  await savePart(root, "upload0abcdefgh", 1, Buffer.from("SAMPLE"));
+
+  // A title that goes ahead of the steps is never said aloud, and on a hazard topic carries the warning.
+  assert.deepEqual(partialSpeech({ title: "SAMPLE כותרת", steps: [] }), []);
+  const { kb, docId } = await sampleKb();
+  const agent = new FakeAgent([{ final: draft({ hazard: "brakes", steps: [{ text: "SAMPLE קדמי 200", ref: `${docId}:3`, quote: "Front tyre pressure is 200 kPa when cold." }] }) }]);
+  agent.plan = ["tyre pressure"];
+  const partials: PartialAnswer[] = [];
+  await askDocuments(agent, kb.index, { kbName: "x", docs: kb.docs, question: "כמה אוויר?", images: [], history: [] }, () => {}, undefined, (p) => partials.push(p));
+  assert.deepEqual([partials[0].steps.length, partials[0].caution], [0, "brakes"]);
+
+  // A full queue of technicians' notes does not lock the implementer out.
+  const { store, kb: kb2 } = await sampleKb();
+  const own = await store.addNote(kb2.meta.id, { text: "SAMPLE פתרון של המטמיע עצמו, ארוך מספיק", from: "implementer", approve: true });
+  assert.equal(own.status, "approved");
 });

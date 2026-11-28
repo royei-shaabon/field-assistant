@@ -12,6 +12,8 @@ import type { DocMeta, Passage } from "../store/types";
 // Tables in one document that are read. A parts catalogue is all tables, and its text is
 // already whole: the implementer starts the reading, and this bounds what one press costs.
 export const MAX_TABLE_PAGES = 80;
+// Scanned pages in one document that are read: a scan of thousands of pages is not read by one press.
+export const MAX_EMPTY_PAGES = 300;
 const MAX_READ_CHARS = 6000;
 const AT_ONCE = 3;
 
@@ -38,7 +40,7 @@ export function pagesToRead(meta: Pick<DocMeta, "unit" | "passages" | "pictured"
   if (meta.unit !== "page") return { empty: [], tables: [] };
   const done = new Set(meta.pictured ?? []);
   const have = new Set(passages.map((p) => p.n));
-  const empty = Array.from({ length: meta.passages }, (_, i) => i + 1).filter((n) => !have.has(n) && !done.has(n));
+  const empty = Array.from({ length: meta.passages }, (_, i) => i + 1).filter((n) => !have.has(n) && !done.has(n)).slice(0, Math.max(0, MAX_EMPTY_PAGES - (meta.pictured?.length ?? 0)));
   const tables = passages
     .filter((p) => !done.has(p.n) && p.own === undefined && looksLikeTable(p.text))
     .map((p) => p.n)

@@ -48,8 +48,9 @@ export async function POST(request: Request, { params }: { params: Promise<{ kbI
 }
 
 // Takes back what was read from pictures, so the pages can be read again.
-export async function DELETE(_request: Request, { params }: { params: Promise<{ kbId: string; docId: string }> }) {
+export async function DELETE(request: Request, { params }: { params: Promise<{ kbId: string; docId: string }> }) {
   if (!(await isAdmin())) return forbidden();
+  if (!allow(`read-pages:${clientKey(request)}`, LIMITS.readPages)) return tooMany();
   const { kbId, docId } = await params;
   try {
     const doc = await (await envStore()).clearSeen(kbId, docId);

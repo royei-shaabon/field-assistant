@@ -70,6 +70,8 @@ export function forVoice(line: string): string {
 // What a call can already say while the answer is still being written: the warning first,
 // then the title and every verified step. The caller says only the lines it has not said yet.
 export function partialSpeech(partial: PartialAnswer): string[] {
+  // A title alone is not said: nothing is spoken before a step has been verified.
+  if (!partial.steps.length) return [];
   return [...(partial.caution ? [T.doc.cautionTitle, T.doc.topics[partial.caution], T.doc.cautionBody] : []), partial.title, ...partial.steps.map((s) => s.text)];
 }
 
