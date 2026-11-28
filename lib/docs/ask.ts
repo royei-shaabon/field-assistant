@@ -388,6 +388,14 @@ export function partialAnswer(text: string, seen: Map<string, Hit>, question: st
   return { title: title.trim().slice(0, 80), steps: kept.map(({ text: t, quote, source }) => ({ text: t, quote, source })), ...(topic ? { caution: topic } : {}) };
 }
 
+// The title of an answer that is being written, once it is whole (the steps have begun after it).
+// A title is a heading, never an instruction: no step is shown before it is verified.
+export function answerTitle(text: string): string | null {
+  if (jsonString(text, "kind") !== "answer" || !/"steps"\s*:\s*\[\s*\{/.test(text)) return null;
+  const title = jsonString(text, "title")?.trim().slice(0, 80);
+  return title || null;
+}
+
 // --- the first search ---------------------------------------------------------------------
 
 const PLAN_SYSTEM = `A field technician asks a question in Hebrew about a machine. Their knowledge base holds the documents listed in the input.
@@ -486,6 +494,8 @@ export type AskTiming = {
   tools: number;
   // From the start until the first verified step was sent to the phone.
   firstStep: number | null;
+  // When the answer's title reached the phone: the first thing the technician sees being written.
+  firstTitle?: number | null;
   // Steps the model wrote in its final draft. More than were shown means some failed the source check.
   written?: number;
   total: number;
@@ -546,10 +556,21 @@ export async function askDocuments(
   const messages: AgentMessage[] = [{ role: "user", content }];
 
   let shown = 0;
+  let titled = false;
   let turnStarted = started;
   let turnFirstText: number | null = null;
   const onText = (snapshot: string) => {
     turnFirstText ??= Date.now() - turnStarted;
+    // The title goes out as soon as the model has written it and moved on to the steps: the
+    // technician sees the answer begin a second or two before its first step is verified.
+    if (!titled && !shown) {
+      const title = answerTitle(snapshot);
+      if (title) {
+        titled = true;
+        timing.firstTitle = Date.now() - started;
+        onPartial({ title, steps: [] });
+      }
+    }
     const partial = partialAnswer(snapshot, seen, input.question);
     if (partial && partial.steps.length > shown) {
       shown = partial.steps.length;

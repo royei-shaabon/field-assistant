@@ -25,7 +25,7 @@ import { liveLookup, LOOKUP_PASSAGES } from "../lib/voice/lookup";
 import { sectionKey, sections, vectorModel } from "../lib/docs/chunk";
 import { checkedOrder } from "../lib/docs/rerank";
 import { AzureVoice, ElevenVoice, GeminiVoice, GoogleVoice, speak, VoiceProviders, type VoiceService } from "../lib/voice/tts";
-import { askDocuments, chatBrief, checkedParts, hazardTopic, partialAnswer, quoteInPassage, rankIdeas, toThousandths, type DocResult, type PartialAnswer } from "../lib/docs/ask";
+import { answerTitle, askDocuments, chatBrief, checkedParts, hazardTopic, partialAnswer, quoteInPassage, rankIdeas, toThousandths, type DocResult, type PartialAnswer } from "../lib/docs/ask";
 import { imageSize } from "../lib/docs/image-size";
 import { docScreen, handleDocConversation, type DocEvent } from "../lib/docs/conversation";
 import { ingest, splitIntoParts, UnsupportedFile } from "../lib/docs/ingest";
@@ -376,13 +376,19 @@ test("streaming: each step is sent as soon as it is complete and verified, never
   agent.plan = ["tyre pressure"];
   const partials: PartialAnswer[] = [];
   const run = await askDocuments(agent, kb.index, { kbName: "x", docs: kb.docs, question: "כמה אוויר?", images: [], history: [] }, () => {}, undefined, (p) => partials.push(p));
-  assert.deepEqual(partials.map((p) => p.steps.map((s) => s.text)), [["SAMPLE קדמי 200"], ["SAMPLE קדמי 200", "SAMPLE אחורי 225"]]);
+  // First the title alone, then each verified step as it is completed.
+  assert.deepEqual(partials.map((p) => p.steps.map((s) => s.text)), [[], ["SAMPLE קדמי 200"], ["SAMPLE קדמי 200", "SAMPLE אחורי 225"]]);
   assert.equal(partials[0].title, "SAMPLE כותרת");
   assert.deepEqual((run.result as Extract<DocResult, { kind: "answer" }>).steps.map((s) => s.text), partials.at(-1)!.steps.map((s) => s.text), "the final answer is what was streamed");
   // Half-written JSON shows nothing it cannot verify; a hazard flag arrives before the steps.
   const seen = new Map([[`${docId}:3`, { ...kb.index.get(`${docId}:3`)!, score: 1 }]]);
   assert.equal(partialAnswer('{"kind":"answer","hazard":"none","title":"SAMPLE","steps":[{"text":"SAMPLE חצי', seen, "x"), null);
   assert.equal(partialAnswer('{"kind":"ask","hazard":"none","title":"","steps":[]', seen, "x"), null);
+  // The title goes ahead of the steps, once it is whole and only for an answer.
+  assert.equal(answerTitle('{"kind":"answer","hazard":"none","title":"SAMPLE כות'), null);
+  assert.equal(answerTitle('{"kind":"answer","hazard":"none","title":"SAMPLE כותרת","steps":['), null, "an answer with no step yet may still turn out empty");
+  assert.equal(answerTitle('{"kind":"answer","hazard":"none","title":"SAMPLE כותרת","steps":[{"text":"SAMPLE חצי'), "SAMPLE כותרת");
+  assert.equal(answerTitle('{"kind":"ask","hazard":"none","title":"SAMPLE","steps":[{"text":"x'), null);
   const flagged = partialAnswer(`{"kind":"answer","hazard":"brakes","title":"SAMPLE","steps":[{"text":"SAMPLE א","ref":"${docId}:3","quote":"Front tyre pressure is 200 kPa when cold."}`, seen, "x");
   assert.equal(flagged?.caution, "brakes");
 });

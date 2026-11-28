@@ -74,7 +74,7 @@ export async function POST(request: Request) {
               timing = t;
               // Each stage of the answer, in milliseconds: the small model's plan, the first
               // search, the page pictures, every turn of the main model, and the skills it ran.
-              log.info("ask.timing", { env: envId, kb: kbId, ms: t.total, firstStepMs: t.firstStep, planMs: t.plan, searchMs: t.search, imagesMs: t.images, toolsMs: t.tools, turns: t.turns.length, turnMs: t.turns.map((x) => x.total), firstTextMs: t.turns.map((x) => x.firstText), cached: t.turns.reduce((n, x) => n + (x.usage?.cached ?? 0), 0), fresh: t.turns.reduce((n, x) => n + (x.usage?.fresh ?? 0), 0), output: t.turns.reduce((n, x) => n + (x.usage?.output ?? 0), 0) });
+              log.info("ask.timing", { env: envId, kb: kbId, ms: t.total, firstStepMs: t.firstStep, firstTitleMs: t.firstTitle ?? null, planMs: t.plan, searchMs: t.search, imagesMs: t.images, toolsMs: t.tools, turns: t.turns.length, turnMs: t.turns.map((x) => x.total), firstTextMs: t.turns.map((x) => x.firstText), cached: t.turns.reduce((n, x) => n + (x.usage?.cached ?? 0), 0), fresh: t.turns.reduce((n, x) => n + (x.usage?.fresh ?? 0), 0), output: t.turns.reduce((n, x) => n + (x.usage?.output ?? 0), 0) });
               if (t.total > 15_000) log.warn("ask.slow", { env: envId, kb: kbId, ms: t.total });
               send({ timing: t });
             },
