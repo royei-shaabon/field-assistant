@@ -1,5 +1,5 @@
 {
- "note": "Drafted from the manuals by the assistant; not yet real technician questions. pages = PDF pages that answer. outside = questions a manual does not answer: the kinds that are acceptable, and whether a safety warning is expected.",
+ "note": "Drafted from the manuals by the assistant; not yet real technician questions. pages = PDF pages that answer. outside = questions a manual does not answer: the kinds that are acceptable, and whether a safety warning is expected. A set may name its documents (`docs`: a name for each, with a pattern its title matches); `pages` are pages of the first one, and a key with another document's name lists the pages of that one. Service-manual pages are page numbers of the PDF file, checked by reading the passages on 28/11/2026.",
  "sets": [
   {
    "env": "main",
@@ -18,6 +18,10 @@
      "en": "starter motor does not operate",
      "pages": [
       94
+     ],
+     "service": [
+      142,
+      143
      ]
     },
     {
@@ -71,6 +75,9 @@
      "pages": [
       97,
       38
+     ],
+     "service": [
+      360
      ]
     },
     {
@@ -211,6 +218,9 @@
      "en": "spark plug",
      "pages": [
       132
+     ],
+     "service": [
+      75
      ]
     },
     {
@@ -218,6 +228,10 @@
      "en": "idle speed",
      "pages": [
       132
+     ],
+     "service": [
+      81,
+      101
      ]
     },
     {
@@ -274,6 +288,9 @@
       54,
       55,
       56
+     ],
+     "service": [
+      72
      ]
     },
     {
@@ -282,6 +299,110 @@
      "pages": [
       96,
       38
+     ],
+     "service": [
+      101,
+      95
+     ]
+    },
+    {
+     "he": "איך מפרקים את הגלגל הקדמי?",
+     "en": "front wheel removal",
+     "pages": [],
+     "service": [
+      305
+     ]
+    },
+    {
+     "he": "איך מפרקים את הגלגל האחורי?",
+     "en": "rear wheel removal",
+     "pages": [],
+     "service": [
+      324
+     ]
+    },
+    {
+     "he": "איך מחליפים רפידות בלם קדמי?",
+     "en": "front brake pad replacement",
+     "pages": [],
+     "service": [
+      340
+     ]
+    },
+    {
+     "he": "איך בודקים מרווח שסתומים?",
+     "en": "valve clearance inspection",
+     "pages": [],
+     "service": [
+      76
+     ]
+    },
+    {
+     "he": "איך מפרקים את המצמד?",
+     "en": "clutch removal",
+     "pages": [],
+     "service": [
+      226,
+      227
+     ]
+    },
+    {
+     "he": "איך מפרקים את מכל הדלק?",
+     "en": "fuel tank removal",
+     "pages": [],
+     "service": [
+      158,
+      73
+     ]
+    },
+    {
+     "he": "איך מפרקים את הסטרטר?",
+     "en": "starter motor removal",
+     "pages": [],
+     "service": [
+      145
+     ]
+    },
+    {
+     "he": "איך מחליפים נוזל קירור?",
+     "en": "coolant replacement",
+     "pages": [],
+     "service": [
+      178
+     ]
+    },
+    {
+     "he": "איך מפרקים את המזלג הקדמי?",
+     "en": "front fork removal",
+     "pages": [],
+     "service": [
+      309
+     ]
+    },
+    {
+     "he": "מה המומנט של אום הציר האחורי?",
+     "en": "rear axle nut torque",
+     "pages": [],
+     "service": [
+      323,
+      324
+     ]
+    },
+    {
+     "he": "איך מפרקים את משאבת הדלק?",
+     "en": "fuel pump removal",
+     "pages": [],
+     "service": [
+      159,
+      160
+     ]
+    },
+    {
+     "he": "איך מפרקים את ראש הצילינדר?",
+     "en": "cylinder head removal",
+     "pages": [],
+     "service": [
+      210
      ]
     }
    ],
@@ -344,7 +465,11 @@
      ],
      "caution": null
     }
-   ]
+   ],
+   "docs": {
+    "owner": "remawmom|Owner|בעלים",
+    "service": "Service Manual|שירות"
+   }
   },
   {
    "env": "ninja",

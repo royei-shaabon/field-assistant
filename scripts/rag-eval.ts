@@ -13,10 +13,22 @@
 import fs from "node:fs";
 import path from "node:path";
 
-type Question = { he: string; en: string; pages: number[] };
+// `pages`: pages of the set's first document that answer. A key named after another document of
+// the set (see `docs`) lists the pages of that one.
+type Question = { he: string; en: string; pages: number[] } & Record<string, unknown>;
+
+// Does this source (a document's title and a page number) answer the question? A set with no
+// `docs` has one document, and only the page is compared.
+function answers(set: { docs?: Record<string, string> }, q: Question, title: string, page: number): boolean {
+  const names = Object.entries(set.docs ?? {});
+  if (!names.length) return q.pages.includes(page);
+  return names.some(([name, pattern], i) => new RegExp(pattern, "i").test(title) && ((i === 0 ? q.pages : (q[name] as number[] | undefined)) ?? []).includes(page));
+}
+const wanted = (set: { docs?: Record<string, string> }, q: Question) =>
+  Object.keys(set.docs ?? { "": "" }).map((name, i) => { const p = (i === 0 ? q.pages : (q[name] as number[] | undefined)) ?? []; return p.length ? `${i ? `${name} ` : ""}${p.join(",")}` : ""; }).filter(Boolean).join(" / ");
 // `outside`: a question the manual does not answer, with the kinds of reply that are acceptable.
 type Outside = { he: string; kinds: string[]; caution: boolean | null };
-type QuestionSet = { env: string; kb: string; questions: Question[]; outside?: Outside[] };
+type QuestionSet = { env: string; kb: string; docs?: Record<string, string>; questions: Question[]; outside?: Outside[] };
 
 // Which build answers: printed first, so a result is never read against the wrong version.
 const base = process.argv[2]?.replace(/\/$/, "");
@@ -30,7 +42,7 @@ const firstSearch = process.argv.find((a) => a.startsWith("--first-search="))?.s
 const noPageImages = process.argv.includes("--no-page-images");
 const chatEvery = chatArg ? Math.max(1, Number(chatArg.split("=")[1]) || 3) : 0;
 
-type ChatStep = { source?: { n?: number } };
+type ChatStep = { source?: { n?: number; docName?: string } };
 type ChatResult = { kind?: string; steps?: ChatStep[]; ideas?: unknown[]; caution?: string };
 
 // One question through /api/conversation: the stream's lines as they come, for the time of the first step.
@@ -77,10 +89,11 @@ async function chat(cookie: string): Promise<number> {
     const rows: { answered: boolean; cited: boolean; steps: number; first: number | null; total: number; caution: boolean }[] = [];
     for (const q of set.questions.filter((_, i) => i % chatEvery === 0)) {
       const { result, first, total } = await askChat(cookie, set, q);
-      const pages = (result?.steps ?? []).map((s) => s.source?.n).filter((n): n is number => typeof n === "number");
-      const row = { answered: result?.kind === "answer", cited: pages.some((n) => q.pages.includes(n)), steps: result?.steps?.length ?? 0, first, total, caution: Boolean(result?.caution) };
+      const sources = (result?.steps ?? []).flatMap((s) => (typeof s.source?.n === "number" ? [{ n: s.source.n, title: String(s.source.docName ?? "") }] : []));
+      const pages = sources.map((s) => s.n);
+      const row = { answered: result?.kind === "answer", cited: sources.some((s) => answers(set, q, s.title, s.n)), steps: result?.steps?.length ?? 0, first, total, caution: Boolean(result?.caution) };
       rows.push(row);
-      if (!row.answered || !row.cited) console.log(`${row.answered ? "WRONG PAGE" : `NOT ANSWERED (${result?.kind ?? "no result"})`} ${q.he}  want ${q.pages.join(",")}  cited ${[...new Set(pages)].join(",") || "-"}`);
+      if (!row.answered || !row.cited) console.log(`${row.answered ? "WRONG PAGE" : `NOT ANSWERED (${result?.kind ?? "no result"})`} ${q.he}  want ${wanted(set, q)}  cited ${[...new Set(pages)].join(",") || "-"}`);
     }
     const n = rows.length;
     const median = (values: number[]) => (values.length ? values.sort((a, b) => a - b)[Math.floor(values.length / 2)] : 0);
@@ -142,9 +155,9 @@ async function main() {
       const body = (await res.json().catch(() => null)) as { passages?: { source: string }[]; caution?: string; error?: string } | null;
       // A source reads "<document>, <page word> <number>": the number is the last one in it.
       const got = (body?.passages ?? []).map((p) => Number(/(\d+)\s*$/.exec(p.source)?.[1]));
-      const rank = got.findIndex((n) => q.pages.includes(n)) + 1;
+      const rank = (body?.passages ?? []).findIndex((p, i) => answers(set, q, p.source, got[i])) + 1;
       rows.push({ rank, ms, caution: Boolean(body?.caution) });
-      if (rank !== 1) console.log(`${rank ? `rank ${rank}` : "MISS  "} ${q.he}  want ${q.pages.join(",")}  got ${got.join(",") || body?.error || `HTTP ${res.status}`}`);
+      if (rank !== 1) console.log(`${rank ? `rank ${rank}` : "MISS  "} ${q.he}  want ${wanted(set, q)}  got ${got.join(",") || body?.error || `HTTP ${res.status}`}`);
     }
     const n = rows.length;
     const times = rows.map((r) => r.ms).sort((a, b) => a - b);
